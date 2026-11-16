@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources>
+    <!-- Settings activity theme. -->
+    <style name="Theme.ApertureSettingsLib" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:listPreferredItemPaddingLeft">24dp</item>
+        <item name="android:listPreferredItemPaddingStart">24dp</item>
+        <item name="alertDialogTheme">@style/Theme.ApertureSettingsLib.AlertDialog</item>
+        <item name="materialAlertDialogTheme">@style/Theme.ApertureSettingsLib.AlertDialog</item>
+        <item name="preferenceTheme">@style/Theme.ApertureSettingsLib.PreferenceTheme</item>
+    </style>
+
+    <!-- Settings alert dialog theme. -->
+    <style name="Theme.ApertureSettingsLib.AlertDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="android:colorBackground">?attr/colorSurface</item>
+        <item name="dialogCornerRadius">16dp</item>
+    </style>
+
+    <!-- Settings preference style. -->
+    <style name="Theme.ApertureSettingsLib.PreferenceTheme" parent="PreferenceThemeOverlay">
+        <item name="android:divider">@android:color/transparent</item>
+        <item name="android:dividerHeight">0dp</item>
+        <item name="android:listPreferredItemPaddingLeft">32dp</item>
+        <item name="android:listPreferredItemPaddingStart">32dp</item>
+        <item name="android:tint">?attr/colorOnSurface</item>
+        <item name="switchPreferenceCompatStyle">@style/Theme.ApertureSettingsLib.SwitchPreferenceCompat</item>
+        <item name="switchPreferenceStyle">@style/Theme.ApertureSettingsLib.SwitchPreference</item>
+    </style>
+
+    <style name="Theme.ApertureSettingsLib.SwitchPreference" parent="@style/Preference.SwitchPreference.Material">
+        <item name="widgetLayout">@layout/aperture_settingslib_switch</item>
+    </style>
+
+    <style name="Theme.ApertureSettingsLib.SwitchPreferenceCompat" parent="@style/Preference.SwitchPreferenceCompat.Material">
+        <item name="widgetLayout">@layout/aperture_settingslib_switch_compat</item>
+    </style>
+</resources>

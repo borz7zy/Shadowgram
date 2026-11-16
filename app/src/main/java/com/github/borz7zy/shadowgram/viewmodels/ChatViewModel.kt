@@ -1,0 +1,401 @@
+/*
+ * SPDX-FileCopyrightText: borz7zy
+ * SPDX-License-Identifier: MIT
+ */
+
+package com.github.borz7zy.shadowgram.viewmodels
+
+import android.app.Application
+import android.net.Uri
+import android.util.Log
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewModelScope
+import com.github.borz7zy.shadowgram.ShadowgramApplication
+import com.github.borz7zy.shadowgram.models.ChatHeader
+import com.github.borz7zy.shadowgram.models.FlowResult
+import com.github.borz7zy.shadowgram.models.MessageRow
+import com.github.borz7zy.shadowgram.models.Result
+import com.github.borz7zy.shadowgram.models.MessageItem
+import com.github.borz7zy.shadowgram.telegram.ChatHistory
+import com.github.borz7zy.shadowgram.telegram.Downloads
+import com.github.borz7zy.shadowgram.telegram.InputContents
+import com.github.borz7zy.shadowgram.telegram.StickersStore
+import com.github.borz7zy.shadowgram.ui.text.CustomEmojiRange
+import com.github.borz7zy.shadowgram.videonote.VideoNoteCamera
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.drinkless.tdlib.TdApi
+import java.io.File
+
+/**
+ * An open chat or forum topic: its top bar, messages and composer. Kept across configuration
+ * changes, so nothing is reloaded.
+ */
+class ChatViewModel(
+    application: Application,
+    savedStateHandle: SavedStateHandle,
+) : AndroidViewModel(application) {
+    private val chatId = savedStateHandle.get<Long>(ARG_CHAT_ID) ?: 0L
+    private val topicId = savedStateHandle.get<Int>(ARG_TOPIC_ID) ?: 0
+
+    private val client = viewModelScope.async {
+        getApplication<ShadowgramApplication>().accountsRepository.activeClient()
+    }
+
+    private val history = viewModelScope.async { ChatHistory(client.await(), chatId, topicId) }
+
+    private val snapshots = flow { emitAll(history.await().snapshots()) }
+        .shareIn(viewModelScope, SharingStarted.Eagerly, 1)
+
+    /**
+     * @param rows Newest first, for a reversed list
+     * @param isNewestLoaded Whether the bottom of the list is the newest message
+     */
+    data class Rows(val rows: List<MessageRow>, val isNewestLoaded: Boolean)
+
+    val rows = snapshots
+        .map<_, FlowResult<Rows, Nothing>> {
+            when (it.isLoaded) {
+                true -> FlowResult.Success(
+                    Rows(
+                        MessageRow.build(it.messages, it.isGroup, it.unreadAfterId).asReversed(),
+                        it.isNewestLoaded,
+                    )
+                )
+
+                false -> FlowResult.Loading
+            }
+        }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, FlowResult.Loading)
+
+    /**
+     * Whether the list was scrolled to where the chat opens (the first unread message), done
+     * once per chat, not again after a configuration change.
+     */
+    var isPositioned = false
+
+    /** Messages of the topic when it was opened. */
+    private val topicMessageCount = MutableStateFlow<Int?>(null)
+
+    val header = combine(
+        flow { emitAll(client.await().chats.header(chatId, topicId)) },
+        topicMessageCount,
+        snapshots.map { it.newMessageCount }.distinctUntilChanged(),
+    ) { header, count, newCount ->
+        when {
+            header != null && count != null && header.subtitle == ChatHeader.Subtitle.None ->
+                header.copy(subtitle = ChatHeader.Subtitle.TopicMessages(count + newCount))
+
+            else -> header
+        }
+    }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    init {
+        if (topicId != 0) {
+            viewModelScope.launch { topicMessageCount.value = countTopicMessages() }
+        }
+    }
+
+    /**
+     * A topic is the thread of the message that created it, its reply count is what Telegram
+     * shows. The General topic has no such message, a search counts it instead.
+     */
+    private suspend fun countTopicMessages(): Int? {
+        val client = client.await()
+
+        val thread = client.send(TdApi.GetMessageThread(chatId, topicId.toLong() shl 20))
+        if (thread is Result.Success) {
+            thread.data.replyInfo?.let { return it.replyCount }
+        }
+
+        val found = client.send(
+            TdApi.SearchChatMessages(
+                chatId, TdApi.MessageTopicForum(topicId), "", null, 0, 0, 1, null
+            )
+        )
+        return (found as? Result.Success)?.data?.totalCount
+    }
+
+    /**
+     * Tell TDLib whether the chat is on screen, it then sends the updates only open chats get
+     * (typing, live views) and reads them as they are viewed.
+     */
+    fun setOpen(isOpen: Boolean) {
+        viewModelScope.launch {
+            client.await().send(
+                when (isOpen) {
+                    true -> TdApi.OpenChat(chatId)
+                    false -> TdApi.CloseChat(chatId)
+                }
+            )
+        }
+    }
+
+    fun loadOlder() {
+        viewModelScope.launch { history.await().loadOlder() }
+    }
+
+    fun loadNewer() {
+        viewModelScope.launch { history.await().loadNewer() }
+    }
+
+    /**
+     * When the next message is sent, unix time, null to send right away. Cleared once used.
+     */
+    val scheduleAt = MutableStateFlow<Int?>(null)
+
+    /** Take the schedule for one message; the reply goes with it too. */
+    private fun takeSchedule() = scheduleAt.value.also {
+        scheduleAt.value = null
+        replyTo.value = null
+    }
+
+    /**
+     * The message the next one replies to.
+     *
+     * @param name Who sent it
+     * @param text What it says, or what it is
+     */
+    data class Reply(val messageId: Long, val name: String, val text: String)
+
+    val replyTo = MutableStateFlow<Reply?>(null)
+
+    fun setReply(reply: Reply?) {
+        replyTo.value = reply
+        viewModelScope.launch { history.await().replyToMessageId = reply?.messageId ?: 0L }
+    }
+
+    /** Add the reaction, or take it back if it's already there. */
+    fun toggleReaction(messageId: Long, emoji: String?, customEmojiId: Long) {
+        val message = (rows.value as? FlowResult.Success)?.data?.rows
+            ?.firstNotNullOfOrNull { (it as? MessageRow.Bubble)?.message?.takeIf { m -> m.id == messageId } }
+        val isChosen = message?.reactions?.any {
+            it.isChosen && it.emoji == emoji && it.customEmojiId == customEmojiId
+        } == true
+        val type = when (emoji) {
+            null -> TdApi.ReactionTypeCustomEmoji(customEmojiId)
+            else -> TdApi.ReactionTypeEmoji(emoji)
+        }
+        viewModelScope.launch {
+            val client = client.await()
+            when (isChosen) {
+                true -> client.send(TdApi.RemoveMessageReaction(chatId, messageId, type))
+                false -> client.send(TdApi.AddMessageReaction(chatId, messageId, type, false, true))
+            }
+        }
+    }
+
+    /** Delete a message, for everyone when [revoke]. */
+    fun deleteMessage(messageId: Long, revoke: Boolean) {
+        viewModelScope.launch {
+            client.await().send(TdApi.DeleteMessages(chatId, longArrayOf(messageId), revoke))
+        }
+    }
+
+    /**
+     * @param customEmoji Custom emoji in [text], sent as its entities
+     */
+    fun send(text: String, customEmoji: List<CustomEmojiRange> = listOf()) {
+        val scheduleAt = takeSchedule()
+        val entities = customEmoji.map {
+            TdApi.TextEntity(it.offset, it.length, TdApi.TextEntityTypeCustomEmoji(it.customEmojiId))
+        }.toTypedArray()
+        viewModelScope.launch {
+            history.await().send(
+                TdApi.InputMessageText(TdApi.FormattedText(text, entities), null, true),
+                scheduleAt,
+            )
+        }
+    }
+
+    /** Files picked for the next message, in the order they go. Outlives the view. */
+    var attachments = listOf<InputContents.Picked>()
+
+    /** Whether [attachments] go grouped into albums. */
+    var isGrouped = true
+
+    /**
+     * Send picked files, [caption] on the first. Only now are they read and uploaded.
+     *
+     * @param grouped Into albums where Telegram allows, else one message each
+     */
+    fun send(picked: List<InputContents.Picked>, grouped: Boolean, caption: String? = null) {
+        val scheduleAt = takeSchedule()
+        viewModelScope.launch {
+            val contents = picked.mapIndexedNotNull { index, it ->
+                InputContents.fromUri(getApplication(), it.uri, it.asFile, caption.takeIf { index == 0 })
+                    ?: run {
+                        Log.w(LOG_TAG, "Can't read ${it.uri}")
+                        null
+                    }
+            }
+            val history = history.await()
+            val albums = if (grouped) InputContents.albums(contents) else contents.map(::listOf)
+            albums.forEach { album ->
+                when (album.size) {
+                    1 -> history.send(album.single(), scheduleAt)
+                    else -> history.sendAlbum(album, scheduleAt)
+                }
+            }
+        }
+    }
+
+    fun sendSticker(sticker: StickersStore.Sticker) {
+        val scheduleAt = takeSchedule()
+        viewModelScope.launch {
+            history.await().send(
+                TdApi.InputMessageSticker(
+                    TdApi.InputSticker(
+                        TdApi.InputFileId(sticker.fileId), null, sticker.width, sticker.height
+                    ),
+                    sticker.emoji,
+                ),
+                scheduleAt,
+            )
+        }
+    }
+
+    fun sendGif(gif: StickersStore.Gif) {
+        val scheduleAt = takeSchedule()
+        viewModelScope.launch {
+            val history = history.await()
+            when (val resultId = gif.resultId) {
+                null -> history.send(
+                    TdApi.InputMessageAnimation(
+                        TdApi.InputAnimation(
+                            TdApi.InputFileId(gif.fileId), null, null,
+                            gif.duration, gif.width, gif.height,
+                        ),
+                        null, false, false,
+                    ),
+                    scheduleAt,
+                )
+
+                else -> history.sendInlineResult(gif.queryId, resultId, scheduleAt)
+            }
+        }
+    }
+
+    fun sendLocation(latitude: Double, longitude: Double, accuracy: Double) {
+        val scheduleAt = takeSchedule()
+        viewModelScope.launch {
+            history.await().send(
+                TdApi.InputMessageLocation(TdApi.Location(latitude, longitude, accuracy)),
+                scheduleAt,
+            )
+        }
+    }
+
+    fun sendContact(phoneNumber: String, name: String) {
+        val scheduleAt = takeSchedule()
+        viewModelScope.launch {
+            history.await().send(
+                TdApi.InputMessageContact(TdApi.Contact(phoneNumber, name, "", "", 0)),
+                scheduleAt,
+            )
+        }
+    }
+
+    /** Stickers and saved GIFs of the account, for the sticker keyboard. */
+    val stickers = flow { emitAll(client.await().stickers.snapshots()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STICKERS_STOP_MS), null)
+
+    /** What the GIF page searches for, empty for the saved GIFs. */
+    val gifQuery = MutableStateFlow("")
+
+    /** GIFs found for [gifQuery], null while it's empty. */
+    @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
+    val foundGifs = gifQuery
+        .debounce(GIF_SEARCH_DEBOUNCE_MS)
+        .mapLatest { query ->
+            query.trim().takeIf { it.isNotEmpty() }
+                ?.let { client.await().stickers.searchGifs(chatId, it) }
+        }
+        .combine(stickers) { gifs, snapshot ->
+            // Their files download like the saved ones, paths come with the snapshots
+            val paths = snapshot?.paths.orEmpty()
+            gifs?.map { gif ->
+                gif.copy(
+                    path = gif.path ?: paths[gif.fileId],
+                    thumbnailPath = gif.thumbnailPath ?: gif.thumbnailFileId?.let(paths::get),
+                )
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STICKERS_STOP_MS), null)
+
+    /** Download a sticker or GIF file the keyboard shows. */
+    fun download(fileId: Int) {
+        viewModelScope.launch { client.await().stickers.download(fileId) }
+    }
+
+    /**
+     * Send a recorded square as a video note: the message shows up at once with the first frame,
+     * the account's [com.github.borz7zy.shadowgram.videonote.VideoNoteGenerator] transcodes it.
+     */
+    fun sendVideoNote(raw: File) {
+        replyTo.value = null
+        viewModelScope.launch {
+            // ponytail: thumbnails stay in the cache dir (tens of KB each), TDLib uploads from
+            // them; delete them on updateMessageSendSucceeded if cache size starts to matter
+            val thumbnail = File(raw.parentFile, raw.name.replace("_raw.mp4", ".jpg"))
+            val (probe, thumbnailSide) = withContext(Dispatchers.IO) {
+                val probe = runCatching { VideoNoteCamera.probe(raw) }.getOrNull()
+                    ?: (VideoNoteCamera.MAX_LENGTH to VideoNoteCamera.MAX_DURATION_MS)
+                val thumbnailSide = runCatching { VideoNoteCamera.thumbnail(raw, thumbnail) }
+                    .onFailure { Log.w(LOG_TAG, "Video note thumbnail failed", it) }
+                    .getOrNull()
+                probe to thumbnailSide
+            }
+            val (side, durationMs) = probe
+            history.await().sendVideoNote(
+                raw,
+                ((durationMs + 500) / 1000).toInt().coerceIn(1, 60),
+                side,
+                thumbnailSide?.let { thumbnail.absolutePath to it },
+            )
+        }
+    }
+
+    /** Start or cancel downloading a document, its bubble shows the progress. */
+    fun toggleDownload(document: MessageItem.Document) {
+        viewModelScope.launch { Downloads.toggleDownload(client.await(), document) }
+    }
+
+    /** Stop sending a message whose file is still uploading. */
+    fun cancelUpload(messageId: Long) {
+        viewModelScope.launch { history.await().delete(messageId) }
+    }
+
+    fun view(messageIds: LongArray) {
+        viewModelScope.launch { history.await().view(messageIds) }
+    }
+
+    companion object {
+        private const val LOG_TAG = "ChatViewModel"
+
+        private const val STICKERS_STOP_MS = 5_000L
+        private const val GIF_SEARCH_DEBOUNCE_MS = 400L
+
+        const val ARG_CHAT_ID = "chat_id"
+        const val ARG_TOPIC_ID = "topic_id"
+    }
+}

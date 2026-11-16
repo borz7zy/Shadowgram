@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<androidx.fragment.app.FragmentContainerView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/navHostFragment"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent" />

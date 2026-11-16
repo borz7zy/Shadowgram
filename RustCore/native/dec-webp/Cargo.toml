@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: borz7zy
+# SPDX-License-Identifier: MIT
+
+[package]
+name = "dec-webp"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+media = { path = "../media" }
+libwebp-sys = "0.14"

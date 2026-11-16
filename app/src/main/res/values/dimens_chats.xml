@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<resources>
+    <!-- A chat list row collapsed to its avatar: 16dp padding, 56dp avatar, 16dp padding -->
+    <dimen name="chat_list_rail_width">88dp</dimen>
+</resources>

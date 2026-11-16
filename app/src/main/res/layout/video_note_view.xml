@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<!-- A video message in its bubble: the round video inside the ring that shows and seeks
+     playback -->
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:layout_height="200dp"
+    tools:layout_width="200dp"
+    tools:parentTag="android.widget.FrameLayout">
+
+    <com.google.android.material.imageview.ShapeableImageView
+        android:id="@+id/stillImageView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_margin="@dimen/video_note_ring_space"
+        android:background="?attr/colorSurfaceContainerHighest"
+        android:importantForAccessibility="no"
+        android:scaleType="centerCrop"
+        app:shapeAppearanceOverlay="@style/ShapeAppearance.Shadowgram.Circle" />
+
+    <TextureView
+        android:id="@+id/videoTextureView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_margin="@dimen/video_note_ring_space"
+        android:alpha="0"
+        android:importantForAccessibility="no" />
+
+    <com.google.android.material.progressindicator.CircularProgressIndicator
+        android:id="@+id/ringProgressIndicator"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:max="1000"
+        android:visibility="invisible"
+        app:indicatorColor="?attr/colorPrimary"
+        app:indicatorInset="0dp"
+        app:indicatorTrackGapSize="6dp"
+        app:trackColor="?attr/colorSurfaceContainerHighest"
+        app:trackThickness="4dp"
+        app:waveAmplitude="@dimen/video_note_wave_amplitude"
+        app:waveSpeed="24dp"
+        app:wavelengthDeterminate="24dp"
+        tools:visibility="visible" />
+
+    <!-- Paused or not started yet -->
+    <ImageView
+        android:id="@+id/stateImageView"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_playback_scrim"
+        android:importantForAccessibility="no"
+        android:padding="12dp"
+        android:src="@drawable/ic_play_arrow"
+        app:tint="@android:color/white" />
+
+    <!-- Held on the right: faster for now -->
+    <TextView
+        android:id="@+id/speedTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="32dp"
+        android:background="@drawable/bg_playback_scrim"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="4dp"
+        android:text="@string/playback_fast"
+        android:textAppearance="?attr/textAppearanceLabelLarge"
+        android:textColor="@android:color/white"
+        android:visibility="gone"
+        tools:visibility="visible" />
+
+</merge>

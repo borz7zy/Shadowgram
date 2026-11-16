@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<resources>
+    <!-- Avatar placeholder colors, indexed by the built-in Telegram accent color IDs -->
+    <array name="chat_accent_colors">
+        <item>#FFE17076</item>
+        <item>#FFF7A35C</item>
+        <item>#FFA695E7</item>
+        <item>#FF7BC862</item>
+        <item>#FF6EC9CB</item>
+        <item>#FF65AADD</item>
+        <item>#FFEE7AAE</item>
+    </array>
+</resources>

@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/bubbleCardView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        app:cardElevation="0dp"
+        app:strokeWidth="0dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- The sender and their emoji status, opens their profile -->
+            <LinearLayout
+                android:id="@+id/senderLinearLayout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="14dp"
+                android:paddingTop="8dp"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <TextView
+                    android:id="@+id/senderTextView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="?attr/textAppearanceLabelLarge"
+                    tools:text="Pavel" />
+
+                <com.github.borz7zy.shadowgram.ui.views.CustomEmojiView
+                    android:id="@+id/senderEmojiStatusView"
+                    android:layout_width="@dimen/sender_emoji_size"
+                    android:layout_height="@dimen/sender_emoji_size"
+                    android:layout_marginStart="4dp" />
+
+            </LinearLayout>
+
+            <FrameLayout
+                android:id="@+id/mediaFrameLayout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/mediaImageView"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no"
+                    android:scaleType="centerCrop" />
+
+                <com.github.borz7zy.shadowgram.ui.views.AnimationView
+                    android:id="@+id/animationView"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no"
+                    android:visibility="gone" />
+
+                <com.github.borz7zy.shadowgram.ui.views.StickerView
+                    android:id="@+id/stickerView"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no"
+                    android:visibility="gone" />
+
+                <!-- How long a video is, its preview plays muted under it -->
+                <TextView
+                    android:id="@+id/durationTextView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top|start"
+                    android:layout_margin="8dp"
+                    android:background="@drawable/bg_chat_badge"
+                    android:backgroundTint="#99000000"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="6dp"
+                    android:paddingVertical="2dp"
+                    android:textAppearance="?attr/textAppearanceLabelSmall"
+                    android:textColor="@android:color/white"
+                    android:visibility="gone"
+                    tools:text="0:42"
+                    tools:visibility="visible" />
+
+                <!-- An album's pictures, laid out together -->
+                <com.github.borz7zy.shadowgram.ui.album.AlbumView
+                    android:id="@+id/albumView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+
+                <!-- Sizes itself: grows to the width of the chat while it plays -->
+                <com.github.borz7zy.shadowgram.ui.views.VideoNoteView
+                    android:id="@+id/videoNoteView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/uploadLinearLayout"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:layout_margin="8dp"
+                    android:background="@drawable/upload_scrim"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical"
+                    android:padding="8dp"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <FrameLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content">
+
+                        <com.google.android.material.progressindicator.CircularProgressIndicator
+                            android:id="@+id/uploadProgressIndicator"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:max="100"
+                            app:indicatorColor="@android:color/white"
+                            app:indicatorSize="56dp"
+                            app:indicatorTrackGapSize="4dp"
+                            app:trackColor="#4DFFFFFF"
+                            app:trackThickness="4dp"
+                            app:waveAmplitude="2dp"
+                            app:wavelengthDeterminate="10dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/cancelUploadMaterialButton"
+                            style="?attr/materialIconButtonStyle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:contentDescription="@string/chat_cancel_upload"
+                            app:icon="@drawable/ic_close"
+                            app:iconTint="@android:color/white" />
+
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/uploadTextView"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textAppearance="?attr/textAppearanceLabelMedium"
+                        android:textColor="@android:color/white"
+                        tools:text="42%" />
+
+                </LinearLayout>
+
+            </FrameLayout>
+
+            <com.github.borz7zy.shadowgram.ui.views.VoiceNoteView
+                android:id="@+id/voiceNoteView"
+                android:layout_width="@dimen/voice_note_width"
+                android:layout_height="wrap_content"
+                android:paddingStart="8dp"
+                android:paddingTop="8dp"
+                android:visibility="gone" />
+
+            <com.github.borz7zy.shadowgram.ui.views.DocumentView
+                android:id="@+id/documentView"
+                android:layout_width="@dimen/voice_note_width"
+                android:layout_height="wrap_content"
+                android:paddingStart="8dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="12dp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/messageTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:autoLink="web"
+                android:paddingHorizontal="14dp"
+                android:paddingTop="8dp"
+                android:textAppearance="?attr/textAppearanceBodyLarge"
+                tools:text="Hello there" />
+
+            <!-- Reactions, tapped to add or take back -->
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/reactionsChipGroup"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="10dp"
+                android:paddingTop="6dp"
+                android:visibility="gone"
+                app:chipSpacingHorizontal="4dp"
+                app:chipSpacingVertical="4dp"
+                tools:visibility="visible" />
+
+            <TextView
+                android:id="@+id/metaTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:drawablePadding="4dp"
+                android:gravity="center_vertical"
+                android:paddingHorizontal="12dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="6dp"
+                android:textAppearance="?attr/textAppearanceLabelSmall"
+                tools:text="17:21" />
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+</LinearLayout>

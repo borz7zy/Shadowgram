@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<resources>
+    <!-- The screen behind the open menu is dimmed by 20% -->
+    <color name="fab_menu_scrim">#33000000</color>
+
+    <!-- An action of the new chat menu -->
+    <style name="Theme.Shadowgram.FabMenu.Action" parent="Widget.Material3Expressive.Button.TonalButton">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginBottom">4dp</item>
+        <item name="android:textColor">?attr/colorOnTertiaryContainer</item>
+        <item name="android:visibility">gone</item>
+        <item name="backgroundTint">?attr/colorTertiaryContainer</item>
+        <item name="iconTint">?attr/colorOnTertiaryContainer</item>
+        <item name="materialSizeOverlay">@style/SizeOverlay.Material3Expressive.Button.Medium</item>
+    </style>
+</resources>

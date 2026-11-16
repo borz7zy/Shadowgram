@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<!-- Between a chat and a profile: the messages and the composer slide away while the profile
+     content slides in, the rest cross-fades around the avatar, which is a shared element -->
+<transitionSet xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="350"
+    android:interpolator="@android:interpolator/fast_out_slow_in"
+    android:transitionOrdering="together">
+
+    <fade>
+        <targets>
+            <target android:excludeId="@android:id/statusBarBackground" />
+            <target android:excludeId="@android:id/navigationBarBackground" />
+        </targets>
+    </fade>
+
+    <slide android:slideEdge="bottom">
+        <targets>
+            <target android:targetId="@id/chatCardView" />
+            <target android:targetId="@id/profileDetailsLinearLayout" />
+            <target android:targetId="@id/tabLayout" />
+            <target android:targetId="@id/viewPager2" />
+        </targets>
+    </slide>
+
+</transitionSet>

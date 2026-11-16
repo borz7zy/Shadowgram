@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/activity_launcher"
+    app:startDestination="@id/launcherFragment">
+
+    <fragment
+        android:id="@+id/launcherFragment"
+        android:name="com.github.borz7zy.shadowgram.fragments.LauncherFragment"
+        tools:layout="@layout/fragment_launcher">
+
+        <action
+            android:id="@+id/action_launcherFragment_to_mainActivity"
+            app:destination="@id/mainActivity" />
+
+        <action
+            android:id="@+id/action_launcherFragment_to_authActivity"
+            app:destination="@id/authActivity" />
+
+    </fragment>
+
+    <activity
+        android:id="@+id/mainActivity"
+        android:name="com.github.borz7zy.shadowgram.MainActivity" />
+
+    <activity
+        android:id="@+id/authActivity"
+        android:name="com.github.borz7zy.shadowgram.AuthActivity">
+
+        <argument
+            android:name="add_account"
+            android:defaultValue="false"
+            app:argType="boolean" />
+
+    </activity>
+
+</navigation>

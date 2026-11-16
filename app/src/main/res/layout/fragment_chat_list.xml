@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:orientation="vertical"
+        android:visibility="gone"
+        app:layoutManager="androidx.recyclerview.widget.GridLayoutManager"
+        app:spanCount="1"
+        tools:listitem="@layout/chat_list_item" />
+
+    <!-- Topics of the open forum, next to the chat list collapsed into a rail of avatars -->
+    <com.github.borz7zy.shadowgram.ui.views.TopRoundedLayout
+        android:id="@+id/topicsCardView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginStart="@dimen/chat_list_rail_width"
+        android:visibility="gone"
+        android:background="?attr/colorSurfaceContainerLow"
+        app:cornerRadius="28dp"
+        app:roundTopEnd="false">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/topicsRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingTop="8dp"
+                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+                tools:listitem="@layout/chat_list_item" />
+
+            <TextView
+                android:id="@+id/noTopicsTextView"
+                style="@style/Theme.Shadowgram.NoElements.TextView"
+                android:layout_gravity="center"
+                android:text="@string/no_topics"
+                android:visibility="gone" />
+
+            <com.google.android.material.progressindicator.LinearProgressIndicator
+                android:id="@+id/topicsLinearProgressIndicator"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:indeterminate="true" />
+
+        </FrameLayout>
+
+    </com.github.borz7zy.shadowgram.ui.views.TopRoundedLayout>
+
+    <LinearLayout
+        android:id="@+id/noElementsLinearLayout"
+        style="@style/Theme.Shadowgram.NoElements.LinearLayout"
+        android:layout_gravity="center"
+        android:visibility="gone">
+
+        <TextView
+            style="@style/Theme.Shadowgram.NoElements.TextView"
+            android:text="@string/shrug"
+            android:textAppearance="?attr/textAppearanceDisplayMedium" />
+
+        <Space style="@style/Theme.Shadowgram.NoElements.Space" />
+
+        <TextView
+            style="@style/Theme.Shadowgram.NoElements.TextView"
+            android:text="@string/no_chats" />
+
+    </LinearLayout>
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/linearProgressIndicator"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:indeterminate="true" />
+
+</FrameLayout>

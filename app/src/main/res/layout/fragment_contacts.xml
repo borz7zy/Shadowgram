@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clipToPadding="false"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="8dp">
+
+        <com.github.borz7zy.shadowgram.ui.views.SortingChip
+            android:id="@+id/sortingChip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+    </HorizontalScrollView>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingBottom="16dp"
+            android:visibility="gone"
+            app:layoutManager="androidx.recyclerview.widget.GridLayoutManager"
+            app:spanCount="1"
+            tools:listitem="@layout/contact_list_item" />
+
+        <LinearLayout
+            android:id="@+id/noElementsLinearLayout"
+            style="@style/Theme.Shadowgram.NoElements.LinearLayout"
+            android:layout_gravity="center"
+            android:visibility="gone">
+
+            <ImageView
+                style="@style/Theme.Shadowgram.NoElements.ImageView"
+                android:contentDescription="@string/no_contacts"
+                android:src="@drawable/ic_person" />
+
+            <Space style="@style/Theme.Shadowgram.NoElements.Space" />
+
+            <TextView
+                style="@style/Theme.Shadowgram.NoElements.TextView"
+                android:text="@string/no_contacts" />
+
+        </LinearLayout>
+
+        <com.google.android.material.progressindicator.LinearProgressIndicator
+            android:id="@+id/linearProgressIndicator"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:indeterminate="true" />
+
+    </FrameLayout>
+
+</LinearLayout>

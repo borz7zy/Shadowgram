@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<resources>
+    <declare-styleable name="TopRoundedLayout">
+        <attr name="cornerRadius" />
+        <attr name="roundTopStart" format="boolean" />
+        <attr name="roundTopEnd" format="boolean" />
+    </declare-styleable>
+</resources>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<resources>
+    <!-- Whether a play/pause icon shows pause, see ext/PlayPause.kt -->
+    <item name="play_pause_state" type="id" />
+</resources>

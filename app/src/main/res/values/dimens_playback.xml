@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<resources>
+    <!-- A video message in a bubble, ring included -->
+    <dimen name="video_note_size">200dp</dimen>
+    <!-- Between the round video and the edge of the view, where the ring goes -->
+    <dimen name="video_note_ring_space">10dp</dimen>
+    <dimen name="video_note_wave_amplitude">3dp</dimen>
+    <!-- Touches this far inside the ring seek -->
+    <dimen name="video_note_seek_band">40dp</dimen>
+    <!-- The floating video message -->
+    <dimen name="floating_video_note_size">144dp</dimen>
+    <!-- The ring around it, room for its shadow left between both -->
+    <dimen name="floating_video_note_ring_size">128dp</dimen>
+    <dimen name="voice_note_width">240dp</dimen>
+    <!-- An emoji status next to a name -->
+    <dimen name="custom_emoji_size">20dp</dimen>
+    <dimen name="sender_emoji_size">16dp</dimen>
+    <!-- A reaction under a message -->
+    <dimen name="reaction_emoji_size">20dp</dimen>
+    <!-- Behind the message menu -->
+    <dimen name="message_menu_blur_radius">24dp</dimen>
+    <dimen name="photo_viewer_caption_padding">16dp</dimen>
+</resources>

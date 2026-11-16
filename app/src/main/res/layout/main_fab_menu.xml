@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:parentTag="androidx.coordinatorlayout.widget.CoordinatorLayout">
+
+    <View
+        android:id="@+id/fabMenuScrimView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:background="@color/fab_menu_scrim"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/fabMenuLinearLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:paddingStart="16dp"
+        android:paddingTop="16dp"
+        android:paddingEnd="24dp"
+        android:paddingBottom="16dp"
+        android:gravity="end"
+        android:orientation="vertical"
+        app:layout_behavior="@string/hide_bottom_view_on_scroll_behavior">
+
+        <!-- The actions scroll when the screen is too short for all of them -->
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/fabMenuActionsNestedScrollView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/fabMenuActionsLinearLayout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:orientation="vertical">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/addContactMaterialButton"
+                    style="@style/Theme.Shadowgram.FabMenu.Action"
+                    android:text="@string/new_chat_add_contact"
+                    app:icon="@drawable/ic_person_add"
+                    tools:visibility="visible" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/createGroupMaterialButton"
+                    style="@style/Theme.Shadowgram.FabMenu.Action"
+                    android:text="@string/new_chat_create_group"
+                    app:icon="@drawable/ic_group_add"
+                    tools:visibility="visible" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/createChannelMaterialButton"
+                    style="@style/Theme.Shadowgram.FabMenu.Action"
+                    android:text="@string/new_chat_create_channel"
+                    app:icon="@drawable/ic_campaign"
+                    tools:visibility="visible" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/addStoryMaterialButton"
+                    style="@style/Theme.Shadowgram.FabMenu.Action"
+                    android:text="@string/new_chat_add_story"
+                    app:icon="@drawable/ic_add_circle"
+                    tools:visibility="visible" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/newDialogMaterialButton"
+                    style="@style/Theme.Shadowgram.FabMenu.Action"
+                    android:text="@string/new_chat_new_dialog"
+                    app:icon="@drawable/ic_chat"
+                    tools:visibility="visible" />
+
+            </LinearLayout>
+
+        </androidx.core.widget.NestedScrollView>
+
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/fabMenuFloatingActionButton"
+            style="?attr/floatingActionButtonTertiaryStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:contentDescription="@string/create_new_chat"
+            android:tooltipText="@string/create_new_chat"
+            app:srcCompat="@drawable/ic_add" />
+
+    </LinearLayout>
+
+</merge>

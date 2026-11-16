@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<!-- The chat picker: forwarding from the now playing screen, sharing from another app
+     (ShareActivity's whole graph) -->
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/fragment_chat_picker"
+    app:startDestination="@id/chatPickerFragment">
+
+    <fragment
+        android:id="@+id/chatPickerFragment"
+        android:name="com.github.borz7zy.shadowgram.fragments.ChatPickerFragment"
+        tools:layout="@layout/fragment_chat_picker">
+
+        <!-- Forwarding: the messages and their chat -->
+        <argument
+            android:name="from_chat_id"
+            android:defaultValue="0L"
+            app:argType="long" />
+
+        <argument
+            android:name="message_ids"
+            android:defaultValue="@null"
+            app:argType="long[]"
+            app:nullable="true" />
+
+        <!-- Sharing: the files, the text -->
+        <argument
+            android:name="uris"
+            android:defaultValue="@null"
+            app:argType="string[]"
+            app:nullable="true" />
+
+        <argument
+            android:name="text"
+            android:defaultValue="@null"
+            app:argType="string"
+            app:nullable="true" />
+
+        <!-- Shared: the chat it went to -->
+        <action
+            android:id="@+id/action_chatPickerFragment_to_shareChatActivity"
+            app:destination="@id/shareChatActivity" />
+
+    </fragment>
+
+    <activity
+        android:id="@+id/shareChatActivity"
+        android:name="com.github.borz7zy.shadowgram.ChatActivity">
+
+        <argument
+            android:name="chat_id"
+            app:argType="long" />
+
+        <argument
+            android:name="topic_id"
+            android:defaultValue="0"
+            app:argType="integer" />
+
+    </activity>
+
+</navigation>

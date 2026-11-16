@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/activityFragment"
+        android:icon="@drawable/ic_home"
+        android:title="@string/main_fragment_section_chats"
+        app:tint="?attr/colorOnSurface" />
+
+    <item
+        android:id="@+id/contactsFragment"
+        android:icon="@drawable/ic_person"
+        android:title="@string/main_fragment_section_contacts"
+        app:tint="?attr/colorOnSurface" />
+
+    <item
+        android:id="@+id/libraryFragment"
+        android:icon="@drawable/ic_lineage_library"
+        android:title="@string/main_fragment_section_profile"
+        app:tint="?attr/colorOnSurface" />
+
+</menu>

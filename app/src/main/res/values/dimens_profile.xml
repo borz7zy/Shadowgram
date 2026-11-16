@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<resources>
+    <!-- Frames of a gift sticker in a profile cell are drawn this big -->
+    <dimen name="profile_sticker_size">96dp</dimen>
+</resources>

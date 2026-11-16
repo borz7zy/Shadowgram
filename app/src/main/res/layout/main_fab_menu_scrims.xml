@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<!--
+     The new chat menu lives in the content, under the bars, so the bars are dimmed on their own.
+     The bars are elevated, these scrims have to be higher to be drawn over them.
+-->
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:parentTag="androidx.constraintlayout.widget.ConstraintLayout">
+
+    <View
+        android:id="@+id/fabMenuAppBarScrimView"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:alpha="0"
+        android:background="@color/fab_menu_scrim"
+        android:elevation="8dp"
+        android:importantForAccessibility="no"
+        android:outlineProvider="none"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@+id/appBarLayout"
+        app:layout_constraintEnd_toEndOf="@+id/appBarLayout"
+        app:layout_constraintStart_toStartOf="@+id/appBarLayout"
+        app:layout_constraintTop_toTopOf="@+id/appBarLayout" />
+
+    <View
+        android:id="@+id/fabMenuNavigationBarScrimView"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:alpha="0"
+        android:background="@color/fab_menu_scrim"
+        android:elevation="8dp"
+        android:importantForAccessibility="no"
+        android:outlineProvider="none"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@+id/navigationBarView"
+        app:layout_constraintEnd_toEndOf="@+id/navigationBarView"
+        app:layout_constraintStart_toStartOf="@+id/navigationBarView"
+        app:layout_constraintTop_toTopOf="@+id/navigationBarView" />
+
+</merge>

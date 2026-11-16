@@ -1,0 +1,3 @@
+[submodule "RustCore/native/dec-tgs/vendor/rlottie"]
+	path = RustCore/native/dec-tgs/vendor/rlottie
+	url = https://github.com/Samsung/rlottie.git

@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/activity_profile"
+    app:startDestination="@id/profileFragment">
+
+    <!-- Twelve's now playing screen and what it opens, for the chat's playlist -->
+    <include app:graph="@navigation/fragment_chat_picker" />
+    <include app:graph="@navigation/fragment_lyrics" />
+    <include app:graph="@navigation/fragment_now_playing" />
+    <include app:graph="@navigation/fragment_now_playing_stats_bottom_sheet_dialog" />
+    <include app:graph="@navigation/fragment_playback_control_bottom_sheet_dialog" />
+    <include app:graph="@navigation/fragment_queue" />
+
+    <!-- The bar of what plays, under the top bars (PlaybackBarView) -->
+    <action
+        android:id="@+id/action_global_fragment_now_playing"
+        app:destination="@id/fragment_now_playing"
+        app:enterAnim="@anim/nav_default_enter_anim"
+        app:exitAnim="@anim/nav_default_exit_anim"
+        app:popEnterAnim="@anim/nav_default_pop_enter_anim"
+        app:popExitAnim="@anim/nav_default_pop_exit_anim" />
+
+    <fragment
+        android:id="@+id/profileFragment"
+        android:name="com.github.borz7zy.shadowgram.fragments.ProfileFragment"
+        tools:layout="@layout/fragment_profile">
+
+        <argument
+            android:name="chat_id"
+            app:argType="long" />
+
+        <!-- Opened from the chat itself: "Message" goes back to it instead of opening another -->
+        <argument
+            android:name="is_from_chat"
+            android:defaultValue="false"
+            app:argType="boolean" />
+
+        <!-- "Message" and the groups in common -->
+        <action
+            android:id="@+id/action_profileFragment_to_chatActivity"
+            app:destination="@id/chatActivity" />
+
+        <!-- The members -->
+        <action
+            android:id="@+id/action_profileFragment_to_profileActivity"
+            app:destination="@id/profileActivity" />
+
+        <!-- The photos and videos of the media tab -->
+        <action
+            android:id="@+id/action_profileFragment_to_photoViewerDialogFragment"
+            app:destination="@id/photoViewerDialogFragment" />
+
+    </fragment>
+
+    <dialog
+        android:id="@+id/photoViewerDialogFragment"
+        android:name="com.github.borz7zy.shadowgram.fragments.PhotoViewerDialogFragment" />
+
+    <activity
+        android:id="@+id/chatActivity"
+        android:name="com.github.borz7zy.shadowgram.ChatActivity">
+
+        <argument
+            android:name="chat_id"
+            app:argType="long" />
+
+        <argument
+            android:name="topic_id"
+            android:defaultValue="0"
+            app:argType="integer" />
+
+    </activity>
+
+    <activity
+        android:id="@+id/profileActivity"
+        android:name="com.github.borz7zy.shadowgram.ProfileActivity">
+
+        <argument
+            android:name="chat_id"
+            app:argType="long" />
+
+        <argument
+            android:name="is_from_chat"
+            android:defaultValue="false"
+            app:argType="boolean" />
+
+    </activity>
+
+</navigation>

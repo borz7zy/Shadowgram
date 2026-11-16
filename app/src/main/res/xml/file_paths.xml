@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<paths>
+    <cache-path
+        name="outgoing"
+        path="outgoing/" />
+    <!-- TDLib's downloads, opened in other apps -->
+    <files-path
+        name="tdlib"
+        path="accounts/" />
+</paths>

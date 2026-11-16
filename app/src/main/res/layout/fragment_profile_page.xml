@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- The voice tab only: voice messages or video messages -->
+        <com.google.android.material.button.MaterialButtonToggleGroup
+            android:id="@+id/voiceToggleGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="8dp"
+            android:visibility="gone"
+            app:checkedButton="@id/voiceNotesMaterialButton"
+            app:selectionRequired="true"
+            app:singleSelection="true"
+            tools:visibility="visible">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/voiceNotesMaterialButton"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/profile_voice_messages"
+                app:icon="@drawable/ic_graphic_eq" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/videoNotesMaterialButton"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/profile_video_messages"
+                app:icon="@drawable/ic_videocam" />
+
+        </com.google.android.material.button.MaterialButtonToggleGroup>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:padding="2dp"
+            tools:listitem="@layout/profile_list_item" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/noElementsLinearLayout"
+        style="@style/Theme.Shadowgram.NoElements.LinearLayout"
+        android:layout_gravity="center"
+        android:visibility="gone">
+
+        <TextView
+            style="@style/Theme.Shadowgram.NoElements.TextView"
+            android:text="@string/shrug"
+            android:textAppearance="?attr/textAppearanceDisplayMedium" />
+
+        <Space style="@style/Theme.Shadowgram.NoElements.Space" />
+
+        <TextView
+            style="@style/Theme.Shadowgram.NoElements.TextView"
+            android:text="@string/profile_empty" />
+
+    </LinearLayout>
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/linearProgressIndicator"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:indeterminate="true" />
+
+</FrameLayout>

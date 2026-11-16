@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/nestedScrollView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false">
+
+        <LinearLayout
+            android:id="@+id/contentLinearLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="24dp"
+            android:orientation="vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:id="@+id/descriptionTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAppearance="?attr/textAppearanceBodyLarge"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                tools:text="@string/auth_phone_number_description" />
+
+            <ImageView
+                android:id="@+id/qrCodeImageView"
+                android:layout_width="match_parent"
+                android:layout_height="256dp"
+                android:layout_marginTop="16dp"
+                android:contentDescription="@string/auth_qr_image_description"
+                android:scaleType="fitCenter"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/qrErrorTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:accessibilityLiveRegion="polite"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="?attr/colorError"
+                android:visibility="gone" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/phoneNumberTextInputLayout"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:hint="@string/auth_phone_number_hint"
+                android:visibility="gone"
+                app:helperText=" "
+                tools:visibility="visible">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:autofillHints="phone"
+                    android:imeOptions="actionNext"
+                    android:inputType="phone" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/codeTextInputLayout"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:hint="@string/auth_code_hint"
+                android:visibility="gone">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:autofillHints="smsOTPCode"
+                    android:imeOptions="actionNext"
+                    android:inputType="number" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/passwordTextInputLayout"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:hint="@string/auth_password_hint"
+                android:visibility="gone"
+                app:endIconMode="password_toggle">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:autofillHints="password"
+                    android:imeOptions="actionNext"
+                    android:inputType="textPassword" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Always left to right, like any dialpad -->
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:id="@+id/dialpadConstraintLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:layoutDirection="ltr"
+                android:visibility="gone"
+                tools:ignore="HardcodedText"
+                tools:visibility="visible">
+
+                <androidx.constraintlayout.helper.widget.Flow
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    app:constraint_referenced_ids="digit1Button,digit2Button,digit3Button,digit4Button,digit5Button,digit6Button,digit7Button,digit8Button,digit9Button,dialpadSpace,digit0Button,backspaceButton"
+                    app:flow_horizontalGap="8dp"
+                    app:flow_maxElementsWrap="3"
+                    app:flow_verticalGap="8dp"
+                    app:flow_wrapMode="chain"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintWidth_max="360dp" />
+
+                <Button
+                    android:id="@+id/digit1Button"
+                    style="@style/Theme.Shadowgram.AuthFragment.DialpadKey"
+                    android:text="1" />
+
+                <Button
+                    android:id="@+id/digit2Button"
+                    style="@style/Theme.Shadowgram.AuthFragment.DialpadKey"
+                    android:text="2" />
+
+                <Button
+                    android:id="@+id/digit3Button"
+                    style="@style/Theme.Shadowgram.AuthFragment.DialpadKey"
+                    android:text="3" />
+
+                <Button
+                    android:id="@+id/digit4Button"
+                    style="@style/Theme.Shadowgram.AuthFragment.DialpadKey"
+                    android:text="4" />
+
+                <Button
+                    android:id="@+id/digit5Button"
+                    style="@style/Theme.Shadowgram.AuthFragment.DialpadKey"
+                    android:text="5" />
+
+                <Button
+                    android:id="@+id/digit6Button"
+                    style="@style/Theme.Shadowgram.AuthFragment.DialpadKey"
+                    android:text="6" />
+
+                <Button
+                    android:id="@+id/digit7Button"
+                    style="@style/Theme.Shadowgram.AuthFragment.DialpadKey"
+                    android:text="7" />
+
+                <Button
+                    android:id="@+id/digit8Button"
+                    style="@style/Theme.Shadowgram.AuthFragment.DialpadKey"
+                    android:text="8" />
+
+                <Button
+                    android:id="@+id/digit9Button"
+                    style="@style/Theme.Shadowgram.AuthFragment.DialpadKey"
+                    android:text="9" />
+
+                <Space
+                    android:id="@+id/dialpadSpace"
+                    android:layout_width="0dp"
+                    android:layout_height="64dp" />
+
+                <Button
+                    android:id="@+id/digit0Button"
+                    style="@style/Theme.Shadowgram.AuthFragment.DialpadKey"
+                    android:text="0" />
+
+                <Button
+                    android:id="@+id/backspaceButton"
+                    style="@style/Theme.Shadowgram.AuthFragment.DialpadKey.Backspace"
+                    android:contentDescription="@string/auth_backspace"
+                    app:icon="@drawable/ic_backspace" />
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
+
+            <LinearLayout
+                android:id="@+id/submitButtonsLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/nextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/auth_next" />
+
+                <Button
+                    android:id="@+id/changePhoneNumberButton"
+                    style="?attr/borderlessButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/auth_change_phone_number"
+                    android:visibility="gone" />
+
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/requestQrCodeButton"
+                style="?attr/borderlessButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/auth_qr_sign_in"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/cancelQrCodeButton"
+                style="?attr/borderlessButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/auth_qr_use_phone"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+    </androidx.core.widget.NestedScrollView>
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/linearProgressIndicator"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:indeterminate="true" />
+
+</FrameLayout>

@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: borz7zy
+# SPDX-License-Identifier: MIT
+
+[package]
+name = "dec-png"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+media = { path = "../media" }
+zune-png = "0.5"
+zune-core = "0.5"

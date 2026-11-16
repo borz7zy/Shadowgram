@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources>
+    <!-- Application theme -->
+    <style name="Theme.Shadowgram" parent="Theme.Material3Expressive.DayNight.NoActionBar">
+        <item name="android:enforceNavigationBarContrast">true</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="enableEdgeToEdge">true</item>
+        <item name="materialSwitchStyle">@style/Widget.SettingsLib.MaterialSwitch</item>
+        <!-- Opening a profile, see transition/profile_window -->
+        <item name="android:windowEnterTransition">@transition/profile_window</item>
+        <item name="android:windowExitTransition">@transition/profile_window</item>
+    </style>
+
+    <!-- Base dialog theme -->
+    <style name="BaseTheme.Shadowgram.Dialog" parent="Theme.Material3Expressive.Light.Dialog.Alert" />
+
+    <!-- Dialog theme -->
+    <style name="Theme.Shadowgram.Dialog" parent="BaseTheme.Shadowgram.Dialog">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="materialSwitchStyle">@style/Widget.SettingsLib.MaterialSwitch</item>
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <!-- No elements styles -->
+    <style name="Theme.Shadowgram.NoElements" />
+
+    <style name="Theme.Shadowgram.NoElements.LinearLayout">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:gravity">center</item>
+        <item name="android:orientation">vertical</item>
+    </style>
+
+    <style name="Theme.Shadowgram.NoElements.ImageView">
+        <item name="android:layout_width">72dp</item>
+        <item name="android:layout_height">72dp</item>
+        <item name="tint">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="Theme.Shadowgram.NoElements.Space">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">8dp</item>
+    </style>
+
+    <style name="Theme.Shadowgram.NoElements.TextView" parent="Widget.AppCompat.TextView">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textAppearance">?attr/textAppearanceBodyLarge</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <!-- Auth fragment -->
+    <style name="Theme.Shadowgram.AuthFragment.DialpadKey" parent="Widget.Material3Expressive.Button.TonalButton">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">64dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textAppearance">?attr/textAppearanceHeadlineMedium</item>
+    </style>
+
+    <style name="Theme.Shadowgram.AuthFragment.DialpadKey.Backspace" parent="Widget.Material3Expressive.Button.IconButton.Standard">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">64dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:padding">0dp</item>
+        <item name="iconGravity">textStart</item>
+        <item name="iconSize">28dp</item>
+    </style>
+
+    <!-- Now playing fragment -->
+    <style name="Theme.Shadowgram.NowPlayingFragment.MediaButton.Primary" parent="Widget.Material3Expressive.Button.IconButton">
+        <item name="android:layout_width">72dp</item>
+        <item name="android:layout_height">72dp</item>
+        <item name="android:padding">0dp</item>
+        <item name="iconGravity">textStart</item>
+        <item name="iconSize">36dp</item>
+    </style>
+
+    <style name="Theme.Shadowgram.NowPlayingFragment.MediaButton.Tertiary" parent="Widget.Material3Expressive.Button.IconButton">
+        <item name="android:layout_width">72dp</item>
+        <item name="android:layout_height">72dp</item>
+        <item name="android:padding">0dp</item>
+        <item name="backgroundTint">?attr/colorTertiaryContainer</item>
+        <item name="iconTint">?attr/colorOnTertiaryContainer</item>
+        <item name="iconGravity">textStart</item>
+        <item name="iconSize">36dp</item>
+        <item name="materialSizeOverlay">
+            @style/SizeOverlay.Material3Expressive.Button.IconButton.Small.Narrow
+        </item>
+    </style>
+
+    <style name="Theme.Shadowgram.NowPlayingFragment.MediaButton.Standard" parent="Widget.Material3Expressive.Button.IconButton.Standard">
+        <item name="android:layout_width">48dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_gravity">center</item>
+        <item name="android:padding">0dp</item>
+        <item name="iconGravity">textStart</item>
+        <item name="iconSize">24dp</item>
+    </style>
+
+    <style name="Theme.Shadowgram.NowPlayingFragment.MediaButton.Tertiary.Container" parent="">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">56dp</item>
+    </style>
+
+    <style name="Theme.Shadowgram.NowPlayingFragment.MediaButton.Tertiary.Marker" parent="">
+        <item name="android:layout_width">8dp</item>
+        <item name="android:layout_height">8dp</item>
+        <item name="android:layout_gravity">bottom|center_horizontal</item>
+        <item name="android:src">@drawable/now_playing_marker</item>
+        <item name="android:visibility">gone</item>
+        <item name="tint">?attr/colorPrimary</item>
+    </style>
+
+    <style name="Theme.Shadowgram.NowPlayingFragment.BottomBarButton" parent="Widget.Material3Expressive.Button.IconButton.Tonal">
+        <item name="android:layout_width">48dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_gravity">center</item>
+        <item name="android:padding">0dp</item>
+        <item name="android:insetLeft">0dp</item>
+        <item name="android:insetRight">0dp</item>
+        <item name="android:textAppearance">?attr/textAppearanceLabelLarge</item>
+        <item name="iconGravity">textStart</item>
+    </style>
+
+    <!-- App widget -->
+    <style name="Theme.Shadowgram.AppWidgetContainer" parent="Theme.Material3Expressive.DynamicColors.DayNight">
+        <item name="appWidgetRadius">28dp</item>
+    </style>
+    <!-- Profile -->
+    <style name="Theme.Shadowgram.ProfileFragment.ActionButton" parent="Widget.Material3Expressive.Button.TonalButton">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">56dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="iconGravity">textStart</item>
+        <item name="iconPadding">0dp</item>
+    </style>
+
+    <style name="Theme.Shadowgram.ProfileFragment.ActionLabel" parent="Widget.AppCompat.TextView">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:textAppearance">?attr/textAppearanceLabelLarge</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="Theme.Shadowgram.ProfileFragment.Action" parent="">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginHorizontal">4dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:gravity">center_horizontal</item>
+        <item name="android:orientation">vertical</item>
+    </style>
+
+    <style name="Theme.Shadowgram.ProfileFragment.InfoRow" parent="">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:background">?attr/selectableItemBackground</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:minHeight">72dp</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:paddingHorizontal">16dp</item>
+        <item name="android:paddingVertical">12dp</item>
+        <item name="android:visibility">gone</item>
+    </style>
+
+    <style name="Theme.Shadowgram.ProfileFragment.InfoIcon" parent="">
+        <item name="android:layout_width">24dp</item>
+        <item name="android:layout_height">24dp</item>
+        <item name="android:layout_marginEnd">24dp</item>
+        <item name="android:importantForAccessibility">no</item>
+        <item name="tint">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <style name="Theme.Shadowgram.ProfileFragment.InfoValue" parent="Widget.AppCompat.TextView">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textAppearance">?attr/textAppearanceBodyLarge</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:textIsSelectable">true</item>
+    </style>
+
+    <style name="Theme.Shadowgram.ProfileFragment.InfoLabel" parent="Widget.AppCompat.TextView">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textAppearance">?attr/textAppearanceBodyMedium</item>
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <style name="ShapeAppearance.Shadowgram.ProfileCell" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">4dp</item>
+    </style>
+
+    <style name="ShapeAppearance.Shadowgram.ProfileThumbnail" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">12dp</item>
+    </style>
+
+    <style name="ShapeAppearance.Shadowgram.Circle" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+    <!-- Photo viewer: full screen over the chat, it draws its own black -->
+    <style name="Theme.Shadowgram.PhotoViewer" parent="Theme.Shadowgram">
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">always</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- Message menu: full screen over the chat, blurred where the device can -->
+    <style name="Theme.Shadowgram.MessageMenu" parent="Theme.Shadowgram">
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">always</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- An action of a message, like the ones of the new chat menu -->
+    <style name="Theme.Shadowgram.MessageMenu.Action" parent="Theme.Shadowgram.FabMenu.Action" />
+
+    <style name="Theme.Shadowgram.MessageMenu.Action.Delete">
+        <item name="android:textColor">?attr/colorOnErrorContainer</item>
+        <item name="backgroundTint">?attr/colorErrorContainer</item>
+        <item name="iconTint">?attr/colorOnErrorContainer</item>
+    </style>
+
+    <!-- Chat -->
+    <style name="ShapeAppearance.Shadowgram.ChatCard" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopLeft">28dp</item>
+        <item name="cornerSizeTopRight">28dp</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
+    </style>
+
+    <style name="ShapeAppearance.Shadowgram.TopicsCard" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopLeft">28dp</item>
+        <item name="cornerSizeTopRight">0dp</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
+    </style>
+
+</resources>

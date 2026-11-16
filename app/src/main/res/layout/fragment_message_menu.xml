@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<!-- The tapped message over the blurred chat, like iOS: the bubble lifted where it fits, the
+     reactions above it, the actions below. Placed by MessageMenuDialogFragment; a tap anywhere
+     else puts it back -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/rootFrameLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:visibility="invisible">
+
+    <ImageView
+        android:id="@+id/bubbleImageView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:importantForAccessibility="no" />
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/reactionsCardView"
+        style="?attr/materialCardViewElevatedStyle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:alpha="0"
+        app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+        app:cardCornerRadius="28dp"
+        app:cardElevation="6dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:orientation="horizontal"
+            android:paddingHorizontal="4dp">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/reactionsRecyclerView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:overScrollMode="never"
+                tools:listitem="@layout/message_menu_reaction_item" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/expandMaterialButton"
+                style="?attr/materialIconButtonStyle"
+                android:layout_width="40dp"
+                android:layout_height="48dp"
+                android:contentDescription="@string/message_more_reactions"
+                android:tooltipText="@string/message_more_reactions"
+                app:icon="@drawable/ic_keyboard_arrow_down" />
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Like the new chat menu: tonal buttons sliding out of the bubble, the closest first -->
+    <LinearLayout
+        android:id="@+id/actionsLinearLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:alpha="0"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:orientation="vertical">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/replyMaterialButton"
+            style="@style/Theme.Shadowgram.MessageMenu.Action"
+            android:text="@string/message_reply"
+            app:icon="@drawable/ic_reply"
+            tools:visibility="visible" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/copyMaterialButton"
+            style="@style/Theme.Shadowgram.MessageMenu.Action"
+            android:text="@string/message_copy"
+            app:icon="@drawable/ic_content_copy"
+            tools:visibility="visible" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/copyLinkMaterialButton"
+            style="@style/Theme.Shadowgram.MessageMenu.Action"
+            android:text="@string/message_copy_link"
+            app:icon="@drawable/ic_link"
+            tools:visibility="visible" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/saveMaterialButton"
+            style="@style/Theme.Shadowgram.MessageMenu.Action"
+            android:text="@string/message_save_to_downloads"
+            app:icon="@drawable/ic_download"
+            tools:visibility="visible" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/deleteMaterialButton"
+            style="@style/Theme.Shadowgram.MessageMenu.Action.Delete"
+            android:text="@string/message_delete"
+            app:icon="@drawable/ic_delete"
+            tools:visibility="visible" />
+
+    </LinearLayout>
+
+</FrameLayout>

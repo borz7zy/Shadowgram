@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: Apache-2.0
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-feature android:name="android.hardware.camera.any" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
+
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission
+        android:name="android.permission.CAMERA"
+        tools:ignore="PermissionImpliesUnsupportedChromeOsHardware" />
+    <!-- READ_EXTERNAL_STORAGE: Shadowgram declares it up to API 32, a superset of the 28 here -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <queries>
+        <package android:name="com.google.android.apps.googlecamera.fishfood" />
+        <package android:name="com.google.android.googlequicksearchbox" />
+    </queries>
+
+    <!-- Embedded in Shadowgram: the host app owns <application> attributes (its Application
+         extends ApertureApplication), and the activities answer no system camera intents. -->
+    <application>
+
+        <uses-library
+            android:name="androidx.camera.extensions.impl"
+            android:required="false" />
+
+        <activity
+            android:name=".CameraActivity"
+            android:clearTaskOnLaunch="true"
+            android:configChanges="orientation|screenLayout|screenSize|smallestScreenSize|keyboardHidden"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="nosensor"
+            android:taskAffinity=".CameraActivity"
+            android:theme="@style/Theme.Aperture.Camera"
+            android:windowSoftInputMode="stateAlwaysHidden|adjustPan">
+        </activity>
+
+
+        <activity
+            android:name=".CaptureActivity"
+            android:configChanges="orientation|screenLayout|screenSize|smallestScreenSize|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="nosensor"
+            android:theme="@style/Theme.Aperture.Camera"
+            android:visibleToInstantApps="true"
+            android:windowSoftInputMode="stateAlwaysHidden|adjustPan">
+        </activity>
+
+        <activity
+            android:name=".QrScannerActivity"
+            android:configChanges="orientation|screenLayout|screenSize|smallestScreenSize|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="nosensor"
+            android:theme="@style/Theme.Aperture.Camera"
+            android:visibleToInstantApps="true"
+            android:windowSoftInputMode="stateAlwaysHidden|adjustPan" />
+
+
+        <activity
+            android:name=".SecureCameraActivity"
+            android:clearTaskOnLaunch="true"
+            android:configChanges="orientation|screenLayout|screenSize|smallestScreenSize|keyboardHidden"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity=".SecureCameraActivity"
+            android:theme="@style/Theme.Aperture.Camera"
+            android:windowSoftInputMode="stateAlwaysHidden|adjustPan">
+        </activity>
+
+        <activity
+            android:name=".SettingsActivity"
+            android:configChanges="orientation|screenLayout|screenSize|smallestScreenSize|keyboardHidden"
+            android:exported="false"
+            android:label="@string/aperture_title_activity_settings"
+            android:theme="@style/Theme.ApertureSettingsLib" />
+
+    </application>
+
+</manifest>

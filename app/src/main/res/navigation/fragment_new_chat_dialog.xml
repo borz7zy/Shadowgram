@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/fragment_new_chat_dialog"
+    app:startDestination="@id/newChatDialogFragment">
+
+    <dialog
+        android:id="@+id/newChatDialogFragment"
+        android:name="com.github.borz7zy.shadowgram.fragments.NewChatDialogFragment"
+        tools:layout="@layout/fragment_new_chat_dialog">
+
+        <argument
+            android:name="action"
+            app:argType="string" />
+
+    </dialog>
+
+</navigation>

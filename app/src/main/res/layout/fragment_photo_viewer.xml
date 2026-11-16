@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<!-- The photo viewer over the chat: the photos page by page on black, the top bar and the
+     caption over them, hidden and shown with a tap -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/rootFrameLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <View
+        android:id="@+id/backgroundView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:background="@android:color/black" />
+
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/viewPager2"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="invisible" />
+
+    <!-- Flies between the bubble and the screen when opening and closing -->
+    <!-- Placed by margins from the top left, rounded like the bubble near it -->
+    <com.google.android.material.imageview.ShapeableImageView
+        android:id="@+id/transitionImageView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="top|left"
+        android:importantForAccessibility="no"
+        android:scaleType="centerCrop" />
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:alpha="0"
+        android:background="@drawable/bg_photo_viewer_top"
+        android:minHeight="?attr/actionBarSize"
+        app:menu="@menu/photo_viewer"
+        app:navigationContentDescription="@string/chat_back"
+        app:navigationIcon="@drawable/ic_arrow_back"
+        app:navigationIconTint="@android:color/white"
+        app:subtitleTextColor="#B3FFFFFF"
+        app:titleTextColor="@android:color/white"
+        tools:subtitle="Pavel, 12:00"
+        tools:title="3 of 12" />
+
+    <!-- The video's controls, like Google Photos, and the caption -->
+    <LinearLayout
+        android:id="@+id/bottomLinearLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:alpha="0"
+        android:background="@drawable/bg_photo_viewer_bottom"
+        android:orientation="vertical"
+        android:paddingTop="32dp"
+        android:paddingBottom="16dp">
+
+        <TextView
+            android:id="@+id/captionTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="6"
+            android:paddingHorizontal="16dp"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
+            android:textColor="@android:color/white"
+            android:visibility="gone"
+            tools:text="A caption"
+            tools:visibility="visible" />
+
+        <LinearLayout
+            android:id="@+id/videoControlsLinearLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="8dp"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/playPauseMaterialButton"
+                style="?attr/materialIconButtonFilledStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:contentDescription="@string/photo_viewer_play_pause"
+                app:backgroundTint="#33FFFFFF"
+                app:icon="@drawable/ic_play_arrow"
+                app:iconTint="@android:color/white" />
+
+            <TextView
+                android:id="@+id/positionTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textAppearance="?attr/textAppearanceLabelMedium"
+                android:textColor="@android:color/white"
+                tools:text="0:12" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/seekSlider"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:contentDescription="@string/photo_viewer_seek"
+                android:valueFrom="0"
+                android:valueTo="1"
+                app:labelBehavior="gone"
+                app:thumbColor="@android:color/white"
+                app:trackColorActive="@android:color/white"
+                app:trackColorInactive="#4DFFFFFF"
+                app:tickVisible="false" />
+
+            <TextView
+                android:id="@+id/durationTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:textAppearance="?attr/textAppearanceLabelMedium"
+                android:textColor="@android:color/white"
+                tools:text="1:42" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</FrameLayout>

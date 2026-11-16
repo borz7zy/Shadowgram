@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/activity_auth"
+    app:startDestination="@id/authFragment">
+
+    <fragment
+        android:id="@+id/authFragment"
+        android:name="com.github.borz7zy.shadowgram.fragments.AuthFragment"
+        tools:layout="@layout/fragment_auth">
+
+        <action
+            android:id="@+id/action_authFragment_to_mainActivity"
+            app:destination="@id/mainActivity" />
+
+    </fragment>
+
+    <activity
+        android:id="@+id/mainActivity"
+        android:name="com.github.borz7zy.shadowgram.MainActivity" />
+
+</navigation>

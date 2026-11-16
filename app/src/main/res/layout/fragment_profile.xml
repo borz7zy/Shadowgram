@@ -1,0 +1,298 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface">
+
+    <!-- Not a transition group: the avatar inside is shared, the rest fades or slides -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/appBarLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        android:transitionGroup="false">
+
+        <com.google.android.material.appbar.CollapsingToolbarLayout
+            android:id="@+id/collapsingToolbarLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:layout_scrollFlags="scroll|exitUntilCollapsed"
+            app:titleEnabled="false">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="?attr/actionBarSize"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingBottom="16dp">
+
+                <com.github.borz7zy.shadowgram.ui.views.AvatarView
+                    android:id="@+id/avatarView"
+                    android:layout_width="160dp"
+                    android:layout_height="160dp"
+                    android:layout_marginTop="16dp"
+                    android:transitionName="@string/transition_profile_avatar" />
+
+                <TextView
+                    android:id="@+id/titleTextView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:maxLines="2"
+                    android:textAppearance="?attr/textAppearanceDisplaySmall"
+                    android:textColor="?attr/colorOnSurface"
+                    tools:text="Shadowgram" />
+
+                <TextView
+                    android:id="@+id/subtitleTextView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="?attr/textAppearanceBodyLarge"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:visibility="gone"
+                    tools:text="online"
+                    tools:visibility="visible" />
+
+                <!-- Slides in with the tabs, in place of the messages and the composer -->
+                <LinearLayout
+                    android:id="@+id/profileDetailsLinearLayout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:transitionGroup="true">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:orientation="horizontal">
+
+                        <LinearLayout style="@style/Theme.Shadowgram.ProfileFragment.Action">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/messageMaterialButton"
+                                style="@style/Theme.Shadowgram.ProfileFragment.ActionButton"
+                                android:contentDescription="@string/profile_message"
+                                app:icon="@drawable/ic_chat" />
+
+                            <TextView
+                                style="@style/Theme.Shadowgram.ProfileFragment.ActionLabel"
+                                android:text="@string/profile_message" />
+
+                        </LinearLayout>
+
+                        <LinearLayout style="@style/Theme.Shadowgram.ProfileFragment.Action">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/muteMaterialButton"
+                                style="@style/Theme.Shadowgram.ProfileFragment.ActionButton"
+                                android:contentDescription="@string/profile_mute"
+                                app:icon="@drawable/ic_notifications_off" />
+
+                            <TextView
+                                android:id="@+id/muteTextView"
+                                style="@style/Theme.Shadowgram.ProfileFragment.ActionLabel"
+                                android:text="@string/profile_mute" />
+
+                        </LinearLayout>
+
+                        <!-- Users only. ponytail: no calls in the app yet, enable with VoIP -->
+                        <LinearLayout
+                            android:id="@+id/callLinearLayout"
+                            style="@style/Theme.Shadowgram.ProfileFragment.Action"
+                            android:visibility="gone"
+                            tools:visibility="visible">
+
+                            <com.google.android.material.button.MaterialButton
+                                style="@style/Theme.Shadowgram.ProfileFragment.ActionButton"
+                                android:contentDescription="@string/profile_call"
+                                android:enabled="false"
+                                app:icon="@drawable/ic_call" />
+
+                            <TextView
+                                style="@style/Theme.Shadowgram.ProfileFragment.ActionLabel"
+                                android:enabled="false"
+                                android:text="@string/profile_call"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
+
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:id="@+id/videoCallLinearLayout"
+                            style="@style/Theme.Shadowgram.ProfileFragment.Action"
+                            android:visibility="gone"
+                            tools:visibility="visible">
+
+                            <com.google.android.material.button.MaterialButton
+                                style="@style/Theme.Shadowgram.ProfileFragment.ActionButton"
+                                android:contentDescription="@string/profile_video_call"
+                                android:enabled="false"
+                                app:icon="@drawable/ic_videocam" />
+
+                            <TextView
+                                style="@style/Theme.Shadowgram.ProfileFragment.ActionLabel"
+                                android:enabled="false"
+                                android:text="@string/profile_video_call"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
+
+                        </LinearLayout>
+
+                    </LinearLayout>
+
+                    <com.google.android.material.card.MaterialCardView
+                        android:id="@+id/infoCardView"
+                        style="?attr/materialCardViewFilledStyle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:visibility="gone"
+                        app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+                        app:cardCornerRadius="28dp"
+                        tools:visibility="visible">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:paddingVertical="4dp">
+
+                            <LinearLayout
+                                android:id="@+id/phoneLinearLayout"
+                                style="@style/Theme.Shadowgram.ProfileFragment.InfoRow"
+                                tools:visibility="visible">
+
+                                <ImageView
+                                    style="@style/Theme.Shadowgram.ProfileFragment.InfoIcon"
+                                    android:src="@drawable/ic_call" />
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        android:id="@+id/phoneTextView"
+                                        style="@style/Theme.Shadowgram.ProfileFragment.InfoValue"
+                                        tools:text="+1 234 567 89 00" />
+
+                                    <TextView
+                                        style="@style/Theme.Shadowgram.ProfileFragment.InfoLabel"
+                                        android:text="@string/profile_phone" />
+
+                                </LinearLayout>
+
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:id="@+id/usernameLinearLayout"
+                                style="@style/Theme.Shadowgram.ProfileFragment.InfoRow"
+                                tools:visibility="visible">
+
+                                <ImageView
+                                    style="@style/Theme.Shadowgram.ProfileFragment.InfoIcon"
+                                    android:src="@drawable/ic_link" />
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        android:id="@+id/usernameTextView"
+                                        style="@style/Theme.Shadowgram.ProfileFragment.InfoValue"
+                                        tools:text="\@shadowgram" />
+
+                                    <TextView
+                                        android:id="@+id/usernameLabelTextView"
+                                        style="@style/Theme.Shadowgram.ProfileFragment.InfoLabel"
+                                        android:text="@string/profile_username" />
+
+                                </LinearLayout>
+
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:id="@+id/aboutLinearLayout"
+                                style="@style/Theme.Shadowgram.ProfileFragment.InfoRow"
+                                tools:visibility="visible">
+
+                                <ImageView
+                                    style="@style/Theme.Shadowgram.ProfileFragment.InfoIcon"
+                                    android:src="@drawable/ic_info" />
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        android:id="@+id/aboutTextView"
+                                        style="@style/Theme.Shadowgram.ProfileFragment.InfoValue"
+                                        android:autoLink="web"
+                                        tools:text="A Telegram client" />
+
+                                    <TextView
+                                        android:id="@+id/aboutLabelTextView"
+                                        style="@style/Theme.Shadowgram.ProfileFragment.InfoLabel"
+                                        android:text="@string/profile_bio" />
+
+                                </LinearLayout>
+
+                            </LinearLayout>
+
+                        </LinearLayout>
+
+                    </com.google.android.material.card.MaterialCardView>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <com.google.android.material.appbar.MaterialToolbar
+                android:id="@+id/toolbar"
+                android:layout_width="match_parent"
+                android:layout_height="?attr/actionBarSize"
+                app:layout_collapseMode="pin"
+                app:navigationContentDescription="@string/chat_back"
+                app:navigationIcon="@drawable/ic_arrow_back"
+                app:navigationIconTint="?attr/colorOnSurface" />
+
+        </com.google.android.material.appbar.CollapsingToolbarLayout>
+
+        <com.google.android.material.tabs.TabLayout
+            android:id="@+id/tabLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/colorSurface"
+            app:tabMode="scrollable" />
+
+        <!-- The voice or video message playing -->
+        <com.github.borz7zy.shadowgram.ui.views.PlaybackBarView
+            android:id="@+id/playbackBarView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp" />
+
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/viewPager2"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:transitionGroup="true"
+        app:layout_behavior="com.google.android.material.appbar.AppBarLayout$ScrollingViewBehavior" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

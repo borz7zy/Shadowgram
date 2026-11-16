@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: borz7zy
+# SPDX-License-Identifier: MIT
+
+# Aperture's multi-frame RAW pipeline (org.lineageos.aperture.pipeline.CameraPipeline).
+# Linked into librustcore.so by `core`; the JNI exports stay in this crate.
+[package]
+name = "camera_pipeline"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+jni = { version = "0.21", default-features = false }

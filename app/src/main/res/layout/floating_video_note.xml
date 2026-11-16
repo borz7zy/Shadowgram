@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<!-- The video message playing while its bubble isn't on screen -->
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:layout_height="128dp"
+    tools:layout_width="128dp"
+    tools:parentTag="android.widget.FrameLayout">
+
+    <!-- Round with a round shadow: the oval background is the outline it clips to -->
+    <FrameLayout
+        android:id="@+id/circleFrameLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_margin="14dp"
+        android:background="@drawable/bg_floating_video_note"
+        android:elevation="6dp">
+
+        <TextureView
+            android:id="@+id/videoTextureView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no" />
+
+        <ImageView
+            android:id="@+id/stateImageView"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_playback_scrim"
+            android:importantForAccessibility="no"
+            android:padding="8dp"
+            android:src="@drawable/ic_play_arrow"
+            android:visibility="gone"
+            app:tint="@android:color/white" />
+
+    </FrameLayout>
+
+    <com.google.android.material.progressindicator.CircularProgressIndicator
+        android:id="@+id/ringProgressIndicator"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:max="1000"
+        app:indicatorColor="?attr/colorPrimary"
+        app:indicatorInset="0dp"
+        app:indicatorSize="@dimen/floating_video_note_ring_size"
+        app:indicatorTrackGapSize="4dp"
+        app:trackColor="@android:color/transparent"
+        app:trackThickness="3dp"
+        app:waveAmplitude="2dp"
+        app:waveSpeed="16dp"
+        app:wavelengthDeterminate="16dp" />
+
+</merge>

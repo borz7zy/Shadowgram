@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: borz7zy
+# SPDX-License-Identifier: MIT
+
+[workspace]
+resolver = "2"
+members = ["rustcache", "media", "dec-jpeg", "dec-png", "dec-webp", "dec-gif", "dec-webm", "dec-tgs", "camera", "core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+
+# Speed-first: these are hot decode paths.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+# Tests decode real files — unoptimised decoders are painfully slow.
+[profile.test]
+opt-level = 2

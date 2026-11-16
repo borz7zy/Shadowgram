@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/activity_chat"
+    app:startDestination="@id/chatFragment">
+
+    <!-- Twelve's now playing screen and what it opens, for the chat's playlist -->
+    <include app:graph="@navigation/fragment_chat_picker" />
+    <include app:graph="@navigation/fragment_lyrics" />
+    <include app:graph="@navigation/fragment_now_playing" />
+    <include app:graph="@navigation/fragment_now_playing_stats_bottom_sheet_dialog" />
+    <include app:graph="@navigation/fragment_playback_control_bottom_sheet_dialog" />
+    <include app:graph="@navigation/fragment_queue" />
+
+    <!-- The bar of what plays, under the top bars (PlaybackBarView) -->
+    <action
+        android:id="@+id/action_global_fragment_now_playing"
+        app:destination="@id/fragment_now_playing"
+        app:enterAnim="@anim/nav_default_enter_anim"
+        app:exitAnim="@anim/nav_default_exit_anim"
+        app:popEnterAnim="@anim/nav_default_pop_enter_anim"
+        app:popExitAnim="@anim/nav_default_pop_exit_anim" />
+
+    <fragment
+        android:id="@+id/chatFragment"
+        android:name="com.github.borz7zy.shadowgram.fragments.ChatFragment"
+        tools:layout="@layout/fragment_chat">
+
+        <argument
+            android:name="chat_id"
+            app:argType="long" />
+
+        <argument
+            android:name="topic_id"
+            android:defaultValue="0"
+            app:argType="integer" />
+
+        <action
+            android:id="@+id/action_chatFragment_to_videoNoteDialogFragment"
+            app:destination="@id/videoNoteDialogFragment" />
+
+        <!-- A tap on a photo -->
+        <action
+            android:id="@+id/action_chatFragment_to_photoViewerDialogFragment"
+            app:destination="@id/photoViewerDialogFragment" />
+
+        <!-- A tap on a message -->
+        <action
+            android:id="@+id/action_chatFragment_to_messageMenuDialogFragment"
+            app:destination="@id/messageMenuDialogFragment" />
+
+        <!-- The top bar, a sender's name or avatar -->
+        <action
+            android:id="@+id/action_chatFragment_to_profileActivity"
+            app:destination="@id/profileActivity" />
+
+    </fragment>
+
+    <dialog
+        android:id="@+id/videoNoteDialogFragment"
+        android:name="com.github.borz7zy.shadowgram.videonote.VideoNoteDialogFragment"
+        tools:layout="@layout/fragment_video_note">
+
+        <argument
+            android:name="chat_id"
+            app:argType="long" />
+
+        <argument
+            android:name="topic_id"
+            android:defaultValue="0"
+            app:argType="integer" />
+
+    </dialog>
+
+    <!-- The chat's photos, from the one tapped -->
+    <dialog
+        android:id="@+id/photoViewerDialogFragment"
+        android:name="com.github.borz7zy.shadowgram.fragments.PhotoViewerDialogFragment"
+        tools:layout="@layout/fragment_photo_viewer">
+
+        <argument
+            android:name="chat_id"
+            app:argType="long" />
+
+        <argument
+            android:name="message_id"
+            app:argType="long" />
+
+        <!-- The photos of its message to page through, an album's -->
+        <argument
+            android:name="message_ids"
+            app:argType="long[]" />
+
+    </dialog>
+
+    <!-- The message lifted over the blurred chat: reactions above, actions below -->
+    <dialog
+        android:id="@+id/messageMenuDialogFragment"
+        android:name="com.github.borz7zy.shadowgram.fragments.MessageMenuDialogFragment"
+        tools:layout="@layout/fragment_message_menu">
+
+        <argument
+            android:name="chat_id"
+            app:argType="long" />
+
+        <argument
+            android:name="message_id"
+            app:argType="long" />
+
+        <!-- What "Copy" copies, null for none -->
+        <argument
+            android:name="text"
+            android:defaultValue="@null"
+            app:argType="string"
+            app:nullable="true" />
+
+    </dialog>
+
+    <activity
+        android:id="@+id/profileActivity"
+        android:name="com.github.borz7zy.shadowgram.ProfileActivity">
+
+        <argument
+            android:name="chat_id"
+            app:argType="long" />
+
+        <argument
+            android:name="is_from_chat"
+            android:defaultValue="false"
+            app:argType="boolean" />
+
+    </activity>
+
+</navigation>

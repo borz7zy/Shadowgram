@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: borz7zy
+# SPDX-License-Identifier: MIT
+
+[package]
+name = "rustcore"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+jni = { version = "0.21", default-features = false }
+rustcache = { path = "../rustcache" }
+media = { path = "../media" }
+dec-jpeg = { path = "../dec-jpeg" }
+dec-png = { path = "../dec-png" }
+dec-webp = { path = "../dec-webp" }
+dec-gif = { path = "../dec-gif" }
+dec-webm = { path = "../dec-webm" }
+dec-tgs = { path = "../dec-tgs" }
+camera_pipeline = { path = "../camera" }

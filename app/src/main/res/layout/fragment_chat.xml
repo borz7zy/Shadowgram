@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurfaceContainer"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/appBarLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@android:color/transparent"
+        android:fitsSystemWindows="true"
+        android:transitionGroup="false">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            app:contentInsetStartWithNavigation="0dp"
+            app:navigationContentDescription="@string/chat_back"
+            app:navigationIcon="@drawable/ic_arrow_back"
+            app:navigationIconTint="?attr/colorOnSurface">
+
+            <!-- Opens the profile, its avatar is shared with it -->
+            <com.github.borz7zy.shadowgram.ui.views.ChatHeaderView
+                android:id="@+id/chatHeaderView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:foreground="?attr/selectableItemBackground"
+                android:paddingEnd="16dp" />
+
+        </com.google.android.material.appbar.MaterialToolbar>
+
+        <!-- The voice or video message playing -->
+        <com.github.borz7zy.shadowgram.ui.views.PlaybackBarView
+            android:id="@+id/playbackBarView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp" />
+
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <com.github.borz7zy.shadowgram.ui.views.TopRoundedLayout
+        android:id="@+id/chatCardView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="?attr/colorSurface"
+        app:cornerRadius="28dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/recyclerView"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="8dp"
+                    tools:listitem="@layout/message_bubble_item" />
+
+                <LinearLayout
+                    android:id="@+id/noElementsLinearLayout"
+                    style="@style/Theme.Shadowgram.NoElements.LinearLayout"
+                    android:layout_gravity="center"
+                    android:visibility="gone">
+
+                    <TextView
+                        style="@style/Theme.Shadowgram.NoElements.TextView"
+                        android:text="@string/shrug"
+                        android:textAppearance="?attr/textAppearanceDisplayMedium" />
+
+                    <Space style="@style/Theme.Shadowgram.NoElements.Space" />
+
+                    <TextView
+                        style="@style/Theme.Shadowgram.NoElements.TextView"
+                        android:text="@string/chat_no_messages" />
+
+                </LinearLayout>
+
+                <com.google.android.material.progressindicator.LinearProgressIndicator
+                    android:id="@+id/linearProgressIndicator"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:indeterminate="true" />
+
+            </FrameLayout>
+
+            <!-- The composer and the panel under it that takes the keyboard's place -->
+            <LinearLayout
+                android:id="@+id/composerLinearLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <!-- The message the next one replies to -->
+                <LinearLayout
+                    android:id="@+id/replyLinearLayout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="20dp"
+                    android:paddingTop="8dp"
+                    android:paddingEnd="8dp"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/ic_reply"
+                        app:tint="?attr/colorPrimary" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/replyTitleTextView"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:textAppearance="?attr/textAppearanceLabelLarge"
+                            android:textColor="?attr/colorPrimary"
+                            tools:text="Reply to Pavel" />
+
+                        <TextView
+                            android:id="@+id/replyTextTextView"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:textAppearance="?attr/textAppearanceBodyMedium"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            tools:text="Hello there" />
+
+                    </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/cancelReplyMaterialButton"
+                        style="?attr/materialIconButtonStyle"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:contentDescription="@string/message_cancel_reply"
+                        android:tooltipText="@string/message_cancel_reply"
+                        app:icon="@drawable/ic_close" />
+
+                </LinearLayout>
+
+                <!-- Files picked for the next message -->
+                <com.github.borz7zy.shadowgram.ui.composer.AttachmentStripView
+                    android:id="@+id/attachmentStripView"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="bottom"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="12dp"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="12dp">
+
+                    <com.google.android.material.card.MaterialCardView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:minHeight="56dp"
+                        app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+                        app:cardCornerRadius="28dp"
+                        app:cardElevation="0dp"
+                        app:strokeWidth="0dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="bottom"
+                            android:orientation="horizontal"
+                            android:paddingHorizontal="4dp">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/attachMaterialButton"
+                                style="?attr/materialIconButtonStyle"
+                                android:layout_width="48dp"
+                                android:layout_height="56dp"
+                                android:contentDescription="@string/chat_attach"
+                                android:tooltipText="@string/chat_attach"
+                                app:icon="@drawable/ic_add_circle" />
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/messageEditText"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_gravity="center_vertical"
+                                android:layout_weight="1"
+                                android:background="@null"
+                                android:hint="@string/chat_message_hint"
+                                android:importantForAutofill="no"
+                                android:inputType="textCapSentences|textMultiLine"
+                                android:maxLines="6"
+                                android:minHeight="56dp"
+                                android:paddingHorizontal="8dp"
+                                android:paddingVertical="12dp"
+                                android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/emojiMaterialButton"
+                                style="?attr/materialIconButtonStyle"
+                                android:layout_width="48dp"
+                                android:layout_height="56dp"
+                                android:contentDescription="@string/chat_emoji"
+                                android:tooltipText="@string/chat_emoji"
+                                app:icon="@drawable/ic_mood" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/galleryMaterialButton"
+                                style="?attr/materialIconButtonStyle"
+                                android:layout_width="48dp"
+                                android:layout_height="56dp"
+                                android:contentDescription="@string/chat_gallery"
+                                android:tooltipText="@string/chat_gallery"
+                                app:icon="@drawable/ic_gallery" />
+
+                        </LinearLayout>
+
+                    </com.google.android.material.card.MaterialCardView>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/sendMaterialButton"
+                        style="?attr/materialIconButtonFilledStyle"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:layout_marginStart="8dp"
+                        android:contentDescription="@string/chat_send"
+                        android:enabled="false"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:tooltipText="@string/chat_send"
+                        android:visibility="gone"
+                        app:icon="@drawable/ic_send" />
+
+                    <!-- Takes the send button's place while there is nothing to send -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/videoNoteMaterialButton"
+                        style="?attr/materialIconButtonFilledTonalStyle"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:layout_marginStart="8dp"
+                        android:contentDescription="@string/chat_video_note"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:tooltipText="@string/chat_video_note"
+                        app:icon="@drawable/ic_videocam" />
+
+                </LinearLayout>
+
+                <com.github.borz7zy.shadowgram.ui.views.TopRoundedLayout
+                    android:id="@+id/panelCardView"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:visibility="gone"
+                    android:background="?attr/colorSurfaceContainerLow"
+                    app:cornerRadius="28dp">
+
+                    <com.github.borz7zy.shadowgram.ui.composer.StickerKeyboardView
+                        android:id="@+id/stickerKeyboardView"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
+
+                    <com.github.borz7zy.shadowgram.ui.composer.GalleryPanelView
+                        android:id="@+id/galleryPanelView"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
+
+                    <com.github.borz7zy.shadowgram.ui.composer.AttachPanelView
+                        android:id="@+id/attachPanelView"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+
+                </com.github.borz7zy.shadowgram.ui.views.TopRoundedLayout>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </com.github.borz7zy.shadowgram.ui.views.TopRoundedLayout>
+
+</LinearLayout>

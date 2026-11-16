@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<!-- A reaction to pick, animated -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="44dp"
+    android:layout_height="48dp"
+    android:background="?attr/selectableItemBackgroundBorderless">
+
+    <com.github.borz7zy.shadowgram.ui.views.CustomEmojiView
+        android:id="@+id/customEmojiView"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_gravity="center" />
+
+</FrameLayout>
