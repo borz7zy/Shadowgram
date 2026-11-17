@@ -8,4 +8,6 @@
     <dimen name="chat_list_rail_width">88dp</dimen>
     <!-- The emoji status after a name in the chat list -->
     <dimen name="chat_list_emoji_status_size">18dp</dimen>
+    <!-- A member to mention over the composer: the search result row -->
+    <dimen name="chat_mention_row_height">64dp</dimen>
 </resources>

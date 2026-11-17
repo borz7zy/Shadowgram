@@ -294,6 +294,16 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
+                <!-- The members to mention while an @word is typed -->
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/mentionsRecyclerView"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/colorSurfaceContainer"
+                    android:overScrollMode="never"
+                    android:visibility="gone"
+                    app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+
                 <!-- The message the next one replies to -->
                 <LinearLayout
                     android:id="@+id/replyLinearLayout"

@@ -754,6 +754,13 @@ class ChatHistory(
                 else -> MessageItem.State.SENT
             },
             media = content.toMedia(),
+            mentions = content.formattedText()?.entities.orEmpty().mapNotNull {
+                when (val type = it.type) {
+                    is TdApi.TextEntityTypeMention -> MessageItem.Mention(it.offset, it.length, 0L)
+                    is TdApi.TextEntityTypeMentionName -> MessageItem.Mention(it.offset, it.length, type.userId)
+                    else -> null
+                }
+            },
             customEmoji = content.formattedText()?.entities.orEmpty().mapNotNull {
                 (it.type as? TdApi.TextEntityTypeCustomEmoji)?.let { type ->
                     CustomEmojiRange(it.offset, it.length, type.customEmojiId)

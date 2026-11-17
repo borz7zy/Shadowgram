@@ -130,6 +130,9 @@ class MessageListAdapter(
 
         /** The reply plate: show the replied message in the chat. */
         fun onReplyClick(message: MessageItem)
+
+        /** A mention in a text: the user by [userId], or by [username] (without the @) when it's 0. */
+        fun onMentionClick(userId: Long, username: String)
     }
 
     override fun getItemViewType(position: Int) = when (getItem(position)) {
@@ -323,6 +326,8 @@ class MessageListAdapter(
 
         init {
             messageTextView.maxWidth = maxBubbleWidth
+            // autoLink only sets it when the text has a web link, mentions need it too
+            messageTextView.movementMethod = android.text.method.LinkMovementMethod.getInstance()
             cancelUploadMaterialButton.setOnClickListener { onCancelUpload(messageId) }
             documentView.onActionClick = { message?.let(callbacks::onDocumentClick) }
 
@@ -533,6 +538,28 @@ class MessageListAdapter(
                 // Kinds that say what they are put the text after a line
                 val shift = if (text is SpannableStringBuilder) text.length - message.text.orEmpty().length else 0
                 spanned.setCustomEmoji(message.customEmoji, fontMetrics, shift)
+            }
+            // Mentions open the profile, like links open the browser
+            if (message.mentions.isNotEmpty()) {
+                if (spanned !is Spannable) {
+                    spanned = android.text.SpannableString(spanned)
+                }
+                val shift = if (text is SpannableStringBuilder) text.length - message.text.orEmpty().length else 0
+                message.mentions.forEach { mention ->
+                    val start = mention.offset + shift
+                    val end = start + mention.length
+                    if (start < 0 || end > spanned.length) {
+                        return@forEach
+                    }
+                    val username = spanned.substring(start, end).removePrefix("@")
+                    spanned.setSpan(object : ClickableSpan() {
+                        override fun onClick(widget: View) = callbacks.onMentionClick(mention.userId, username)
+
+                        override fun updateDrawState(ds: android.text.TextPaint) {
+                            ds.color = ds.linkColor
+                        }
+                    }, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
             }
             messageTextView.text = spanned
             messageTextView.attachCustomEmoji()

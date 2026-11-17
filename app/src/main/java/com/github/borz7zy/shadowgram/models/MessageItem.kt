@@ -52,7 +52,16 @@ data class MessageItem(
     val forward: Forward? = null,
     /** The message it replies to, null when it doesn't. */
     val reply: Reply? = null,
+    /** Mentions in [text] that open a profile. */
+    val mentions: List<Mention> = listOf(),
 ) {
+    /**
+     * An @username or a mention by name in the text, offsets in UTF-16 like TDLib's.
+     *
+     * @param userId The user mentioned by name, 0 for an @username
+     */
+    data class Mention(val offset: Int, val length: Int, val userId: Long)
+
     /**
      * @param originId The user or chat whose profile opens, 0 when they hid their account
      * @param photoPath Their downloaded small photo, for the avatar next to the name

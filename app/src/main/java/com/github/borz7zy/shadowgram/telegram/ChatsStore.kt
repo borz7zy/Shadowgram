@@ -437,6 +437,11 @@ class ChatsStore(
         val lastReadOutboxMessageId: Long,
     )
 
+    /** A user's public username, null without one. */
+    fun username(userId: Long): String? = synchronized(lock) {
+        users[userId]?.usernames?.activeUsernames?.firstOrNull()
+    }
+
     /** The newest message of a chat or topic as TDLib knows it, 0 when it doesn't. */
     fun lastMessageId(chatId: Long, topicId: Int): Long = synchronized(lock) {
         when (topicId) {

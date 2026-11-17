@@ -22,6 +22,7 @@ import com.github.borz7zy.shadowgram.telegram.Downloads
 import com.github.borz7zy.shadowgram.telegram.InputContents
 import com.github.borz7zy.shadowgram.telegram.StickersStore
 import com.github.borz7zy.shadowgram.ui.text.CustomEmojiRange
+import com.github.borz7zy.shadowgram.ui.text.MentionRange
 import com.github.borz7zy.shadowgram.videonote.VideoNoteCamera
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -277,19 +278,23 @@ class ChatViewModel(
 
     /**
      * @param customEmoji Custom emoji in [text], sent as its entities
+     * @param mentions Users mentioned by name in [text], sent as its entities
      * @param scheduling When it goes, null for right away
      */
     fun send(
         text: String,
         customEmoji: List<CustomEmojiRange> = listOf(),
+        mentions: List<MentionRange> = listOf(),
         scheduling: TdApi.MessageSchedulingState? = null,
     ) {
         clearReply()
         // Sending ends the typing on Telegram's side
         typingSentAt = 0L
-        val entities = customEmoji.map {
+        val entities = (customEmoji.map {
             TdApi.TextEntity(it.offset, it.length, TdApi.TextEntityTypeCustomEmoji(it.customEmojiId))
-        }.toTypedArray()
+        } + mentions.map {
+            TdApi.TextEntity(it.offset, it.length, TdApi.TextEntityTypeMentionName(it.userId))
+        }).sortedBy { it.offset }.toTypedArray()
         viewModelScope.launch {
             val error = history.await().send(
                 TdApi.InputMessageText(TdApi.FormattedText(text, entities), null, true),
@@ -484,6 +489,70 @@ class ChatViewModel(
         viewModelScope.launch { history.await().setPinned(messageId, isPinned) }
     }
 
+    /**
+     * A member to mention, offered while an @word is typed.
+     *
+     * @param username Mentioned as @username, by name when there's none
+     */
+    data class MentionSuggestion(
+        val userId: Long,
+        val name: String,
+        val username: String?,
+        val accentColorId: Int,
+        val photoPath: String?,
+    )
+
+    /** The @word being typed without the @, empty right after it; null when there's none. */
+    val mentionQuery = MutableStateFlow<String?>(null)
+
+    /** Only groups have members to mention, not channels or private chats. */
+    private val canMention = viewModelScope.async {
+        when (val type = (client.await().send(TdApi.GetChat(chatId)) as? Result.Success)?.data?.type) {
+            is TdApi.ChatTypeBasicGroup -> true
+            is TdApi.ChatTypeSupergroup -> !type.isChannel
+            else -> false
+        }
+    }
+
+    private val myUserId = viewModelScope.async {
+        (client.await().send(TdApi.GetMe()) as? Result.Success)?.data?.id ?: 0L
+    }
+
+    /**
+     * The members matching [mentionQuery], all of them for an empty one, this account left out.
+     *
+     * ponytail: the first [MENTION_LIMIT] members TDLib finds, Telegram's limit per request
+     */
+    @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
+    val mentionSuggestions = mentionQuery
+        .debounce { if (it.isNullOrEmpty()) 0L else MENTION_DEBOUNCE_MS }
+        .mapLatest { query ->
+            if (query == null || !canMention.await()) {
+                return@mapLatest listOf()
+            }
+            val client = client.await()
+            val members = (client.send(TdApi.SearchChatMembers(chatId, query, MENTION_LIMIT, null)) as? Result.Success)
+                ?.data?.members.orEmpty()
+            val myUserId = myUserId.await()
+            members.mapNotNull { member ->
+                val userId = (member.memberId as? TdApi.MessageSenderUser)?.userId
+                    ?.takeIf { it != myUserId } ?: return@mapNotNull null
+                val sender = client.chats.sender(member.memberId)
+                MentionSuggestion(
+                    userId = userId,
+                    name = sender.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null,
+                    username = client.chats.username(userId),
+                    accentColorId = sender.accentColorId,
+                    photoPath = sender.photo?.local?.takeIf { it.isDownloadingCompleted }?.path,
+                )
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, listOf())
+
+    /** The chat or user an @username stands for, null if there's none. */
+    suspend fun resolveUsername(username: String): Long? =
+        (client.await().send(TdApi.SearchPublicChat(username)) as? Result.Success)?.data?.id
+
     /** Back to the newest messages, reloading them when reading old ones. */
     fun showNewest() {
         viewModelScope.launch { history.await().showNewest() }
@@ -507,6 +576,8 @@ class ChatViewModel(
         private const val STICKERS_STOP_MS = 5_000L
         private const val GIF_SEARCH_DEBOUNCE_MS = 400L
         private const val TYPING_REPEAT_MS = 5_000L
+        private const val MENTION_LIMIT = 200
+        private const val MENTION_DEBOUNCE_MS = 200L
 
         const val ARG_CHAT_ID = "chat_id"
         const val ARG_TOPIC_ID = "topic_id"
