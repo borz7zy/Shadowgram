@@ -46,6 +46,7 @@ import com.google.android.material.search.SearchView
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.github.borz7zy.shadowgram.R
+import com.github.borz7zy.shadowgram.models.ChatListKey
 import com.github.borz7zy.shadowgram.MainActivity
 import com.github.borz7zy.shadowgram.SettingsActivity
 import com.github.borz7zy.shadowgram.ext.getViewProperty
@@ -653,7 +654,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         val selected = chatsViewModel.selectedFolderId.value
         view?.findViewById<ChatFolderRailView>(R.id.chatFolderRailView)?.submit(
             folders, selected.takeIf { id -> folders.any { it.key.stableId == id } }
-                ?: folders.firstOrNull()?.key?.stableId ?: selected,
+                ?: folders.firstOrNull()?.key?.stableId ?: ChatListKey.Main.stableId,
         )
     }
 
