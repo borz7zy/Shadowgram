@@ -21,6 +21,7 @@ import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.transition.TransitionInflater
 import android.os.CancellationSignal
 import android.provider.ContactsContract
 import android.text.Spanned
@@ -38,7 +39,6 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.app.ActivityOptionsCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.graphics.withTranslation
@@ -60,8 +60,8 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.navigation.ActivityNavigatorExtras
 import androidx.navigation.fragment.findNavController
+import androidx.navigation.fragment.FragmentNavigatorExtras
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.borz7zy.shadowgram.R
@@ -70,6 +70,7 @@ import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.navigateSafe
 import com.github.borz7zy.shadowgram.ext.setProgressCompat
 import com.github.borz7zy.shadowgram.ext.toPx
+import com.github.borz7zy.shadowgram.ui.visibleBoundsOnScreen
 import com.github.borz7zy.shadowgram.models.ChatHeader
 import com.github.borz7zy.shadowgram.models.ChatItem
 import com.github.borz7zy.shadowgram.models.ContactItem
@@ -365,6 +366,10 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        exitTransition = TransitionInflater.from(requireContext()).inflateTransition(R.transition.profile_window)
+        reenterTransition = TransitionInflater.from(requireContext()).inflateTransition(R.transition.profile_window)
+        chatHeaderView.avatarView.transitionName = getString(R.string.transition_profile_avatar)
+
         // Insets: the composer follows the keyboard, or stays above the navigation bar and a
         // panel that took the keyboard's place
         panels = KeyboardPanels(
@@ -397,20 +402,15 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             requireActivity().onBackPressedDispatcher.onBackPressed()
         }
 
-        // The profile of the chat, of the whole group for a topic. The avatar flies into its
-        // header while the messages and the composer give way to the profile content
+        // Keep the profile in this NavHost, so the list and navigation on the left remain.
         chatHeaderView.setOnClickListener {
             findNavController().navigateSafe(
-                R.id.action_chatFragment_to_profileActivity,
+                R.id.action_chatFragment_to_profileFragment,
                 ProfileFragment.createBundle(
                     requireArguments().getLong(ChatViewModel.ARG_CHAT_ID), isFromChat = true
                 ),
-                navigatorExtras = ActivityNavigatorExtras(
-                    ActivityOptionsCompat.makeSceneTransitionAnimation(
-                        requireActivity(),
-                        chatHeaderView.avatarView,
-                        getString(R.string.transition_profile_avatar),
-                    )
+                navigatorExtras = FragmentNavigatorExtras(
+                    chatHeaderView.avatarView to getString(R.string.transition_profile_avatar)
                 ),
             )
         }
@@ -470,15 +470,16 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
 
         setFragmentResultListener(PhotoViewerDialogFragment.REQUEST_KEY_SHOWN) { _, bundle ->
             // The viewer went to another photo: that one is hidden now
-            pictureOf(viewerMessageId)?.frameView?.alpha = 1f
+            setViewerMediaHidden(viewerMessageId, false)
             viewerMessageId = bundle.getLong(PhotoViewerDialogFragment.KEY_MESSAGE_ID)
-            pictureOf(viewerMessageId)?.frameView?.alpha = 0f
+            setViewerMediaHidden(viewerMessageId, true)
         }
         setFragmentResultListener(PhotoViewerDialogFragment.REQUEST_KEY) { _, _ ->
-            pictureOf(viewerMessageId)?.frameView?.alpha = 1f
+            setViewerMediaHidden(viewerMessageId, false)
             viewerMessageId = 0L
             viewerAnchor.drawable = null
             viewerAnchor.locate = null
+            viewerAnchor.restore = null
         }
         setFragmentResultListener(MessageMenuDialogFragment.REQUEST_KEY_SHOWN) { _, _ ->
             menuMessage?.let { setMenuBubbleHidden(it.id, true) }
@@ -605,6 +606,12 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         menuMessage?.let { setMenuBubbleHidden(it.id, false) }
         menuMessage = null
         menuAnchor.locate = null
+        menuAnchor.viewport = null
+        menuAnchor.restore = null
+        setViewerMediaHidden(viewerMessageId, false)
+        viewerMessageId = 0L
+        viewerAnchor.locate = null
+        viewerAnchor.restore = null
         recyclerView.removeOnItemTouchListener(avatarTouchListener)
         Emoji.unregisterInvalidator(emojiInvalidator)
         galleryPanelView.stop()
@@ -788,7 +795,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private fun openProfile(senderId: Long) {
         // The private chat of a user has the user id
         findNavController().navigateSafe(
-            R.id.action_chatFragment_to_profileActivity,
+            R.id.action_chatFragment_to_profileFragment,
             ProfileFragment.createBundle(senderId),
         )
     }
@@ -812,6 +819,11 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             }
         }
         menuAnchor.text = selectableTextOf(message, bubble)
+        menuAnchor.viewport = { recyclerView.visibleBoundsOnScreen() }
+        menuAnchor.restore = {
+            setMenuBubbleHidden(messageId, false)
+            recyclerView
+        }
         menuMessage = message
         findNavController().navigateSafe(
             R.id.action_chatFragment_to_messageMenuDialogFragment,
@@ -938,6 +950,10 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             ?: view.drawable?.constantState?.newDrawable(resources) ?: view.drawable
         viewerAnchor.frame = PhotoViewerDialogFragment.frameOf(view)
         viewerAnchor.locate = { messageId -> pictureOf(messageId)?.let(PhotoViewerDialogFragment::frameOf) }
+        viewerAnchor.restore = {
+            setViewerMediaHidden(viewerMessageId, false)
+            recyclerView
+        }
         viewerMessageId = message.id
         findNavController().navigateSafe(
             R.id.action_chatFragment_to_photoViewerDialogFragment,
@@ -987,6 +1003,11 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     /** What holds a picture with what is drawn over it (a video's preview), hidden together. */
     private val ImageView.frameView get() = parent as? View
 
+    private fun setViewerMediaHidden(messageId: Long, isHidden: Boolean) {
+        adapter.hiddenMediaMessageId = if (isHidden) messageId else 0L
+        pictureOf(messageId)?.frameView?.alpha = if (isHidden) 0f else 1f
+    }
+
     /** The bubble of a message on screen, null if it isn't. */
     private fun bubbleOf(messageId: Long): View? {
         val position = adapter.currentList.indexOfFirst {
@@ -1008,6 +1029,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         setMenuBubbleHidden(message.id, false)
         menuAnchor.bitmap = null
         menuAnchor.locate = null
+        menuAnchor.viewport = null
+        menuAnchor.restore = null
         menuAnchor.text = null
 
         when (bundle.getString(MessageMenuDialogFragment.KEY_ACTION)) {

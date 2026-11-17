@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_resize_list">Изменить ширину списка чатов</string>
+    <string name="chat_notifications_muted">Уведомления отключены</string>
+    <string name="chat_unread_count">Непрочитанных сообщений: %1$d</string>
+    <string name="chat_marked_unread">Отмечен как непрочитанный</string>
+    <string name="last_seen_online">в сети</string>
+    <string name="chat_hide_navigation">Скрыть папки и навигацию</string>
+    <string name="chat_show_navigation">Показать папки и навигацию</string>
+</resources>

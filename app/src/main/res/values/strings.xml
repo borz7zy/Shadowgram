@@ -273,4 +273,10 @@
     <string name="photo_viewer_save_gif_failed">Couldn\'t add the GIF</string>
     <string name="photo_viewer_play_pause">Play or pause</string>
     <string name="photo_viewer_seek">Position in the video</string>
+    <string name="chat_resize_list">Resize chat list</string>
+    <string name="chat_notifications_muted">Notifications muted</string>
+    <string name="chat_unread_count">Unread messages: %1$d</string>
+    <string name="chat_marked_unread">Marked as unread</string>
+    <string name="chat_hide_navigation">Hide folders and navigation</string>
+    <string name="chat_show_navigation">Show folders and navigation</string>
 </resources>

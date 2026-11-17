@@ -27,13 +27,20 @@
 
     <!-- Flies between the bubble and the screen when opening and closing -->
     <!-- Placed by margins from the top left, rounded like the bubble near it -->
-    <com.google.android.material.imageview.ShapeableImageView
-        android:id="@+id/transitionImageView"
+    <FrameLayout
+        android:id="@+id/transitionClipLayout"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_gravity="top|left"
-        android:importantForAccessibility="no"
-        android:scaleType="centerCrop" />
+        android:layout_height="match_parent">
+
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/transitionImageView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="top|left"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop" />
+
+    </FrameLayout>
 
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/toolbar"

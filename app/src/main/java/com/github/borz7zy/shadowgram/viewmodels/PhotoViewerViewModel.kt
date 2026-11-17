@@ -44,6 +44,8 @@ class PhotoViewerViewModel(
 
         /** Where the bubble picture of a message is now on screen, null if it isn't. */
         var locate: ((Long) -> Frame?)? = null
+
+        var restore: (() -> android.view.View?)? = null
     }
 
     /**
@@ -51,8 +53,9 @@ class PhotoViewerViewModel(
      *
      * @param corners Its radii where it meets the bubble's corners: top left, top right, bottom
      *   right, bottom left
+     * @param viewport Visible list area in screen coordinates; bounds retain the full image size
      */
-    class Frame(val bounds: Rect, val corners: FloatArray)
+    class Frame(val bounds: Rect, val corners: FloatArray, val viewport: Rect? = null)
 
     /**
      * A photo, or the still of a [video].

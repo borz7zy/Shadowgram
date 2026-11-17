@@ -25,13 +25,12 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.borz7zy.shadowgram.R
+import com.github.borz7zy.shadowgram.MainActivity
 import com.github.borz7zy.shadowgram.ext.getViewProperty
-import com.github.borz7zy.shadowgram.ext.navigateSafe
 import com.github.borz7zy.shadowgram.ext.setProgressCompat
 import com.github.borz7zy.shadowgram.ext.updatePadding
 import com.github.borz7zy.shadowgram.models.ChatListKey
@@ -111,6 +110,7 @@ class ChatListFragment : Fragment(R.layout.fragment_chat_list) {
 
     // Forum
     private var forumProgress = 0f
+    private var paneCollapse = 0f
     private var forumAnimator: ValueAnimator? = null
 
     /**
@@ -206,6 +206,17 @@ class ChatListFragment : Fragment(R.layout.fragment_chat_list) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        // Opening a chat narrows this pane without recreating it. Keep the forum avatar rail
+        // and topic animation aligned with its new width as well as after folding/resizing.
+        view.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            if (right - left != oldRight - oldLeft) {
+                val widthDp = (right - left) / resources.displayMetrics.density
+                paneCollapse = if ((activity as? MainActivity)?.isSplitChatLayout == true && widthDp > 0)
+                    ((160f - widthDp) / (160f - 112f)).coerceIn(0f, 1f) else 0f
+                applyForumProgress(forumProgress)
+            }
+        }
+
         // Insets
         ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { v, windowInsets ->
             val insets = windowInsets.getInsets(
@@ -300,10 +311,7 @@ class ChatListFragment : Fragment(R.layout.fragment_chat_list) {
     }
 
     private fun openChat(chatId: Long, topicId: Int = 0) {
-        findNavController().navigateSafe(
-            R.id.action_mainFragment_to_chatActivity,
-            ChatFragment.createBundle(chatId, topicId),
-        )
+        (requireActivity() as MainActivity).openChat(ChatFragment.createBundle(chatId, topicId))
     }
 
     /**
@@ -352,6 +360,7 @@ class ChatListFragment : Fragment(R.layout.fragment_chat_list) {
         val fullWidth = (recyclerView.parent as View).width
         val railWidth = resources.getDimensionPixelSize(R.dimen.chat_list_rail_width)
 
+        val avatarsOnly = paneCollapse == 1f
         recyclerView.updateLayoutParams {
             width = when {
                 progress == 0f || fullWidth == 0 -> ViewGroup.LayoutParams.MATCH_PARENT
@@ -359,15 +368,25 @@ class ChatListFragment : Fragment(R.layout.fragment_chat_list) {
             }
         }
 
-        adapter.collapse = progress
-        recyclerView.children.forEach {
-            (recyclerView.getChildViewHolder(it) as ChatListAdapter.ViewHolder).view.collapse =
-                progress
+        setCollapse(adapter, recyclerView, maxOf(progress, paneCollapse))
+        setCollapse(topicsAdapter, topicsRecyclerView, paneCollapse)
+        // When the entire pane is one avatar wide, show topic avatars in that column rather
+        // than giving the forum's topic list a zero-width area beside the forum rail.
+        topicsCardView.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+            marginStart = if (avatarsOnly) 0 else railWidth
         }
+        recyclerView.isVisible = adapter.items.isNotEmpty() && !(avatarsOnly && progress > 0f)
 
-        val slide = (fullWidth - railWidth).coerceAtLeast(0)
+        val slide = if (avatarsOnly) 0 else (fullWidth - railWidth).coerceAtLeast(0)
         topicsCardView.translationX = slide * (1f - progress)
         topicsCardView.alpha = (progress * 2f).coerceAtMost(1f)
+    }
+
+    private fun setCollapse(adapter: ChatListAdapter, recycler: RecyclerView, collapse: Float) {
+        adapter.collapse = collapse
+        recycler.children.forEach {
+            (recycler.getChildViewHolder(it) as ChatListAdapter.ViewHolder).view.collapse = collapse
+        }
     }
 
     private suspend fun loadData() {
@@ -405,7 +424,7 @@ class ChatListFragment : Fragment(R.layout.fragment_chat_list) {
                     }
 
                     val isEmpty = it.data.isEmpty()
-                    recyclerView.isVisible = !isEmpty
+                    recyclerView.isVisible = !isEmpty && !(paneCollapse == 1f && forumProgress > 0f)
                     noElementsLinearLayout.isVisible = isEmpty
                 }
 

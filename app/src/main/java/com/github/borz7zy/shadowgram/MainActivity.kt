@@ -8,6 +8,7 @@ package com.github.borz7zy.shadowgram
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.view.animation.AnimationUtils
 import android.widget.FrameLayout
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -17,11 +18,15 @@ import androidx.core.util.Consumer
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import androidx.fragment.app.commitNow
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavOptions
 import androidx.navigation.fragment.NavHostFragment
+import androidx.window.layout.FoldingFeature
+import androidx.window.layout.WindowInfoTracker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -32,10 +37,14 @@ import com.github.borz7zy.shadowgram.ext.updateBarsVisibility
 import com.github.borz7zy.shadowgram.fragments.AlbumFragment
 import com.github.borz7zy.shadowgram.fragments.ArtistFragment
 import com.github.borz7zy.shadowgram.fragments.GenreFragment
+import com.github.borz7zy.shadowgram.fragments.ChatPaneNavHostFragment
+import com.github.borz7zy.shadowgram.fragments.MainFragment
 import com.github.borz7zy.shadowgram.fragments.PlaylistFragment
 import com.github.borz7zy.shadowgram.models.MediaType
 import com.github.borz7zy.shadowgram.models.Result
 import com.github.borz7zy.shadowgram.ui.views.NowPlayingBar
+import com.github.borz7zy.shadowgram.ui.views.AdaptiveChatLayout
+import com.github.borz7zy.shadowgram.viewmodels.ChatViewModel
 import com.github.borz7zy.shadowgram.viewmodels.FullscreenViewModel
 import com.github.borz7zy.shadowgram.viewmodels.IntentsViewModel
 import com.github.borz7zy.shadowgram.viewmodels.NowPlayingViewModel
@@ -50,6 +59,11 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
     // Views
     private val frameLayout by lazy { findViewById<FrameLayout>(R.id.linearLayout) }
     private val nowPlayingBar by lazy { findViewById<NowPlayingBar>(R.id.nowPlayingBar) }
+    private val chatPanes by lazy { findViewById<AdaptiveChatLayout>(R.id.chatPanes) }
+    private var chatArguments: Bundle? = null
+    private var pendingChatArguments: Bundle? = null
+    private var closingChat = false
+    private var closeChatOnResume = false
 
     // NavController
     private val navHostFragment by lazy {
@@ -60,13 +74,19 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
     private val navController by lazy { navHostFragment.navController }
 
     // Intents
-    private val intentListener = Consumer<Intent> { intentsViewModel.onIntent(it) }
+    private val intentListener = Consumer<Intent> {
+        intentsViewModel.onIntent(it)
+        handleChatIntent(it)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // Enable edge-to-edge
         enableEdgeToEdge()
+
+        chatArguments = savedInstanceState?.getBundle(STATE_CHAT_ARGUMENTS)
+        chatPanes.chatOpen = chatArguments != null
 
         // Insets
         ViewCompat.setOnApplyWindowInsetsListener(frameLayout) { _, windowInsets ->
@@ -104,6 +124,7 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
         // Intents
         intentsViewModel.onIntent(intent)
         addOnNewIntentListener(intentListener)
+        if (savedInstanceState == null) handleChatIntent(intent)
 
         // Now playing bar
         nowPlayingBar.setOnClickListener {
@@ -123,11 +144,152 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
 
     override fun onDestroy() {
         removeOnNewIntentListener(intentListener)
+        if (closingChat) supportFragmentManager.findFragmentByTag(CHAT_HOST_TAG)?.view?.animate()?.cancel()
 
         super.onDestroy()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (closingChat && !supportFragmentManager.isStateSaved) {
+            supportFragmentManager.findFragmentByTag(CHAT_HOST_TAG)?.let { completeCloseChat(it, animate = false) }
+        }
+        outState.putBundle(STATE_CHAT_ARGUMENTS, chatArguments)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        if (closeChatOnResume) {
+            closeChatOnResume = false
+            closeChat()
+        }
+        pendingChatArguments?.let {
+            pendingChatArguments = null
+            openChat(it)
+        }
+    }
+
+    private fun handleChatIntent(intent: Intent) {
+        intent.extras?.takeIf { it.containsKey(ChatViewModel.ARG_CHAT_ID) }?.let(::openChat)
+    }
+
+    /** All entry points (including profiles and the share picker) use the same chat pane. */
+    fun openChat(arguments: Bundle) {
+        if (supportFragmentManager.isStateSaved) {
+            pendingChatArguments = Bundle(arguments)
+            return
+        }
+        if (closingChat) {
+            supportFragmentManager.findFragmentByTag(CHAT_HOST_TAG)?.let { completeCloseChat(it, animate = false) }
+        }
+        navController.popBackStack(R.id.mainFragment, false)
+        navHostFragment.childFragmentManager.executePendingTransactions()
+        (navHostFragment.childFragmentManager.primaryNavigationFragment as? MainFragment)?.showChats()
+
+        val current = chatArguments
+        if (current != null &&
+            current.getLong(ChatViewModel.ARG_CHAT_ID) == arguments.getLong(ChatViewModel.ARG_CHAT_ID) &&
+            current.getInt(ChatViewModel.ARG_TOPIC_ID) == arguments.getInt(ChatViewModel.ARG_TOPIC_ID)
+        ) {
+            (supportFragmentManager.findFragmentByTag(CHAT_HOST_TAG) as? NavHostFragment)
+                ?.navController?.popBackStack(R.id.chatFragment, false)
+            return
+        }
+
+        val host = ChatPaneNavHostFragment().apply { this.arguments = Bundle(arguments) }
+        chatArguments = Bundle(arguments)
+        chatPanes.chatOpen = true
+        supportFragmentManager.commitNow {
+            setReorderingAllowed(true)
+            if (chatPanes.isWideWindow) {
+                setCustomAnimations(R.animator.pane_content_enter, R.animator.pane_content_exit)
+            }
+            // Visible lists still collect and accept taps at STARTED. Pausing them releases
+            // their forum/selection back handlers; the chat owns Back until it is closed.
+            setMaxLifecycle(navHostFragment, Lifecycle.State.STARTED)
+            replace(R.id.chatPane, host, CHAT_HOST_TAG)
+            setPrimaryNavigationFragment(host)
+        }
+        if (!chatPanes.isWideWindow) host.view?.apply {
+            // One animator owns phone enter/exit, so a quick Back can cancel enter cleanly.
+            alpha = 0f
+            translationX = resources.getDimension(R.dimen.chat_phone_translation)
+            animate().alpha(1f).translationX(0f)
+                .setDuration(resources.getInteger(R.integer.chat_phone_enter_duration).toLong())
+                .setInterpolator(AnimationUtils.loadInterpolator(this@MainActivity, android.R.interpolator.fast_out_slow_in))
+                .withLayer().start()
+        }
+    }
+
+    fun closeChat() {
+        val host = supportFragmentManager.findFragmentByTag(CHAT_HOST_TAG) ?: return
+        if (closingChat) return
+        if (supportFragmentManager.isStateSaved) {
+            closeChatOnResume = true
+            return
+        }
+        currentFocus?.let {
+            androidx.core.view.WindowCompat.getInsetsController(window, it)
+                .hide(WindowInsetsCompat.Type.ime())
+            it.clearFocus()
+        }
+        val chatView = host.view
+        if (!chatPanes.isWideWindow && chatView != null &&
+            lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        ) {
+            closingChat = true
+            chatView.animate().cancel()
+            chatView.animate().alpha(0f)
+                .translationX(resources.getDimension(R.dimen.chat_phone_translation))
+                .setDuration(resources.getInteger(R.integer.chat_phone_exit_duration).toLong())
+                .setInterpolator(AnimationUtils.loadInterpolator(this, android.R.interpolator.fast_out_slow_in))
+                .withLayer()
+                .withEndAction { completeCloseChat(host, animate = false) }
+                .start()
+        } else completeCloseChat(host, animate = chatPanes.isWideWindow)
+    }
+
+    private fun completeCloseChat(host: Fragment, animate: Boolean) {
+        closingChat = false
+        host.view?.animate()?.cancel()
+        if (supportFragmentManager.isStateSaved || isDestroyed) {
+            closeChatOnResume = !isDestroyed
+            return
+        }
+        supportFragmentManager.commitNow {
+            setReorderingAllowed(true)
+            if (animate) setCustomAnimations(R.animator.pane_content_enter, R.animator.pane_content_exit)
+            remove(host)
+            setPrimaryNavigationFragment(navHostFragment)
+            setMaxLifecycle(navHostFragment, Lifecycle.State.RESUMED)
+        }
+        chatArguments = null
+        chatPanes.chatOpen = false
+    }
+
+    fun onMainSectionSelected(isChats: Boolean) {
+        chatPanes.isChatListSelected = isChats
+    }
+
+    val isAvatarChatPane get() = chatPanes.isAvatarOnly
+    val isSplitChatLayout get() = chatPanes.isSplitChatLayout
+    val isNavigationRailHidden get() = chatPanes.isNavigationRailHidden
+
+    fun setNavigationRailHidden(hidden: Boolean) {
+        chatPanes.navigationRailHidden = hidden
+    }
+
     private fun CoroutineScope.loadData() {
+        launch {
+            WindowInfoTracker.getOrCreate(this@MainActivity)
+                .windowLayoutInfo(this@MainActivity).collectLatest { info ->
+                    chatPanes.separatingHinge = info.displayFeatures.filterIsInstance<FoldingFeature>()
+                        .firstOrNull {
+                            it.isSeparating && it.orientation == FoldingFeature.Orientation.VERTICAL
+                        }?.bounds
+                }
+        }
+
         launch {
             fullscreenViewModel.fullscreenMode.collectLatest {
                 window.updateBarsVisibility(systemBars = !it)
@@ -253,6 +415,8 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
     )
 
     companion object {
+        private const val STATE_CHAT_ARGUMENTS = "open_chat_arguments"
+        private const val CHAT_HOST_TAG = "chat_pane_nav_host"
         private val LOG_TAG = MainActivity::class.simpleName!!
 
         /**

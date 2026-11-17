@@ -48,6 +48,10 @@ class ChatListItemView @JvmOverloads constructor(
     private val textLinearLayout by lazy { findViewById<View>(R.id.textLinearLayout) }
     private val titleTextView by lazy { findViewById<TextView>(R.id.titleTextView) }
     private val unreadTextView by lazy { findViewById<TextView>(R.id.unreadTextView) }
+    private val avatarUnreadTextView by lazy { findViewById<TextView>(R.id.avatarUnreadTextView) }
+    private val avatarMutedImageView by lazy { findViewById<ImageView>(R.id.avatarMutedImageView) }
+    private val avatarMentionTextView by lazy { findViewById<TextView>(R.id.avatarMentionTextView) }
+    private val onlineView by lazy { findViewById<View>(R.id.onlineView) }
 
     private val colorPrimary = MaterialColors.getColor(
         this, androidx.appcompat.R.attr.colorPrimary
@@ -64,9 +68,11 @@ class ChatListItemView @JvmOverloads constructor(
      */
     var collapse = 0f
         set(value) {
+            if (field == value) return
             field = value
             textLinearLayout.alpha = (1f - value * 2f).coerceIn(0f, 1f)
             textLinearLayout.isVisible = value < 1f
+            updateAvatarIndicators()
         }
 
     init {
@@ -91,6 +97,36 @@ class ChatListItemView @JvmOverloads constructor(
         }
 
         setChat(row.chat, oldRow?.chat, row.isSelectionMode)
+        updateAvatarIndicators()
+    }
+
+    private fun updateAvatarIndicators() {
+        val row = row ?: return
+        val chat = row.chat
+        val compact = collapse >= .5f
+        avatarUnreadTextView.isVisible = compact && (chat.unreadCount > 0 || chat.isMarkedAsUnread)
+        avatarUnreadTextView.text = when {
+            chat.unreadCount > 99 -> "99+"
+            chat.unreadCount > 0 -> chat.unreadCount.toString()
+            else -> ""
+        }
+        avatarUnreadTextView.backgroundTintList = android.content.res.ColorStateList.valueOf(
+            if (chat.isMuted) colorOutline else colorPrimary
+        )
+        avatarUnreadTextView.setTextColor(MaterialColors.getColor(this,
+            if (chat.isMuted) com.google.android.material.R.attr.colorSurface
+            else com.google.android.material.R.attr.colorOnPrimary))
+        avatarMutedImageView.isVisible = compact && chat.isMuted
+        avatarMentionTextView.isVisible = compact && chat.unreadMentionCount > 0
+        onlineView.isVisible = chat.isOnline && !row.isSelected
+        // The hidden title/counters must remain available to TalkBack in the avatar rail.
+        contentDescription = if (compact) listOfNotNull(
+            chat.title,
+            if (chat.isOnline) context.getString(R.string.last_seen_online) else null,
+            if (chat.isMuted) context.getString(R.string.chat_notifications_muted) else null,
+            if (chat.unreadCount > 0) context.getString(R.string.chat_unread_count, chat.unreadCount)
+            else if (chat.isMarkedAsUnread) context.getString(R.string.chat_marked_unread) else null,
+        ).joinToString(", ") else null
     }
 
     private fun setChat(chat: ChatItem, old: ChatItem?, isSelectionMode: Boolean) {

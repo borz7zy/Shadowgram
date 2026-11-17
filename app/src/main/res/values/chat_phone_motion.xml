@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <integer name="chat_phone_enter_duration">220</integer>
+    <integer name="chat_phone_exit_duration">180</integer>
+    <dimen name="chat_phone_translation">32dp</dimen>
+</resources>

@@ -55,6 +55,8 @@ data class ChatItem(
     val emojiStatusId: Long = 0L,
     /** A Premium user, shown with a star when there's no emoji status. */
     val isPremium: Boolean = false,
+    /** A private/secret chat with a regular user currently reported online by TDLib. */
+    val isOnline: Boolean = false,
 ) : UniqueItem<ChatItem> {
     /**
      * @param senderName The name of the sender, null if it shouldn't be shown

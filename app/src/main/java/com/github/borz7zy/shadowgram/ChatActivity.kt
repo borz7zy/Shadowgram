@@ -5,30 +5,22 @@
 
 package com.github.borz7zy.shadowgram
 
+import android.content.Intent
 import android.os.Bundle
-import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.fragment.app.commit
-import androidx.navigation.fragment.NavHostFragment
 
 /**
- * An open chat or forum topic. The navigation graph arguments (chat_id, topic_id) come in as
- * the intent extras and are handed to the start destination as is.
+ * Compatibility entry point for chat navigation from profiles and the share picker. Keeping
+ * one MainActivity lets the very same chat move between full width and split panes on a fold.
  */
-class ChatActivity : AppCompatActivity(R.layout.activity_chat) {
+class ChatActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Enable edge-to-edge
-        enableEdgeToEdge()
-
-        // Restored with its arguments otherwise
-        if (savedInstanceState == null) {
-            val navHostFragment = NavHostFragment.create(R.navigation.activity_chat, intent.extras)
-            supportFragmentManager.commit {
-                replace(R.id.navHostFragment, navHostFragment)
-                setPrimaryNavigationFragment(navHostFragment)
-            }
-        }
+        startActivity(Intent(this, MainActivity::class.java).apply {
+            intent.extras?.let(::putExtras)
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        })
+        finish()
     }
 }

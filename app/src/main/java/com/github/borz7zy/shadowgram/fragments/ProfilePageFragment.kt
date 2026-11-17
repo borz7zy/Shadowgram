@@ -24,6 +24,7 @@ import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.borz7zy.shadowgram.R
+import com.github.borz7zy.shadowgram.MainActivity
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.navigateSafe
 import com.github.borz7zy.shadowgram.ext.setProgressCompat
@@ -65,10 +66,11 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
             return@ProfileItemAdapter
         }
         when (viewModel.kind.value) {
-            ProfilePage.Kind.GROUPS -> findNavController().navigateSafe(
-                R.id.action_profileFragment_to_chatActivity,
-                ChatFragment.createBundle(item.chatId),
-            )
+            ProfilePage.Kind.GROUPS -> (activity as? MainActivity)?.openChat(ChatFragment.createBundle(item.chatId))
+                ?: findNavController().navigateSafe(
+                    R.id.action_profileFragment_to_chatActivity,
+                    ChatFragment.createBundle(item.chatId),
+                )
 
             ProfilePage.Kind.MEMBERS -> findNavController().navigateSafe(
                 R.id.action_profileFragment_to_profileActivity,
@@ -155,6 +157,7 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
                 viewerKey = null
                 viewerAnchor.drawable = null
                 viewerAnchor.locate = null
+                viewerAnchor.restore = null
             }
         }
 
@@ -166,6 +169,11 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
     }
 
     override fun onDestroyView() {
+        if (viewerKey != null) {
+            pictureOf(viewerKey)?.alpha = 1f
+            viewerAnchor.locate = null
+            viewerAnchor.restore = null
+        }
         recyclerView.removeOnScrollListener(onScrollListener)
         recyclerView.adapter = null
 
@@ -182,6 +190,10 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
         viewerAnchor.drawable = image.drawable?.constantState?.newDrawable(resources) ?: image.drawable
         viewerAnchor.frame = PhotoViewerDialogFragment.frameOf(image)
         viewerAnchor.locate = { id -> pictureOf(id.toString())?.let(PhotoViewerDialogFragment::frameOf) }
+        viewerAnchor.restore = {
+            pictureOf(viewerKey)?.alpha = 1f
+            recyclerView
+        }
         findNavController().navigateSafe(
             R.id.action_profileFragment_to_photoViewerDialogFragment,
             PhotoViewerDialogFragment.createBundle(

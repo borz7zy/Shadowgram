@@ -63,6 +63,8 @@ import coil3.request.allowHardware
 import coil3.request.placeholder
 import coil3.size.Precision
 import com.github.borz7zy.shadowgram.R
+import com.github.borz7zy.shadowgram.ui.finishOverlayReturn
+import com.github.borz7zy.shadowgram.ui.mediaTransitionViewport
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.playback.TdFileDataSource
 import com.github.borz7zy.shadowgram.ui.viewer.ZoomableImageView
@@ -109,6 +111,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
     private val seekSlider by getViewProperty<Slider>(R.id.seekSlider)
     private val toolbar by getViewProperty<MaterialToolbar>(R.id.toolbar)
     private val transitionImageView by getViewProperty<ShapeableImageView>(R.id.transitionImageView)
+    private val transitionClipLayout by getViewProperty<FrameLayout>(R.id.transitionClipLayout)
     private val videoControlsLinearLayout by getViewProperty<LinearLayout>(R.id.videoControlsLinearLayout)
     private val viewPager2 by getViewProperty<ViewPager2>(R.id.viewPager2)
 
@@ -116,6 +119,8 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
 
     private var isUiShown = true
     private var isClosing = false
+    private var transitionAnimator: ValueAnimator? = null
+    private var cancelReturnHandoff: (() -> Unit)? = null
     private var isPositioned = false
 
     /** Done flying in: a video may start. */
@@ -280,6 +285,10 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
     }
 
     override fun onDestroyView() {
+        cancelReturnHandoff?.invoke()
+        transitionAnimator?.cancel()
+        transitionImageView.animate().cancel()
+        anchor.restore?.invoke()
         player?.release()
         player = null
         playerMessageId = 0L
@@ -290,6 +299,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
 
     /** Tell the chat which photo this shows, it hides that picture of its own. */
     private fun notifyShown() {
+        if (isClosing) return
         val photo = viewModel.state.value.photos.getOrNull(viewPager2.currentItem)
         setFragmentResult(REQUEST_KEY_SHOWN, bundleOf(KEY_MESSAGE_ID to (photo?.messageId ?: viewModel.messageId)))
     }
@@ -393,6 +403,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
 
     /** From the bubble to the screen, fitted. */
     private fun open(frame: PhotoViewerViewModel.Frame) {
+        if (isClosing) return
         val source = frame.bounds.inWindow()
         val target = fitted(anchor.drawable?.intrinsicWidth ?: 1, anchor.drawable?.intrinsicHeight ?: 1)
         animateFrame(RectF(source), frame.corners, target, NO_CORNERS) {
@@ -414,31 +425,49 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
             return
         }
         isClosing = true
+        transitionAnimator?.cancel()
 
         val finish = {
-            setFragmentResult(REQUEST_KEY, Bundle())
-            dismissAllowingStateLoss()
+            cancelReturnHandoff = finishOverlayReturn(anchor.restore?.invoke()) {
+                setFragmentResult(REQUEST_KEY, Bundle())
+                dismissAllowingStateLoss()
+            }
+        }
+        if (view == null) {
+            finish()
+            return
         }
         val photo = viewModel.state.value.photos.getOrNull(viewPager2.currentItem)
         val holder = currentHolder()
         val page = holder?.image
-        val drawable = holder?.frame() ?: page?.drawable
-        if (view == null || photo == null || page == null || drawable == null) {
+        val drawable = if (isOpened) holder?.frame() ?: page?.drawable else transitionImageView.drawable
+        if (drawable == null) {
             finish()
             return
         }
 
         player?.pause()
-        val from = page.displayRect()
+        val from = if (isOpened && page != null) page.displayRect() else RectF(
+            transitionImageView.left.toFloat(), transitionImageView.top.toFloat(),
+            transitionImageView.right.toFloat(), transitionImageView.bottom.toFloat(),
+        )
+        val size = RectF(0f, 0f, transitionImageView.width.toFloat(), transitionImageView.height.toFloat())
+        val shape = transitionImageView.shapeAppearanceModel
+        val fromCorners = if (isOpened) NO_CORNERS else floatArrayOf(
+            shape.topLeftCornerSize.getCornerSize(size), shape.topRightCornerSize.getCornerSize(size),
+            shape.bottomRightCornerSize.getCornerSize(size), shape.bottomLeftCornerSize.getCornerSize(size),
+        )
         transitionImageView.setImageDrawable(drawable)
         transitionImageView.isVisible = true
         viewPager2.isVisible = false
         setUiShown(false, animate = true)
         backgroundView.animate().alpha(0f).setDuration(duration()).start()
 
-        when (val target = anchor.locate?.invoke(photo.messageId)) {
+        val target = anchor.locate?.invoke(photo?.messageId ?: viewModel.messageId)
+        transitionClipLayout.clipBounds = target?.viewport?.inWindow()
+        when (val destination = target?.takeIf { it.viewport == null || Rect.intersects(it.bounds, it.viewport) }) {
             null -> {
-                layoutTransition(from, NO_CORNERS)
+                layoutTransition(from, fromCorners)
                 transitionImageView.animate()
                     .translationY(if (from.centerY() < rootFrameLayout.height / 2) -from.bottom else rootFrameLayout.height - from.top)
                     .alpha(0f)
@@ -447,7 +476,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
                     .start()
             }
 
-            else -> animateFrame(from, NO_CORNERS, RectF(target.bounds.inWindow()), target.corners) { finish() }
+            else -> animateFrame(from, fromCorners, RectF(destination.bounds.inWindow()), destination.corners) { finish() }
         }
     }
 
@@ -462,8 +491,9 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
         toCorners: FloatArray,
         onEnd: () -> Unit,
     ) {
+        transitionAnimator?.cancel()
         layoutTransition(from, fromCorners)
-        ValueAnimator.ofFloat(0f, 1f).apply {
+        transitionAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = duration()
             interpolator = MotionUtils.resolveThemeInterpolator(
                 requireContext(),
@@ -483,7 +513,11 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
                 )
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) = onEnd()
+                private var cancelled = false
+                override fun onAnimationCancel(animation: android.animation.Animator) { cancelled = true }
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (!cancelled) onEnd()
+                }
             })
             start()
         }
@@ -816,6 +850,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
         fun createProfileBundle(chatId: Long) = bundleOf(
             PhotoViewerViewModel.ARG_CHAT_ID to chatId,
             PhotoViewerViewModel.ARG_MESSAGE_ID to PhotoViewerViewModel.CURRENT_PROFILE_PHOTO_ID,
+            PhotoViewerViewModel.ARG_MESSAGE_IDS to longArrayOf(PhotoViewerViewModel.CURRENT_PROFILE_PHOTO_ID),
             PhotoViewerViewModel.ARG_PROFILE to true,
         )
 
@@ -825,6 +860,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
          */
         fun frameOf(view: View): PhotoViewerViewModel.Frame {
             val bounds = view.boundsOnScreen()
+            val viewport = view.mediaTransitionViewport()
             val corners = FloatArray(4)
             if (view is ShapeableImageView) {
                 val size = RectF(0f, 0f, bounds.width().toFloat(), bounds.height().toFloat())
@@ -833,7 +869,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
                 corners[1] = shape.topRightCornerSize.getCornerSize(size)
                 corners[2] = shape.bottomRightCornerSize.getCornerSize(size)
                 corners[3] = shape.bottomLeftCornerSize.getCornerSize(size)
-                return PhotoViewerViewModel.Frame(bounds, corners)
+                return PhotoViewerViewModel.Frame(bounds, corners, viewport)
             }
 
             var card = view.parent as? View
@@ -854,7 +890,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
                 if (right && bottom) corners[2] = shape.bottomRightCornerSize.getCornerSize(size)
                 if (left && bottom) corners[3] = shape.bottomLeftCornerSize.getCornerSize(size)
             }
-            return PhotoViewerViewModel.Frame(bounds, corners)
+            return PhotoViewerViewModel.Frame(bounds, corners, viewport)
         }
 
         private fun View.boundsOnScreen(): Rect {

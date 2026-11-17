@@ -80,6 +80,9 @@ class MessageListAdapter(
     /** The message the menu lifted, its bubble hidden meanwhile; 0 for none. */
     var hiddenMessageId = 0L
 
+    /** Keep the viewer's source hidden even when a download causes its row to rebind. */
+    var hiddenMediaMessageId = 0L
+
     /**
      * A message to flash once it's bound: a reply's original shown in the chat.
      *
@@ -149,6 +152,7 @@ class MessageListAdapter(
                 trackOf,
                 callbacks,
                 { hiddenMessageId },
+                { hiddenMediaMessageId },
                 ::takeHighlight,
             )
 
@@ -164,6 +168,12 @@ class MessageListAdapter(
             is MessageRow.Separator -> (holder as SeparatorViewHolder).bind(row)
             MessageRow.UnreadSeparator -> (holder as SeparatorViewHolder).bindUnread()
         }
+    }
+
+    override fun onViewAttachedToWindow(holder: RecyclerView.ViewHolder) {
+        super.onViewAttachedToWindow(holder)
+        val row = currentList.getOrNull(holder.bindingAdapterPosition) as? MessageRow.Bubble ?: return
+        (holder as? BubbleViewHolder)?.bindSourceVisibility(row)
     }
 
     override fun onBindViewHolder(
@@ -239,6 +249,7 @@ class MessageListAdapter(
         private val trackOf: (MessageItem, MessageItem.Playable) -> MessagePlayer.Track,
         private val callbacks: Callbacks,
         private val hiddenMessageId: () -> Long,
+        private val hiddenMediaMessageId: () -> Long,
         private val takeHighlight: (MessageRow.Bubble) -> Highlight?,
     ) : RecyclerView.ViewHolder(view) {
         private val forwardLinearLayout = view.findViewById<LinearLayout>(R.id.forwardLinearLayout)
@@ -445,7 +456,6 @@ class MessageListAdapter(
         fun bind(row: MessageRow.Bubble) {
             val message = row.message
             this.message = message
-            bubbleCardView.alpha = if (message.id == hiddenMessageId()) 0f else 1f
             val context = view.context
             val isOutgoing = message.isOutgoing
             val media = message.media
@@ -502,6 +512,7 @@ class MessageListAdapter(
             bindPlayable(message, media)
             bindDocument(message)
             bindAlbum(pictures)
+            bindSourceVisibility(row)
             bindFiles(files)
             bindUpload(message)
 
@@ -575,6 +586,15 @@ class MessageListAdapter(
             bindMeta(message, textColor)
 
             bindHighlight(row)
+        }
+
+        fun bindSourceVisibility(row: MessageRow.Bubble) {
+            bubbleCardView.alpha = if (row.message.id == hiddenMessageId()) 0f else 1f
+            val hiddenMedia = hiddenMediaMessageId()
+            mediaFrameLayout.alpha = if (!albumView.isVisible && row.message.id == hiddenMedia) 0f else 1f
+            row.album.forEach { item ->
+                (albumView.imageOf(item.id)?.parent as? View)?.alpha = if (item.id == hiddenMedia) 0f else 1f
+            }
         }
 
         /** "Forwarded from" whom, with their avatar. */

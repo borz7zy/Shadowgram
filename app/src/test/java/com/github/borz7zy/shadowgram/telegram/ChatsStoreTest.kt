@@ -44,6 +44,49 @@ class ChatsStoreTest {
     private fun items(key: ChatListKey) = runBlocking { store.chatList(key).first().items }
 
     @Test
+    fun onlineIndicatorFollowsUserStatusUpdates() {
+        store.onUpdate(TdApi.UpdateNewChat(chat(1, "Alice")))
+        store.onUpdate(TdApi.UpdateChatPosition(1, position(TdApi.ChatListMain(), 10)))
+        assertFalse(items(ChatListKey.Main).single().isOnline)
+        store.onUpdate(TdApi.UpdateUser(TdApi.User().apply {
+            id = 1
+            type = TdApi.UserTypeRegular()
+            status = TdApi.UserStatusOnline(Int.MAX_VALUE)
+        }))
+        assertTrue(items(ChatListKey.Main).single().isOnline)
+        store.onUpdate(TdApi.UpdateUserStatus(1, TdApi.UserStatusOffline(100)))
+        assertFalse(items(ChatListKey.Main).single().isOnline)
+        store.onUpdate(TdApi.UpdateUserStatus(1, TdApi.UserStatusRecently()))
+        assertFalse(items(ChatListKey.Main).single().isOnline)
+    }
+
+    @Test
+    fun botsAndGroupsNeverShowAnOnlineDot() {
+        store.onUpdate(TdApi.UpdateUser(TdApi.User().apply {
+            id = 1
+            type = TdApi.UserTypeBot()
+            status = TdApi.UserStatusOnline(Int.MAX_VALUE)
+        }))
+        store.onUpdate(TdApi.UpdateNewChat(chat(1, "Bot")))
+        store.onUpdate(TdApi.UpdateChatPosition(1, position(TdApi.ChatListMain(), 10)))
+        store.onUpdate(TdApi.UpdateNewChat(chat(2, "Group").apply { type = TdApi.ChatTypeBasicGroup(1) }))
+        store.onUpdate(TdApi.UpdateChatPosition(2, position(TdApi.ChatListMain(), 20)))
+        assertTrue(items(ChatListKey.Main).none { it.isOnline })
+    }
+
+    @Test
+    fun onlineDotAlsoWorksForSecretChats() {
+        store.onUpdate(TdApi.UpdateUser(TdApi.User().apply {
+            id = 10
+            type = TdApi.UserTypeRegular()
+            status = TdApi.UserStatusOnline(Int.MAX_VALUE)
+        }))
+        store.onUpdate(TdApi.UpdateNewChat(chat(1, "Secret").apply { type = TdApi.ChatTypeSecret(5, 10) }))
+        store.onUpdate(TdApi.UpdateChatPosition(1, position(TdApi.ChatListMain(), 10)))
+        assertTrue(items(ChatListKey.Main).single().isOnline)
+    }
+
+    @Test
     fun ordersChatsAndKeepsListsApart() {
         store.onUpdate(TdApi.UpdateNewChat(chat(1, "Old")))
         store.onUpdate(TdApi.UpdateNewChat(chat(2, "New")))

@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.graphics.Rect
 import android.os.Bundle
 import android.telephony.PhoneNumberUtils
+import android.transition.TransitionInflater
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -30,9 +31,12 @@ import androidx.viewpager2.adapter.FragmentStateAdapter
 import androidx.viewpager2.widget.ViewPager2
 import com.github.borz7zy.rustcore.RustMedia
 import com.github.borz7zy.shadowgram.R
+import com.github.borz7zy.shadowgram.MainActivity
+import com.github.borz7zy.shadowgram.ProfileActivity
 import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.navigateSafe
+import com.github.borz7zy.shadowgram.ext.navigateBackInPane
 import com.github.borz7zy.shadowgram.telegram.EmojiStickers
 import com.github.borz7zy.shadowgram.telegram.ProfilePage
 import com.github.borz7zy.shadowgram.ui.text.subtitleText
@@ -90,7 +94,10 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
     private val videoCallLinearLayout by getViewProperty<LinearLayout>(R.id.videoCallLinearLayout)
     private val viewPager2 by getViewProperty<ViewPager2>(R.id.viewPager2)
 
-    private val startTransition = Runnable { activity?.supportStartPostponedEnterTransition() }
+    private val startTransition = Runnable {
+        if (activity is MainActivity) startPostponedEnterTransition()
+        else (activity as? ProfileActivity)?.supportStartPostponedEnterTransition()
+    }
 
     private val viewerAnchor by activityViewModels<PhotoViewerViewModel.Anchor>()
 
@@ -105,6 +112,14 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        if (activity is MainActivity) {
+            postponeEnterTransition()
+            enterTransition = TransitionInflater.from(requireContext()).inflateTransition(R.transition.profile_window)
+            returnTransition = TransitionInflater.from(requireContext()).inflateTransition(R.transition.profile_window)
+            sharedElementEnterTransition = TransitionInflater.from(requireContext()).inflateTransition(android.R.transition.move)
+            sharedElementReturnTransition = TransitionInflater.from(requireContext()).inflateTransition(android.R.transition.move)
+        }
+
         // Insets: the header scrolls away under the status bar
         ViewCompat.setOnApplyWindowInsetsListener(appBarLayout) { v, windowInsets ->
             val insets = windowInsets.getInsets(
@@ -118,7 +133,7 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         }
 
         toolbar.setNavigationOnClickListener {
-            requireActivity().onBackPressedDispatcher.onBackPressed()
+            navigateBackInPane()
         }
 
         // The name moves to the top bar once the header is scrolled away
@@ -150,11 +165,12 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
 
         messageMaterialButton.setOnClickListener {
             when (requireArguments().getBoolean(ARG_IS_FROM_CHAT)) {
-                true -> requireActivity().onBackPressedDispatcher.onBackPressed()
-                false -> findNavController().navigateSafe(
-                    R.id.action_profileFragment_to_chatActivity,
-                    ChatFragment.createBundle(viewModel.chatId),
-                )
+                true -> navigateBackInPane()
+                false -> (activity as? MainActivity)?.openChat(ChatFragment.createBundle(viewModel.chatId))
+                    ?: findNavController().navigateSafe(
+                        R.id.action_profileFragment_to_chatActivity,
+                        ChatFragment.createBundle(viewModel.chatId),
+                    )
             }
         }
 
@@ -213,6 +229,7 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         }
     }
 
+
     /** White over the profile's colors, the theme's own over the surface. */
     private fun bindCoverColors() {
         val isOnCover = profileCoverView.hasColors
@@ -223,8 +240,12 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         titleTextView.setTextColor(if (isOnCover) Color.WHITE else onSurface)
         subtitleTextView.setTextColor(if (isOnCover) COVER_SUBTITLE_COLOR else onSurfaceVariant)
         toolbar.setNavigationIconTint(if (isOnCover && !isCollapsed) Color.WHITE else onSurface)
-        WindowCompat.getInsetsController(requireActivity().window, requireView()).isAppearanceLightStatusBars =
-            if (isOnCover && !isCollapsed) false else isLightTheme()
+        // An inline profile shares the window with the main pane; its cover must not recolor
+        // the system status bar of that entire window.
+        if (activity is ProfileActivity) {
+            WindowCompat.getInsetsController(requireActivity().window, requireView()).isAppearanceLightStatusBars =
+                if (isOnCover && !isCollapsed) false else isLightTheme()
+        }
     }
 
     private fun isLightTheme() = resources.configuration.uiMode and
@@ -277,6 +298,7 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         }
         viewerAnchor.drawable = drawable.constantState?.newDrawable(resources) ?: drawable
         viewerAnchor.frame = frame()
+        viewerAnchor.restore = { avatarView }
         viewerAnchor.locate = { id -> if (id == photoId && avatarView.isAttachedToWindow) frame() else null }
         findNavController().navigateSafe(
             R.id.action_profileFragment_to_photoViewerDialogFragment,
@@ -289,7 +311,7 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         // The next view's cover gets the pattern again (back from the player)
         coverEmojiId = 0L
         isCollapsed = false
-        view?.let {
+        view?.takeIf { activity is ProfileActivity }?.let {
             WindowCompat.getInsetsController(requireActivity().window, it).isAppearanceLightStatusBars =
                 isLightTheme()
         }

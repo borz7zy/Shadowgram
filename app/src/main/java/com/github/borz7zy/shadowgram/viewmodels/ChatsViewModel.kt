@@ -7,6 +7,7 @@ package com.github.borz7zy.shadowgram.viewmodels
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.models.ChatFolder
@@ -26,7 +27,15 @@ import kotlinx.coroutines.flow.stateIn
  * Chat folders of the active account, and the forum whose topics are open. Activity scoped:
  * the main top bar, the folders and every chat list share it.
  */
-class ChatsViewModel(application: Application) : AndroidViewModel(application) {
+class ChatsViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application) {
+    val selectedFolderId = savedState.getStateFlow("selected_chat_folder", ChatListKey.Main.stableId)
+
+    fun selectFolder(key: ChatListKey) {
+        if (selectedFolderId.value == key.stableId) return
+        savedState["selected_chat_folder"] = key.stableId
+        closeForum()
+    }
+
     /**
      * @param chatListStableId The [ChatListKey.stableId] of the list the forum was opened from
      */

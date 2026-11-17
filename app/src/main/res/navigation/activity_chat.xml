@@ -56,8 +56,8 @@
 
         <!-- The top bar, a sender's name or avatar -->
         <action
-            android:id="@+id/action_chatFragment_to_profileActivity"
-            app:destination="@id/profileActivity" />
+            android:id="@+id/action_chatFragment_to_profileFragment"
+            app:destination="@id/profileFragment" />
 
         <!-- A long press on the top bar, the pinned bar's list button -->
         <action
@@ -123,8 +123,8 @@
             app:destination="@id/messageMenuDialogFragment" />
 
         <action
-            android:id="@+id/action_chatFragment_to_profileActivity"
-            app:destination="@id/profileActivity" />
+            android:id="@+id/action_chatFragment_to_profileFragment"
+            app:destination="@id/profileFragment" />
 
     </fragment>
 
@@ -200,19 +200,25 @@
 
     </dialog>
 
-    <activity
-        android:id="@+id/profileActivity"
-        android:name="com.github.borz7zy.shadowgram.ProfileActivity">
+    <!-- A profile is another destination of the chat pane, including its member profiles. -->
+    <fragment
+        android:id="@+id/profileFragment"
+        android:name="com.github.borz7zy.shadowgram.fragments.ProfileFragment"
+        tools:layout="@layout/fragment_profile">
 
-        <argument
-            android:name="chat_id"
-            app:argType="long" />
-
+        <argument android:name="chat_id" app:argType="long" />
         <argument
             android:name="is_from_chat"
             android:defaultValue="false"
             app:argType="boolean" />
 
-    </activity>
+        <action
+            android:id="@+id/action_profileFragment_to_profileActivity"
+            app:destination="@id/profileFragment" />
+        <action
+            android:id="@+id/action_profileFragment_to_photoViewerDialogFragment"
+            app:destination="@id/photoViewerDialogFragment" />
+
+    </fragment>
 
 </navigation>

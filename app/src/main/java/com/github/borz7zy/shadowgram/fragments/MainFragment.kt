@@ -11,6 +11,8 @@ import android.util.Log
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
+import android.view.ViewGroup
+import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedCallback
 import androidx.annotation.IdRes
@@ -19,10 +21,12 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.children
 import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
 import androidx.core.widget.NestedScrollView
 import androidx.core.widget.addTextChangedListener
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
+import androidx.fragment.app.commitNow
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -31,21 +35,20 @@ import androidx.navigation.fragment.findNavController
 import androidx.navigation.ui.setupWithNavController
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
-import androidx.viewpager2.adapter.FragmentStateAdapter
-import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.navigation.NavigationBarView
+import com.google.android.material.navigationrail.NavigationRailView
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.search.SearchView
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.github.borz7zy.shadowgram.R
+import com.github.borz7zy.shadowgram.MainActivity
 import com.github.borz7zy.shadowgram.SettingsActivity
 import com.github.borz7zy.shadowgram.ext.getViewProperty
-import com.github.borz7zy.shadowgram.ext.isLandscape
 import com.github.borz7zy.shadowgram.ext.isRtl
 import com.github.borz7zy.shadowgram.ext.navigateSafe
 import com.github.borz7zy.shadowgram.ext.scheduleHideSoftInput
@@ -61,9 +64,11 @@ import com.github.borz7zy.shadowgram.models.Playlist
 import com.github.borz7zy.shadowgram.models.areContentsTheSame
 import com.github.borz7zy.shadowgram.models.areItemsTheSame
 import com.github.borz7zy.shadowgram.ui.recyclerview.SimpleListAdapter
+import com.github.borz7zy.shadowgram.ui.MainSectionHost
 import com.github.borz7zy.shadowgram.ui.views.ListItem
 import com.github.borz7zy.shadowgram.models.ChatHeader
 import com.github.borz7zy.shadowgram.ui.views.ChatHeaderView
+import com.github.borz7zy.shadowgram.ui.views.ChatFolderRailView
 import com.github.borz7zy.shadowgram.viewmodels.ChatsViewModel
 import com.github.borz7zy.shadowgram.viewmodels.MainViewModel
 import com.github.borz7zy.shadowgram.viewmodels.NewChatViewModel
@@ -89,7 +94,24 @@ class MainFragment : Fragment(R.layout.fragment_main) {
     private val settingsMaterialButton by getViewProperty<MaterialButton>(R.id.settingsMaterialButton)
     private val toolbar by getViewProperty<MaterialToolbar>(R.id.toolbar)
     private val forumHeaderView by getViewProperty<ChatHeaderView>(R.id.forumHeaderView)
-    private val viewPager2 by getViewProperty<ViewPager2>(R.id.viewPager2)
+    private val mainSectionContainer by getViewProperty<View>(R.id.mainSectionContainer)
+
+    private val hasNavigationRail get() = navigationBarView is NavigationRailView
+    private var synchronizingNavigation = false
+
+    private var selectedPage = Page.ACTIVITY
+    private var sectionHost: MainSectionHost? = null
+
+    fun showChats() {
+        showSection(Page.ACTIVITY)
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        selectedPage = Page.entries.firstOrNull {
+            it.name == savedInstanceState?.getString(STATE_SELECTED_PAGE)
+        } ?: Page.ACTIVITY
+    }
 
     // System services
     private val inputMethodManager: InputMethodManager
@@ -202,13 +224,33 @@ class MainFragment : Fragment(R.layout.fragment_main) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateCompactPane()
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(view.findViewById(R.id.contentCoordinatorLayout)) { _, insets ->
+            updateCompactPane(insets)
+            insets
+        }
+
+        toolbar.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateToolbarActions()
+        }
+
+        view.findViewById<MaterialButton>(R.id.hideNavigationRailButton)?.setOnClickListener {
+            (activity as? MainActivity)?.setNavigationRailHidden(true)
+        }
+        view.findViewById<MaterialButton>(R.id.showNavigationRailButton)?.setOnClickListener {
+            (activity as? MainActivity)?.setNavigationRailHidden(false)
+        }
+        view.findViewById<ChatFolderRailView>(R.id.chatFolderRailView)?.onFolderSelected = chatsViewModel::selectFolder
+
         // Insets
         ViewCompat.setOnApplyWindowInsetsListener(toolbar) { v, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout())
 
             v.updatePadding(
                 insets,
-                start = !resources.configuration.isLandscape,
+                start = !hasNavigationRail,
                 end = true,
             )
 
@@ -220,33 +262,33 @@ class MainFragment : Fragment(R.layout.fragment_main) {
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
 
-            v.updatePadding(
+            (view.findViewById<View>(R.id.navigationRailContainer) ?: v).updatePadding(
                 insets,
-                start = resources.configuration.isLandscape,
-                top = resources.configuration.isLandscape,
+                start = hasNavigationRail,
+                top = hasNavigationRail,
                 bottom = true,
             )
 
             windowInsets
         }
 
-        ViewCompat.setOnApplyWindowInsetsListener(viewPager2) { v, windowInsets ->
+        ViewCompat.setOnApplyWindowInsetsListener(mainSectionContainer) { v, windowInsets ->
             val displayCutoutInsets = windowInsets.getInsets(
                 WindowInsetsCompat.Type.displayCutout()
             )
             val systemBarsInsets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
 
             fun adjustInsets(insets: Insets) = Insets.of(
-                when (!v.isRtl && resources.configuration.isLandscape) {
+                when (!v.isRtl && hasNavigationRail) {
                     true -> 0
                     false -> insets.left
                 },
                 insets.top,
-                when (v.isRtl && resources.configuration.isLandscape) {
+                when (v.isRtl && hasNavigationRail) {
                     true -> 0
                     false -> insets.right
                 },
-                when (resources.configuration.isLandscape) {
+                when (hasNavigationRail) {
                     true -> insets.bottom
                     false -> 0
                 },
@@ -390,26 +432,24 @@ class MainFragment : Fragment(R.layout.fragment_main) {
             navigationBarView.selectedItemId = R.id.contactsFragment
         }
 
-        // View pager
-        viewPager2.isUserInputEnabled = false
-        viewPager2.adapter = object : FragmentStateAdapter(this) {
-            override fun getItemCount() = Page.entries.size
-            override fun createFragment(position: Int) = Page.entries[position].createFragment()
+        // Discard pages saved by the old top-level ViewPager2 before they create their views.
+        // Their dynamically generated page containers no longer exist after an app update.
+        val legacyPages = childFragmentManager.fragments.filter { fragment ->
+            Page.entries.any { fragment.tag == "f${it.ordinal}" }
         }
-        viewPager2.offscreenPageLimit = Page.entries.size
+        if (legacyPages.isNotEmpty()) childFragmentManager.commitNow {
+            legacyPages.forEach(::remove)
+        }
+        sectionHost = MainSectionHost(childFragmentManager, R.id.mainSectionContainer)
 
         navigationBarView.setOnItemSelectedListener { item ->
+            if (synchronizingNavigation) return@setOnItemSelectedListener true
             setFabMenuOpen(false)
 
-            val index = Page.entries.indexOfFirst { it.menuItemId == item.itemId }
-
-            if (index >= 0) {
-                viewPager2.currentItem = index
-                true
-            } else {
-                false
-            }
+            val page = Page.entries.firstOrNull { it.menuItemId == item.itemId }
+            page != null && showSection(page)
         }
+        showSection(selectedPage)
 
         // Search
         searchRecyclerView.adapter = searchAdapter
@@ -427,7 +467,16 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
-                    chatsViewModel.forumHeader.collectLatest(::setForumHeader)
+                    chatsViewModel.forumHeader.collectLatest { header ->
+                        setForumHeader(header.takeIf { selectedPage == Page.ACTIVITY })
+                    }
+                }
+
+                launch {
+                    chatsViewModel.folders.collectLatest { renderFolderRail() }
+                }
+                launch {
+                    chatsViewModel.selectedFolderId.collectLatest { renderFolderRail() }
                 }
 
                 launch {
@@ -479,9 +528,36 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         }
     }
 
+    override fun onViewStateRestored(savedInstanceState: Bundle?) {
+        super.onViewStateRestored(savedInstanceState)
+        // Older versions only stored the menu's checked item in the view hierarchy.
+        val restoredPage = if (savedInstanceState?.containsKey(STATE_SELECTED_PAGE) == true) selectedPage
+            else Page.entries.firstOrNull { it.menuItemId == navigationBarView.selectedItemId } ?: selectedPage
+        showSection(restoredPage)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(STATE_SELECTED_PAGE, selectedPage.name)
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun showSection(page: Page): Boolean {
+        if (sectionHost?.show("main_section_${page.name}", create = page.createFragment) != true) return false
+        selectedPage = page
+        synchronizingNavigation = true
+        try {
+            navigationBarView.selectedItemId = page.menuItemId
+        } finally {
+            synchronizingNavigation = false
+        }
+        (activity as? MainActivity)?.onMainSectionSelected(page == Page.ACTIVITY)
+        setForumHeader(chatsViewModel.forumHeader.value.takeIf { page == Page.ACTIVITY })
+        ViewCompat.requestApplyInsets(mainSectionContainer)
+        return true
+    }
+
     override fun onDestroyView() {
-        // View pager
-        viewPager2.adapter = null
+        sectionHost = null
 
         // Search
         searchRecyclerView.adapter = null
@@ -505,8 +581,8 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         }
 
         settingsMaterialButton.isVisible = !isOpen
-        providerMaterialButton.isVisible = !isOpen
         forumHeaderView.isVisible = isOpen
+        updateToolbarActions()
 
         if (isOpen) {
             toolbar.title = null
@@ -524,6 +600,61 @@ class MainFragment : Fragment(R.layout.fragment_main) {
             toolbar.navigationIcon = null
             toolbar.setNavigationOnClickListener { findNavController().navigateUp() }
         }
+    }
+
+    private fun updateToolbarActions() {
+        // The list pane can be much narrower than the window on an unfolded phone.
+        providerMaterialButton.isVisible = !forumHeaderView.isVisible &&
+            toolbar.width >= (360 * resources.displayMetrics.density).toInt()
+    }
+
+    private fun updateCompactPane(insets: WindowInsetsCompat? = ViewCompat.getRootWindowInsets(requireView())) {
+        val content = requireView().findViewById<View>(R.id.contentCoordinatorLayout)
+        val compact = (activity as? MainActivity)?.isAvatarChatPane == true
+        val hidden = compact && (activity as? MainActivity)?.isNavigationRailHidden == true
+        requireView().findViewById<View>(R.id.appBarLayout).isVisible = !compact
+        fabMenuFloatingActionButton.isVisible = !compact
+        if (compact && isFabMenuOpen) setFabMenuOpen(false)
+        val rail = requireView().findViewById<View>(R.id.navigationRailContainer)
+        val header = requireView().findViewById<View>(R.id.compactNavigationHeader)
+        if (rail != null && header != null) {
+            rail.isVisible = !hidden
+            header.isVisible = hidden
+            requireView().findViewById<View>(R.id.hideNavigationRailButton).isVisible = compact
+            requireView().findViewById<View>(R.id.foldersRailScrollView).isVisible = compact
+            requireView().findViewById<View>(R.id.foldersRailDivider).isVisible = compact
+            val targetHeight = if (compact) ViewGroup.LayoutParams.WRAP_CONTENT else 0
+            val targetWeight = if (compact) 0f else 1f
+            val navParams = navigationBarView.layoutParams as LinearLayout.LayoutParams
+            if (navParams.height != targetHeight || navParams.weight != targetWeight) {
+                navigationBarView.updateLayoutParams<LinearLayout.LayoutParams> {
+                    height = targetHeight
+                    weight = targetWeight
+                }
+            }
+            val targetTop = if (hidden) R.id.compactNavigationHeader else R.id.appBarLayout
+            if ((content.layoutParams as ConstraintLayout.LayoutParams).topToBottom != targetTop) {
+                content.updateLayoutParams<ConstraintLayout.LayoutParams> { topToBottom = targetTop }
+            }
+            val headerTop = if (hidden) insets?.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )?.top ?: 0 else 0
+            header.setPadding(0, headerTop, 0, 0)
+        }
+        // Without the app bar, the first avatar still starts below the status bar/cutout.
+        val top = if (compact && !hidden) insets?.getInsets(
+            WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+        )?.top ?: 0 else 0
+        content.setPadding(content.paddingLeft, top, content.paddingRight, content.paddingBottom)
+    }
+
+    private fun renderFolderRail() {
+        val folders = chatsViewModel.folders.value
+        val selected = chatsViewModel.selectedFolderId.value
+        view?.findViewById<ChatFolderRailView>(R.id.chatFolderRailView)?.submit(
+            folders, selected.takeIf { id -> folders.any { it.key.stableId == id } }
+                ?: folders.firstOrNull()?.key?.stableId ?: selected,
+        )
     }
 
     private fun setFabMenuOpen(open: Boolean) {
@@ -583,6 +714,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
     }
 
     companion object {
+        private const val STATE_SELECTED_PAGE = "selected_main_section"
         private const val FORUM_HEADER_FADE_MS = 200L
 
         private val LOG_TAG = MainFragment::class.simpleName!!

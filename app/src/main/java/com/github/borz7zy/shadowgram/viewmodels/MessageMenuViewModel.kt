@@ -43,6 +43,11 @@ class MessageMenuViewModel(
         /** Where the bubble is now on screen, null once it's off it. */
         var locate: (() -> Rect?)? = null
 
+        var viewport: (() -> Rect?)? = null
+
+        /** Restore the real bubble before removing the dialog's last frame. */
+        var restore: (() -> android.view.View?)? = null
+
         /** The bubble's text, selectable over its picture to quote or copy a part; null for none. */
         var text: SelectableText? = null
     }

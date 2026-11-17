@@ -14,11 +14,18 @@
     android:layout_height="match_parent"
     android:visibility="invisible">
 
-    <ImageView
-        android:id="@+id/bubbleImageView"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:importantForAccessibility="no" />
+    <FrameLayout
+        android:id="@+id/transitionClipLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <ImageView
+            android:id="@+id/bubbleImageView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:importantForAccessibility="no" />
+
+    </FrameLayout>
 
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/reactionsCardView"

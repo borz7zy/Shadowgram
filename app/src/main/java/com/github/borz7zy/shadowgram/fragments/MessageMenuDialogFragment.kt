@@ -45,6 +45,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.toPx
+import com.github.borz7zy.shadowgram.ui.finishOverlayReturn
 import com.github.borz7zy.shadowgram.ui.views.CustomEmojiView
 import com.github.borz7zy.shadowgram.viewmodels.MessageMenuViewModel
 import com.google.android.material.button.MaterialButton
@@ -82,6 +83,7 @@ class MessageMenuDialogFragment : DialogFragment() {
     private val replyMaterialButton by getViewProperty<MaterialButton>(R.id.replyMaterialButton)
     private val saveMaterialButton by getViewProperty<MaterialButton>(R.id.saveMaterialButton)
     private val rootFrameLayout by getViewProperty<FrameLayout>(R.id.rootFrameLayout)
+    private val transitionClipLayout by getViewProperty<FrameLayout>(R.id.transitionClipLayout)
 
     private val adapter = ReactionsAdapter { close(bundleOf(KEY_ACTION to ACTION_REACTION).apply {
         putString(KEY_EMOJI, it.emoji)
@@ -99,6 +101,8 @@ class MessageMenuDialogFragment : DialogFragment() {
 
     private var isExpanded = false
     private var isClosing = false
+    private var backgroundAnimator: ValueAnimator? = null
+    private var cancelReturnHandoff: (() -> Unit)? = null
 
     /** Where the bubble was, in this window. */
     private var source = android.graphics.Rect()
@@ -184,7 +188,7 @@ class MessageMenuDialogFragment : DialogFragment() {
         // The picture shows where the bubble is at once, the chat hides its own once it's drawn
         view.doOnPreDraw { place(bounds) }
         view.viewTreeObserver.registerFrameCommitCallback {
-            setFragmentResult(REQUEST_KEY_SHOWN, Bundle())
+            if (!isClosing) setFragmentResult(REQUEST_KEY_SHOWN, Bundle())
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -201,6 +205,10 @@ class MessageMenuDialogFragment : DialogFragment() {
     }
 
     override fun onDestroyView() {
+        cancelReturnHandoff?.invoke()
+        backgroundAnimator?.cancel()
+        bubbleImageView.animate().cancel()
+        anchor.restore?.invoke()
         reactionsRecyclerView.adapter = null
         setChatBlur(0f)
 
@@ -269,6 +277,7 @@ class MessageMenuDialogFragment : DialogFragment() {
 
     /** The picture over the bubble, where it is; the chat blurs behind it. */
     private fun place(bounds: android.graphics.Rect) {
+        if (isClosing) return
         rootFrameLayout.isVisible = true
         source = bounds.inWindow()
         bubbleImageView.translationX = source.left.toFloat()
@@ -325,7 +334,7 @@ class MessageMenuDialogFragment : DialogFragment() {
         // Under the reactions and the actions
         rootFrameLayout.addView(
             textView,
-            rootFrameLayout.indexOfChild(bubbleImageView) + 1,
+            rootFrameLayout.indexOfChild(transitionClipLayout) + 1,
             FrameLayout.LayoutParams(text.bounds.width(), text.bounds.height()),
         )
     }
@@ -439,8 +448,15 @@ class MessageMenuDialogFragment : DialogFragment() {
         textView?.isVisible = false
 
         val finish = {
-            setFragmentResult(REQUEST_KEY, result ?: Bundle())
-            dismissAllowingStateLoss()
+            backgroundAnimator?.cancel()
+            setChatBlur(0f)
+            dialog?.window?.let { window ->
+                window.attributes = window.attributes.apply { dimAmount = 0f }
+            }
+            cancelReturnHandoff = finishOverlayReturn(anchor.restore?.invoke()) {
+                setFragmentResult(REQUEST_KEY, result ?: Bundle())
+                dismissAllowingStateLoss()
+            }
         }
         if (!animate || view == null) {
             finish()
@@ -451,7 +467,11 @@ class MessageMenuDialogFragment : DialogFragment() {
             .setDuration(duration() / 2).start()
         actionsLinearLayout.animate().alpha(0f).setStartDelay(0).setDuration(duration() / 2).start()
 
-        val target = anchor.locate?.invoke()?.inWindow()
+        val viewport = anchor.viewport?.invoke()
+        transitionClipLayout.clipBounds = viewport?.inWindow()
+        val target = anchor.locate?.invoke()
+            ?.takeIf { viewport == null || android.graphics.Rect.intersects(it, viewport) }
+            ?.inWindow()
         bubbleImageView.animate().apply {
             when (target) {
                 // Scrolled away: it fades where it is
@@ -463,14 +483,15 @@ class MessageMenuDialogFragment : DialogFragment() {
             .setStartDelay(0).setDuration(duration()).setInterpolator(interpolator())
             .withEndAction { finish() }
             .start()
-        animateBackground(1f, 0f)
+        animateBackground((dialog?.window?.attributes?.dimAmount ?: 0f) / DIM_AMOUNT, 0f)
     }
 
     /** Blur where the device can, dim everywhere. */
     private fun animateBackground(from: Float, to: Float) {
         val window = dialog?.window ?: return
         val blurRadius = resources.getDimension(R.dimen.message_menu_blur_radius)
-        ValueAnimator.ofFloat(from, to).apply {
+        backgroundAnimator?.cancel()
+        backgroundAnimator = ValueAnimator.ofFloat(from, to).apply {
             duration = duration()
             addUpdateListener {
                 val fraction = it.animatedValue as Float

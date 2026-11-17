@@ -692,6 +692,9 @@ class ChatsStore(
         animationFileId = animatedPhotoFileId(),
         emojiStatusId = (privateUser()?.emojiStatus ?: emojiStatus).customEmojiId(),
         isPremium = privateUser()?.isPremium == true,
+        isOnline = privateUser()?.let {
+            it.type is TdApi.UserTypeRegular && it.status is TdApi.UserStatusOnline
+        } == true,
     )
 
     private fun TdApi.Chat.privateUser() = when (val type = type) {
