@@ -305,6 +305,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
                 DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_MONTH,
             ),
         ).joinToString(", ")
+        toolbar.menu.findItem(R.id.save)?.isVisible = photo.canBeSaved
         captionTextView.text = photo.caption
         captionTextView.isVisible = photo.caption != null
         videoControlsLinearLayout.isVisible = photo.video != null
@@ -548,7 +549,8 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
 
     /** Into the gallery's Pictures or Movies, no permission needed for a file this app adds. */
     private fun save() {
-        val photo = viewModel.state.value.photos.getOrNull(viewPager2.currentItem) ?: return
+        val photo = viewModel.state.value.photos.getOrNull(viewPager2.currentItem)
+            ?.takeIf { it.canBeSaved } ?: return
         val context = requireContext().applicationContext
         val video = photo.video
         viewLifecycleOwner.lifecycleScope.launch {

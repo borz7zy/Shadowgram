@@ -79,6 +79,17 @@ pub fn err(e: impl std::fmt::Display) -> Error {
     Error(e.to_string())
 }
 
+/// Most pixels a decoder allocates for one image (64 MiB of RGBA).
+pub const MAX_PIXELS: usize = 1 << 24;
+
+/// A zeroed RGBA buffer for `w×h`, refused past [`MAX_PIXELS`] instead of overflowing or OOMing.
+pub fn rgba_buffer(w: u32, h: u32) -> Result<Vec<u8>> {
+    match (w as usize).checked_mul(h as usize) {
+        Some(px) if px <= MAX_PIXELS => Ok(vec![0u8; px * 4]),
+        _ => Err(err(format!("image too large: {w}x{h}"))),
+    }
+}
+
 /// Size that fits `w×h` into `max_w×max_h` keeping aspect, never upscaling.
 /// A zero bound means "no limit" on that axis.
 pub fn fit(w: u32, h: u32, max_w: u32, max_h: u32) -> (u32, u32) {

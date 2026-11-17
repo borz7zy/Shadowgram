@@ -71,6 +71,8 @@ class PhotoViewerViewModel(
         val date: Int,
         val senderId: TdApi.MessageSender,
         val video: Video? = null,
+        /** False in protected chats: no saving to the gallery. */
+        val canBeSaved: Boolean = false,
     )
 
     /** @param duration Seconds */
@@ -140,6 +142,7 @@ class PhotoViewerViewModel(
                 date = date,
                 senderId = senderId,
                 video = Video(video.video.id, video.duration),
+                canBeSaved = canBeSaved,
             )
         }
         if (content !is TdApi.MessagePhoto) {
@@ -156,6 +159,7 @@ class PhotoViewerViewModel(
             caption = content.caption.text.takeIf { it.isNotBlank() },
             date = date,
             senderId = senderId,
+            canBeSaved = canBeSaved,
         )
     }
 

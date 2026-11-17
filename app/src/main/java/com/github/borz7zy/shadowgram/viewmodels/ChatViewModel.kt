@@ -27,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -37,6 +38,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -212,6 +214,31 @@ class ChatViewModel(
     }
 
     /**
+     * A message TDLib refused, what of it goes back to the composer.
+     *
+     * @param error Why, null when a file couldn't be read
+     * @param text The text or the caption
+     * @param attachments The files not sent yet
+     */
+    data class Failed(
+        val error: String?,
+        val text: String? = null,
+        val attachments: List<InputContents.Picked> = listOf(),
+    )
+
+    private val _sendFailures = Channel<Failed>(Channel.BUFFERED)
+
+    /** Kept until the screen is back to show them. */
+    val sendFailures = _sendFailures.receiveAsFlow()
+
+    /** Send through [send], a refusal reported with nothing to restore. */
+    private fun sendNow(send: suspend (ChatHistory) -> TdApi.Error?) {
+        viewModelScope.launch {
+            send(history.await())?.let { _sendFailures.send(Failed(it.message)) }
+        }
+    }
+
+    /**
      * @param customEmoji Custom emoji in [text], sent as its entities
      */
     fun send(text: String, customEmoji: List<CustomEmojiRange> = listOf()) {
@@ -220,10 +247,12 @@ class ChatViewModel(
             TdApi.TextEntity(it.offset, it.length, TdApi.TextEntityTypeCustomEmoji(it.customEmojiId))
         }.toTypedArray()
         viewModelScope.launch {
-            history.await().send(
+            val error = history.await().send(
                 TdApi.InputMessageText(TdApi.FormattedText(text, entities), null, true),
                 scheduleAt,
             )
+            // ponytail: custom emoji come back as plain text, keep the spans if that annoys
+            error?.let { _sendFailures.send(Failed(it.message, text)) }
         }
     }
 
@@ -241,28 +270,39 @@ class ChatViewModel(
     fun send(picked: List<InputContents.Picked>, grouped: Boolean, caption: String? = null) {
         val scheduleAt = takeSchedule()
         viewModelScope.launch {
-            val contents = picked.mapIndexedNotNull { index, it ->
+            // One unreadable file and nothing goes, rather than a message missing it
+            val contents = picked.mapIndexed { index, it ->
                 InputContents.fromUri(getApplication(), it.uri, it.asFile, caption.takeIf { index == 0 })
                     ?: run {
                         Log.w(LOG_TAG, "Can't read ${it.uri}")
-                        null
+                        _sendFailures.send(Failed(null, caption, picked))
+                        return@launch
                     }
             }
             val history = history.await()
             val albums = if (grouped) InputContents.albums(contents) else contents.map(::listOf)
+            // Albums keep the order, so the sent ones are the first picked
+            var sent = 0
             albums.forEach { album ->
-                when (album.size) {
+                val error = when (album.size) {
                     1 -> history.send(album.single(), scheduleAt)
                     else -> history.sendAlbum(album, scheduleAt)
                 }
+                if (error != null) {
+                    _sendFailures.send(
+                        Failed(error.message, caption.takeIf { sent == 0 }, picked.drop(sent))
+                    )
+                    return@launch
+                }
+                sent += album.size
             }
         }
     }
 
     fun sendSticker(sticker: StickersStore.Sticker) {
         val scheduleAt = takeSchedule()
-        viewModelScope.launch {
-            history.await().send(
+        sendNow { history ->
+            history.send(
                 TdApi.InputMessageSticker(
                     TdApi.InputSticker(
                         TdApi.InputFileId(sticker.fileId), null, sticker.width, sticker.height
@@ -276,8 +316,7 @@ class ChatViewModel(
 
     fun sendGif(gif: StickersStore.Gif) {
         val scheduleAt = takeSchedule()
-        viewModelScope.launch {
-            val history = history.await()
+        sendNow { history ->
             when (val resultId = gif.resultId) {
                 null -> history.send(
                     TdApi.InputMessageAnimation(
@@ -297,8 +336,8 @@ class ChatViewModel(
 
     fun sendLocation(latitude: Double, longitude: Double, accuracy: Double) {
         val scheduleAt = takeSchedule()
-        viewModelScope.launch {
-            history.await().send(
+        sendNow { history ->
+            history.send(
                 TdApi.InputMessageLocation(TdApi.Location(latitude, longitude, accuracy)),
                 scheduleAt,
             )
@@ -307,8 +346,8 @@ class ChatViewModel(
 
     fun sendContact(phoneNumber: String, name: String) {
         val scheduleAt = takeSchedule()
-        viewModelScope.launch {
-            history.await().send(
+        sendNow { history ->
+            history.send(
                 TdApi.InputMessageContact(TdApi.Contact(phoneNumber, name, "", "", 0)),
                 scheduleAt,
             )
@@ -371,7 +410,7 @@ class ChatViewModel(
                 ((durationMs + 500) / 1000).toInt().coerceIn(1, 60),
                 side,
                 thumbnailSide?.let { thumbnail.absolutePath to it },
-            )
+            )?.let { _sendFailures.send(Failed(it.message)) }
         }
     }
 

@@ -5,9 +5,11 @@
 
 package com.github.borz7zy.shadowgram
 
+import android.content.ContentResolver
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.IntentCompat
@@ -28,18 +30,36 @@ class ShareActivity : AppCompatActivity(R.layout.activity_chat) {
 
         // Restored with its arguments otherwise
         if (savedInstanceState == null) {
+            val all = uris()
+            val uris = all.filter(::isForeign)
+            val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+            if (uris.size < all.size) {
+                Toast.makeText(this, R.string.share_file_rejected, Toast.LENGTH_SHORT).show()
+            }
+            if (uris.isEmpty() && text.isNullOrBlank()) {
+                finish()
+                return
+            }
             val navHostFragment = NavHostFragment.create(
                 R.navigation.fragment_chat_picker,
-                ChatPickerFragment.createShareBundle(
-                    uris().map(Uri::toString),
-                    intent.getStringExtra(Intent.EXTRA_TEXT),
-                ),
+                ChatPickerFragment.createShareBundle(uris.map(Uri::toString), text),
             )
             supportFragmentManager.commit {
                 replace(R.id.navHostFragment, navHostFragment)
                 setPrimaryNavigationFragment(navHostFragment)
             }
         }
+    }
+
+    /**
+     * Whether [uri] is another app's content. Ours is read with this app's rights, so a share
+     * pointing at our own provider (or a file:// path) would send the account's private files.
+     * A provider we can't resolve isn't ours: our own always resolve.
+     */
+    private fun isForeign(uri: Uri): Boolean {
+        val authority = uri.authority ?: return false
+        return uri.scheme == ContentResolver.SCHEME_CONTENT &&
+                packageManager.resolveContentProvider(authority, 0)?.packageName != packageName
     }
 
     /** One file for ACTION_SEND, several for ACTION_SEND_MULTIPLE, none for text. */

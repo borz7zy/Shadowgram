@@ -184,6 +184,14 @@
                 android:paddingEnd="12dp"
                 android:visibility="gone" />
 
+            <!-- A music or file album: a player or file row per message -->
+            <LinearLayout
+                android:id="@+id/filesLinearLayout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone" />
+
             <TextView
                 android:id="@+id/messageTextView"
                 android:layout_width="wrap_content"

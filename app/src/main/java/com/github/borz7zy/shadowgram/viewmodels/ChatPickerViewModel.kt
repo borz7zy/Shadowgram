@@ -47,6 +47,10 @@ class ChatPickerViewModel(
     private val _state = MutableStateFlow(State())
     val state = _state.asStateFlow()
 
+    /** How many requests [sentCountChatId] accepted, so a retry there doesn't send them again. */
+    private var sentCount = 0
+    private var sentCountChatId = 0L
+
     fun send(chatId: Long) {
         if (_state.value.isSending || _state.value.sentToChatId != null) {
             return
@@ -56,14 +60,18 @@ class ChatPickerViewModel(
         viewModelScope.launch {
             val client = getApplication<ShadowgramApplication>().accountsRepository.activeClient()
             val requests = when (val messageIds = messageIds) {
-                null -> contents().map { TdApi.SendMessage(chatId, null, null, null, null, it) }
+                null -> contents()?.map { TdApi.SendMessage(chatId, null, null, null, null, it) }
                 else -> listOf(
                     TdApi.ForwardMessages(chatId, null, fromChatId, messageIds, null, false, false)
                 )
+            }.orEmpty()
+            if (chatId != sentCountChatId) {
+                sentCount = 0
+                sentCountChatId = chatId
             }
-            val isSent = requests.isNotEmpty() && requests.all {
+            val isSent = requests.isNotEmpty() && requests.drop(sentCount).all {
                 when (val result = client.send(it)) {
-                    is Result.Success -> true
+                    is Result.Success -> true.also { sentCount++ }
                     is Result.Failure -> {
                         Log.w(LOG_TAG, "Can't send to $chatId: ${result.error.message}")
                         false
@@ -77,15 +85,18 @@ class ChatPickerViewModel(
         }
     }
 
-    /** The shared files, the text as the first one's caption, or the text alone. */
-    private suspend fun contents(): List<TdApi.InputMessageContent> = when {
+    /**
+     * The shared files, the text as the first one's caption, or the text alone. Null when a file
+     * can't be read: nothing is sent then, rather than a share missing it.
+     */
+    private suspend fun contents(): List<TdApi.InputMessageContent>? = when {
         uris.isEmpty() -> listOfNotNull(
             text?.let { TdApi.InputMessageText(TdApi.FormattedText(it, arrayOf()), null, true) }
         )
 
-        else -> uris.mapIndexedNotNull { index, uri ->
+        else -> uris.mapIndexed { index, uri ->
             InputContents.fromUri(getApplication(), Uri.parse(uri), false, text.takeIf { index == 0 })
-                ?: null.also { Log.w(LOG_TAG, "Can't read $uri") }
+                ?: return null.also { Log.w(LOG_TAG, "Can't read $uri") }
         }
     }
 

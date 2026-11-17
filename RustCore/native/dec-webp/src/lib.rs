@@ -24,7 +24,7 @@ pub fn decode(data: &[u8], max_w: u32, max_h: u32) -> Result<Image> {
             cfg.options.scaled_width = tw as i32;
             cfg.options.scaled_height = th as i32;
         }
-        let mut rgba = vec![0u8; (tw * th * 4) as usize];
+        let mut rgba = media::rgba_buffer(tw, th)?;
         cfg.output.colorspace = WEBP_CSP_MODE::MODE_rgbA;
         cfg.output.is_external_memory = 1;
         cfg.output.u.RGBA = WebPRGBABuffer { rgba: rgba.as_mut_ptr(), stride: (tw * 4) as i32, size: rgba.len() };

@@ -43,6 +43,7 @@ import androidx.core.view.children
 import androidx.core.graphics.withTranslation
 import androidx.core.view.doOnNextLayout
 import androidx.core.view.drawToBitmap
+import androidx.core.view.descendants
 import androidx.core.view.isVisible
 import androidx.core.widget.doAfterTextChanged
 import androidx.fragment.app.Fragment
@@ -148,10 +149,14 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     /** The sticker keyboard loads the account's stickers the first time it opens. */
     private var isCollectingStickers = false
 
-    /** Redraws message and composer emoji whose sprite just loaded; Emoji keeps it weakly. */
+    /**
+     * Redraws emoji whose sprite just loaded; Emoji keeps it weakly. Every text of the rows, not
+     * just the message's: reactions, sender names and the reply quote draw them too.
+     */
     private val emojiInvalidator = Runnable {
         messageEditText.invalidate()
-        recyclerView.children.forEach { it.findViewById<View>(R.id.messageTextView)?.invalidate() }
+        replyTextTextView.invalidate()
+        recyclerView.descendants.filterIsInstance<TextView>().forEach(View::invalidate)
     }
 
     // Pickers and permissions
@@ -415,6 +420,10 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 }
 
                 launch {
+                    viewModel.sendFailures.collect(::onSendFailed)
+                }
+
+                launch {
                     viewModel.replyTo.collectLatest { reply ->
                         replyLinearLayout.isVisible = reply != null
                         reply ?: return@collectLatest
@@ -435,6 +444,25 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                     }
                 }
             }
+        }
+    }
+
+    /** Put what TDLib refused back in the composer, unless something new is there already. */
+    private fun onSendFailed(failed: ChatViewModel.Failed) {
+        Toast.makeText(
+            requireContext(),
+            when (val error = failed.error) {
+                null -> getString(R.string.chat_send_unreadable)
+                else -> getString(R.string.chat_send_failed, error)
+            },
+            Toast.LENGTH_LONG,
+        ).show()
+        if (failed.text != null && messageEditText.text.isNullOrEmpty()) {
+            messageEditText.setText(failed.text)
+        }
+        if (failed.attachments.isNotEmpty() && viewModel.attachments.isEmpty()) {
+            // Through onChanged, as if picked again
+            attachmentStripView.add(failed.attachments)
         }
     }
 

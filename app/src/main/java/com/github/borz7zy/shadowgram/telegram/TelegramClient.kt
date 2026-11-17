@@ -22,11 +22,19 @@ import kotlin.coroutines.resume
  *
  * @param parameters The TDLib parameters, sent as soon as TDLib asks for them
  * @param context For the work TDLib asks the app to do, transcoding video notes
+ * @param fallbackKey The database key tried once when [parameters]' one is refused: the database
+ *   may be encrypted already, or not yet, if the app died in between
  */
 class TelegramClient(
     private val parameters: TdApi.SetTdlibParameters,
     context: Context,
+    private var fallbackKey: ByteArray? = null,
 ) {
+    private val _initError = MutableStateFlow<TdApi.Error?>(null)
+
+    /** Why TDLib refused the parameters, null while it hasn't. Nothing else happens after it. */
+    val initError = _initError.asStateFlow()
+
     private val _authorizationState = MutableStateFlow<TdApi.AuthorizationState?>(null)
 
     /**
@@ -105,24 +113,28 @@ class TelegramClient(
 
         if (authorizationState is TdApi.AuthorizationStateWaitTdlibParameters) {
             Log.i(LOG_TAG, "TDLib requests parameters")
-
-            client.send(parameters) { result ->
-                when (result) {
-                    is TdApi.Error -> {
-                        Log.e(
-                            LOG_TAG,
-                            "SetTdlibParameters failed: ${result.code} ${result.message}"
-                        )
-                    }
-
-                    else -> {
-                        Log.i(LOG_TAG, "TDLib parameters accepted")
-                    }
-                }
-            }
+            sendParameters()
         }
 
         _authorizationState.value = authorizationState
+    }
+
+    private fun sendParameters() {
+        client.send(parameters) { result ->
+            if (result !is TdApi.Error) {
+                Log.i(LOG_TAG, "TDLib parameters accepted")
+                return@send
+            }
+            Log.e(LOG_TAG, "SetTdlibParameters failed: ${result.code} ${result.message}")
+            when (val key = fallbackKey) {
+                null -> _initError.value = result
+                else -> {
+                    fallbackKey = null
+                    parameters.databaseEncryptionKey = key
+                    sendParameters()
+                }
+            }
+        }
     }
 
     companion object {

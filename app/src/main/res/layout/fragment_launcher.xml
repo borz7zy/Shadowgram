@@ -17,4 +17,14 @@
         android:visibility="invisible"
         app:showDelay="500" />
 
+    <TextView
+        android:id="@+id/errorTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:padding="24dp"
+        android:textAppearance="?attr/textAppearanceBodyLarge"
+        android:visibility="gone" />
+
 </FrameLayout>

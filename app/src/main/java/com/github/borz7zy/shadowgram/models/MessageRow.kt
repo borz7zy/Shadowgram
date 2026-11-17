@@ -76,7 +76,8 @@ sealed interface MessageRow : UniqueItem<MessageRow> {
                 messages.firstOrNull { it.id > after && !it.isOutgoing }?.id
             }
 
-            // An album's messages come in a row and share one bubble, like TDLib groups them
+            // An album's messages come in a row and share one bubble, like TDLib groups them:
+            // pictures as a mosaic, music and files as a stack of their players and rows
             val units = ArrayList<List<MessageItem>>(messages.size)
             messages.forEach { message ->
                 val last = units.lastOrNull()

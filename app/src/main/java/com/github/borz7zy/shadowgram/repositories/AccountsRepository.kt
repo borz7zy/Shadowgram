@@ -7,6 +7,7 @@ package com.github.borz7zy.shadowgram.repositories
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -21,6 +22,7 @@ import kotlinx.coroutines.withContext
 import com.github.borz7zy.shadowgram.BuildConfig
 import com.github.borz7zy.shadowgram.models.Result
 import com.github.borz7zy.shadowgram.models.Result.Companion.getOrNull
+import com.github.borz7zy.shadowgram.telegram.DatabaseKey
 import com.github.borz7zy.shadowgram.telegram.TelegramClient
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
@@ -50,6 +52,8 @@ class AccountsRepository(
         // Verbose TDLib logs include authorization payloads such as QR login tokens.
         Client.execute(TdApi.SetLogVerbosityLevel(1))
     }
+
+    private val databaseKey by lazy { DatabaseKey.get(sharedPreferences) }
 
     private val clientsMutex = Mutex()
     private val clients = mutableMapOf<Int, TelegramClient>()
@@ -131,7 +135,11 @@ class AccountsRepository(
     }
 
     private fun getOrCreateClient(accountId: Int): TelegramClient = clients.getOrPut(accountId) {
-        TelegramClient(buildParameters(accountId), context).also { client ->
+        val parameters = buildParameters(accountId)
+        val isEncrypted = parameters.databaseEncryptionKey.isNotEmpty()
+        val fallbackKey = if (isEncrypted) ByteArray(0) else databaseKey
+        TelegramClient(parameters, context, fallbackKey).also { client ->
+            if (!isEncrypted) coroutineScope.launch { encrypt(accountId, client) }
             coroutineScope.launch {
                 val state = client.authorizationState.first {
                     it is TdApi.AuthorizationStateReady || it is TdApi.AuthorizationStateClosed
@@ -149,9 +157,32 @@ class AccountsRepository(
         }
     }
 
+    /**
+     * Encrypt a database made before the app had a key, once TDLib has opened it. Already
+     * encrypted (the flag lost to a crash) works as well: the key is the same.
+     */
+    private suspend fun encrypt(accountId: Int, client: TelegramClient) {
+        client.authorizationState.first { it != null && it !is TdApi.AuthorizationStateWaitTdlibParameters }
+        if (client.initError.value != null) return
+        when (val result = client.send(TdApi.SetDatabaseEncryptionKey(databaseKey))) {
+            is Result.Success -> sharedPreferences.edit { putBoolean(encryptedKey(accountId), true) }
+            is Result.Failure -> Log.e(LOG_TAG, "SetDatabaseEncryptionKey failed: ${result.error.message}")
+        }
+    }
+
+    private fun encryptedKey(accountId: Int) = "db_encrypted_$accountId"
+
     private fun buildParameters(accountId: Int) = TdApi.SetTdlibParameters().apply {
         val accountDirectory = File(context.filesDir, "accounts/$accountId")
 
+        // A new database starts encrypted, an old one is encrypted by [encrypt] once open
+        if (!accountDirectory.exists()) {
+            sharedPreferences.edit { putBoolean(encryptedKey(accountId), true) }
+        }
+        databaseEncryptionKey = when (sharedPreferences.getBoolean(encryptedKey(accountId), false)) {
+            true -> databaseKey
+            false -> ByteArray(0)
+        }
         databaseDirectory = accountDirectory.absolutePath
         filesDirectory = File(accountDirectory, "files").absolutePath
         useFileDatabase = true
@@ -168,6 +199,7 @@ class AccountsRepository(
     }
 
     companion object {
+        private const val LOG_TAG = "AccountsRepository"
         private const val ACCOUNT_IDS_KEY = "account_ids"
         private const val ACTIVE_ACCOUNT_ID_KEY = "active_account_id"
     }

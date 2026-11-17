@@ -93,6 +93,8 @@ data class MessageItem(
         val downloadedSize: Long,
         val isDownloading: Boolean,
         val path: String?,
+        /** False in protected chats: viewed only, never handed to "Send to…". */
+        val canBeSaved: Boolean,
     )
 
     /**

@@ -206,6 +206,7 @@ class MessageListAdapter(
         private val videoNoteView = view.findViewById<VideoNoteView>(R.id.videoNoteView)
         private val voiceNoteView = view.findViewById<VoiceNoteView>(R.id.voiceNoteView)
         private val documentView = view.findViewById<DocumentView>(R.id.documentView)
+        private val filesLinearLayout = view.findViewById<LinearLayout>(R.id.filesLinearLayout)
         private val animationView = view.findViewById<AnimationView>(R.id.animationView)
         private val bubbleCardView = view.findViewById<MaterialCardView>(R.id.bubbleCardView)
         private val mediaFrameLayout = view.findViewById<FrameLayout>(R.id.mediaFrameLayout)
@@ -409,16 +410,21 @@ class MessageListAdapter(
                 senderEmojiStatusView.setEmojiStatus(message.senderEmojiStatusId, message.senderIsPremium)
             }
 
+            // Music and files have no picture to tile, they stack instead of the mosaic
+            val files = row.album.takeIf { album -> album.all { it.media == null } }.orEmpty()
+            val pictures = row.album.takeIf { files.isEmpty() }.orEmpty()
+
             bindMedia(media, message.uploadProgress != null)
             bindPlayable(message, media)
             bindDocument(message)
-            bindAlbum(row.album)
+            bindAlbum(pictures)
+            bindFiles(files)
             bindUpload(message)
 
             // Photos fill their bubble: the text and reactions wrap under them, not widen it
             bubbleCardView.updateLayoutParams {
                 width = when {
-                    row.album.isNotEmpty() -> albumView.contentWidth
+                    pictures.isNotEmpty() -> albumView.contentWidth
                     media?.type == MessageItem.Media.Type.PHOTO
                             || media?.type == MessageItem.Media.Type.ANIMATION
                             || media?.type == MessageItem.Media.Type.VIDEO -> photoSize(media).first
@@ -479,6 +485,46 @@ class MessageListAdapter(
                 height = ViewGroup.LayoutParams.WRAP_CONTENT
             }
             albumView.setItems(album, maxPhotoWidth)
+        }
+
+        /**
+         * A music or file album: a player or file row per message, the views kept while their
+         * kinds stay, so progress updates don't make them again.
+         */
+        private fun bindFiles(album: List<MessageItem>) {
+            filesLinearLayout.isVisible = album.isNotEmpty()
+            if (album.isNotEmpty()) {
+                // The stack stands for the bubble's own player or file row
+                voiceNoteView.isVisible = false
+                documentView.isVisible = false
+            }
+            val context = view.context
+            val width = context.resources.getDimensionPixelSize(R.dimen.voice_note_width)
+            album.forEachIndexed { i, item ->
+                val playable = item.playable?.takeUnless { it.isVideo }
+                val kind = if (playable != null) VoiceNoteView::class.java else DocumentView::class.java
+                var child = filesLinearLayout.getChildAt(i)
+                if (child?.javaClass != kind) {
+                    child?.let { filesLinearLayout.removeViewAt(i) }
+                    child = when (playable) {
+                        null -> DocumentView(context).apply { setPaddingRelative(view.toPx(8), view.toPx(8), view.toPx(12), 0) }
+                        else -> VoiceNoteView(context).apply { setPaddingRelative(view.toPx(8), view.toPx(8), 0, 0) }
+                    }
+                    filesLinearLayout.addView(child, i, LinearLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT))
+                }
+                when (child) {
+                    is VoiceNoteView -> child.bind(trackOf(item, playable!!))
+                    is DocumentView -> {
+                        val document = item.document
+                        child.isVisible = document != null
+                        document?.let(child::bind)
+                        child.onActionClick = { callbacks.onDocumentClick(item) }
+                    }
+                }
+            }
+            while (filesLinearLayout.childCount > album.size) {
+                filesLinearLayout.removeViewAt(album.size)
+            }
         }
 
         /** Voice messages get a player, video messages play in place of their still. */

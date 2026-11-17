@@ -51,13 +51,15 @@ class MessageRowTest {
         assertEquals(listOf("|", "1sn", "2e", "3sen", "|", "4sen"), shape)
     }
 
+    private val photo = MessageItem.Media(MessageItem.Media.Type.PHOTO, null, null, 100, 100)
+
     @Test
     fun albumSharesOneBubbleWithItsCaption() {
         val rows = MessageRow.build(
             listOf(
-                message(1, 10, 0).copy(mediaAlbumId = 7, text = null),
-                message(2, 10, 0).copy(mediaAlbumId = 7, text = "caption"),
-                message(3, 10, 0).copy(mediaAlbumId = 7, text = null),
+                message(1, 10, 0).copy(mediaAlbumId = 7, text = null, media = photo),
+                message(2, 10, 0).copy(mediaAlbumId = 7, text = "caption", media = photo),
+                message(3, 10, 0).copy(mediaAlbumId = 7, text = null, media = photo),
                 message(4, 10, 10),
             ),
             isGroup = false,
@@ -70,6 +72,19 @@ class MessageRowTest {
         assertEquals(2L, bubbles[0].message.id)
         assertEquals(1L, bubbles[0].key)
         assertEquals(listOf<MessageItem>(), bubbles[1].album)
+    }
+
+    @Test
+    fun musicAlbumSharesOneBubble() {
+        val music = MessageItem.Playable(fileId = 1, duration = 53, isVideo = false, isMusic = true)
+        val rows = MessageRow.build(
+            (1L..3L).map { message(it, 10, 0).copy(mediaAlbumId = 7, playable = music) },
+            isGroup = false,
+        )
+        val bubbles = rows.filterIsInstance<MessageRow.Bubble>()
+
+        assertEquals(1, bubbles.size)
+        assertEquals(listOf(1L, 2L, 3L), bubbles[0].album.map { it.id })
     }
 
     @Test

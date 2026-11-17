@@ -284,7 +284,7 @@ class ProfilePage(
 
         return when (content) {
             is TdApi.MessageDocument -> content.document.let {
-                val document = Downloads.documentOf(it, documentFileOf(it.document))
+                val document = Downloads.documentOf(it, documentFileOf(it.document), canBeSaved)
                 still(key, it.thumbnail, it.minithumbnail).copy(
                     title = it.fileName,
                     subtitle = context.getString(

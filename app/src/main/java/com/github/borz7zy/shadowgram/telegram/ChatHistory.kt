@@ -7,6 +7,7 @@ package com.github.borz7zy.shadowgram.telegram
 
 import android.util.Log
 import com.github.borz7zy.shadowgram.models.MessageItem
+import com.github.borz7zy.shadowgram.models.Result
 import com.github.borz7zy.shadowgram.ui.text.CustomEmojiRange
 import com.github.borz7zy.shadowgram.videonote.VideoNoteGenerator
 import kotlinx.coroutines.Dispatchers
@@ -170,9 +171,6 @@ class ChatHistory(
         }
     }
 
-    fun sendText(text: String) =
-        send(TdApi.InputMessageText(TdApi.FormattedText(text, arrayOf()), null, true))
-
     /**
      * Send a video note right away, its [raw] recording is transcoded by
      * [TelegramClient.videoNotes] meanwhile.
@@ -182,7 +180,7 @@ class ChatHistory(
      * @param length The side of the square, up to 640
      * @param thumbnail A local square JPEG and its side, up to 320
      */
-    fun sendVideoNote(raw: File, duration: Int, length: Int, thumbnail: Pair<String, Int>?) =
+    suspend fun sendVideoNote(raw: File, duration: Int, length: Int, thumbnail: Pair<String, Int>?) =
         send(
             TdApi.InputMessageVideoNote(
                 TdApi.InputVideoNote(
@@ -204,47 +202,37 @@ class ChatHistory(
 
     /**
      * Send [content], at [scheduleAt] (unix time) or right away when null.
+     *
+     * @return Why TDLib refused it, null once accepted: failures after that show on the message
      */
-    fun send(content: TdApi.InputMessageContent, scheduleAt: Int? = null) {
-        jumpToNewest()
-
-        client.send(
-            TdApi.SendMessage(chatId, topic(), takeReplyTo(), options(scheduleAt), null, content)
-        ) {
-            if (it is TdApi.Error) {
-                Log.e(LOG_TAG, "SendMessage failed: ${it.code} ${it.message}")
-            }
-        }
+    suspend fun send(content: TdApi.InputMessageContent, scheduleAt: Int? = null) = submit { replyTo ->
+        TdApi.SendMessage(chatId, topic(), replyTo, options(scheduleAt), null, content)
     }
 
-    /** Send [contents] grouped into one album. */
-    fun sendAlbum(contents: List<TdApi.InputMessageContent>, scheduleAt: Int? = null) {
-        jumpToNewest()
-
-        client.send(
-            TdApi.SendMessageAlbum(
-                chatId, topic(), takeReplyTo(), options(scheduleAt), contents.toTypedArray()
-            )
-        ) {
-            if (it is TdApi.Error) {
-                Log.e(LOG_TAG, "SendMessageAlbum failed: ${it.code} ${it.message}")
-            }
+    /** Send [contents] grouped into one album, see [send]. */
+    suspend fun sendAlbum(contents: List<TdApi.InputMessageContent>, scheduleAt: Int? = null) =
+        submit { replyTo ->
+            TdApi.SendMessageAlbum(chatId, topic(), replyTo, options(scheduleAt), contents.toTypedArray())
         }
-    }
 
-    /**
-     * Send a result of an inline bot query, a GIF found through @gif.
-     */
-    fun sendInlineResult(queryId: Long, resultId: String, scheduleAt: Int? = null) {
-        jumpToNewest()
-
-        client.send(
+    /** Send a result of an inline bot query, a GIF found through @gif, see [send]. */
+    suspend fun sendInlineResult(queryId: Long, resultId: String, scheduleAt: Int? = null) =
+        submit { replyTo ->
             TdApi.SendInlineQueryResultMessage(
-                chatId, topic(), takeReplyTo(), options(scheduleAt), queryId, resultId, true
+                chatId, topic(), replyTo, options(scheduleAt), queryId, resultId, true
             )
-        ) {
-            if (it is TdApi.Error) {
-                Log.e(LOG_TAG, "SendInlineQueryResultMessage failed: ${it.code} ${it.message}")
+        }
+
+    /** Every send goes here, the reply is taken by it. */
+    private suspend fun <T : TdApi.Object> submit(
+        request: (TdApi.InputMessageReplyTo?) -> TdApi.Function<T>,
+    ): TdApi.Error? {
+        jumpToNewest()
+        val function = request(takeReplyTo())
+        return when (val result = client.send(function)) {
+            is Result.Success -> null
+            is Result.Failure -> result.error.also {
+                Log.e(LOG_TAG, "${function.javaClass.simpleName} failed: ${it.code} ${it.message}")
             }
         }
     }
@@ -596,7 +584,7 @@ class ChatHistory(
                 else -> null
             },
             document = (content as? TdApi.MessageDocument)?.document?.let {
-                Downloads.documentOf(it, documentFileOf(it.document))
+                Downloads.documentOf(it, documentFileOf(it.document), canBeSaved)
             },
             uploadProgress = when {
                 file == null -> null

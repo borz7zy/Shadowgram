@@ -218,6 +218,10 @@
     <string name="chat_picker_send">Send to…</string>
     <string name="chat_picker_forwarded">Forwarded</string>
     <string name="chat_picker_failed">Couldn\'t send</string>
+    <string name="share_file_rejected">Some files can\'t be shared</string>
+    <string name="chat_send_failed">Couldn\'t send: %1$s</string>
+    <string name="chat_send_unreadable">Couldn\'t read a file</string>
+    <string name="launcher_init_failed">Couldn\'t open the database: %1$s</string>
     <string name="document_download">Download</string>
     <string name="document_cancel">Cancel download</string>
     <string name="document_open">Open</string>

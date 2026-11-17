@@ -73,32 +73,37 @@ object Downloads {
             .setType(mimeType)
             .putExtra(Intent.EXTRA_STREAM, uri)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val chooser = Intent.createChooser(
+            Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, mimeType)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+            document.name,
+        )
+        // A protected chat's file is only viewed
+        if (document.canBeSaved) {
+            chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(send))
+        }
         try {
-            context.startActivity(
-                Intent.createChooser(
-                    Intent(Intent.ACTION_VIEW)
-                        .setDataAndType(uri, mimeType)
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                    document.name,
-                ).putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(send))
-            )
+            context.startActivity(chooser)
         } catch (e: ActivityNotFoundException) {
             Toast.makeText(context, R.string.document_no_app, Toast.LENGTH_SHORT).show()
         }
     }
 
     /** [document] as the bubbles and rows show it, [file] the latest state of its file. */
-    fun documentOf(document: TdApi.Document, file: TdApi.File) = MessageItem.Document(
+    fun documentOf(document: TdApi.Document, file: TdApi.File, canBeSaved: Boolean) = MessageItem.Document(
         fileId = file.id,
         name = document.fileName,
         size = file.size.takeIf { it > 0 } ?: file.expectedSize,
         downloadedSize = file.local.downloadedSize,
         isDownloading = file.local.isDownloadingActive,
         path = file.local.path.takeIf { file.local.isDownloadingCompleted },
+        canBeSaved = canBeSaved,
     )
 
-    /** The file of [message] that can be saved, null for messages without one. */
+    /** The file of [message] that can be saved, null for messages without one or protected. */
     fun saveableOf(message: TdApi.Message): Saveable? {
+        if (!message.canBeSaved) return null
         val id = message.id
         return when (val content = message.content) {
             is TdApi.MessageDocument -> content.document.let {
