@@ -6,4 +6,8 @@
 <resources>
     <!-- Frames of a gift sticker in a profile cell are drawn this big -->
     <dimen name="profile_sticker_size">96dp</dimen>
+    <!-- The profile's cover: how far below the name it fades out (behind the buttons), the pattern's emoji decoded at -->
+    <dimen name="profile_cover_bottom_padding">96dp</dimen>
+    <dimen name="profile_cover_emoji_size">64dp</dimen>
+    <dimen name="profile_emoji_status_size">32dp</dimen>
 </resources>

@@ -74,6 +74,15 @@ class ChatsStore(
     private var chatFolders = arrayOf<TdApi.ChatFolderInfo>()
     private var mainChatListPosition = 0
 
+    /**
+     * The small animated photos of the chats that have one, by chat; only full infos have them,
+     * so each is asked for once, 0 while it's on its way or there's none.
+     */
+    private val animatedPhotoFileIds = HashMap<Long, Int>()
+
+    /** Telegram's profile colors, by id: the light and the dark theme's backgrounds. */
+    private val profileColors = HashMap<Int, ChatHeader.ProfileColors>()
+
     private val version = MutableStateFlow(0L)
 
     /**
@@ -203,10 +212,21 @@ class ChatsStore(
             is TdApi.UpdateChatPhoto -> chat(update.chatId) {
                 photo = update.photo
                 trackPhoto(this)
+                // Asked for again with the new photo
+                animatedPhotoFileIds.remove(id)
             }
 
             is TdApi.UpdateChatAccentColors -> chat(update.chatId) {
                 accentColorId = update.accentColorId
+                profileAccentColorId = update.profileAccentColorId
+                profileBackgroundCustomEmojiId = update.profileBackgroundCustomEmojiId
+            }
+
+            is TdApi.UpdateProfileAccentColors -> update.colors.forEach {
+                profileColors[it.id] = ChatHeader.ProfileColors(
+                    it.lightThemeColors.backgroundColors.map { color -> color or OPAQUE },
+                    it.darkThemeColors.backgroundColors.map { color -> color or OPAQUE },
+                )
             }
 
             is TdApi.UpdateChatLastMessage -> chat(update.chatId) {
@@ -234,8 +254,28 @@ class ChatsStore(
                 unreadMentionCount = update.unreadMentionCount
             }
 
+            is TdApi.UpdateMessageMentionRead -> chat(update.chatId) {
+                unreadMentionCount = update.unreadMentionCount
+            }
+
+            is TdApi.UpdateChatUnreadReactionCount -> chat(update.chatId) {
+                unreadReactionCount = update.unreadReactionCount
+            }
+
+            is TdApi.UpdateMessageUnreadReactions -> chat(update.chatId) {
+                unreadReactionCount = update.unreadReactionCount
+            }
+
             is TdApi.UpdateChatIsMarkedAsUnread -> chat(update.chatId) {
                 isMarkedAsUnread = update.isMarkedAsUnread
+            }
+
+            is TdApi.UpdateChatHasScheduledMessages -> chat(update.chatId) {
+                hasScheduledMessages = update.hasScheduledMessages
+            }
+
+            is TdApi.UpdateChatHasProtectedContent -> chat(update.chatId) {
+                hasProtectedContent = update.hasProtectedContent
             }
 
             is TdApi.UpdateChatNotificationSettings -> chat(update.chatId) {
@@ -397,6 +437,14 @@ class ChatsStore(
         val lastReadOutboxMessageId: Long,
     )
 
+    /** The newest message of a chat or topic as TDLib knows it, 0 when it doesn't. */
+    fun lastMessageId(chatId: Long, topicId: Int): Long = synchronized(lock) {
+        when (topicId) {
+            0 -> chats[chatId]?.lastMessage?.id
+            else -> topics[chatId]?.get(topicId)?.lastMessage?.id
+        } ?: 0L
+    }
+
     fun readState(chatId: Long, topicId: Int): ReadState = synchronized(lock) {
         val chat = chats[chatId] ?: return@synchronized ReadState(false, 0, 0L, 0L)
         val topic = topics[chatId]?.get(topicId)?.takeIf { topicId != 0 }
@@ -484,6 +532,8 @@ class ChatsStore(
         isMarkedAsUnread = false,
         isMuted = !notificationSettings.useDefaultMuteFor && notificationSettings.muteFor > 0,
         topicIconColor = info.icon.color or 0xFF000000.toInt(),
+        hasProtectedContent = chat.hasProtectedContent,
+        hasScheduledMessages = chat.hasScheduledMessages,
     )
 
     private fun headerOf(chatId: Long, topicId: Int): ChatHeader? {
@@ -545,6 +595,8 @@ class ChatsStore(
             subtitle,
             emojiStatusId = (user?.emojiStatus ?: chat.emojiStatus).customEmojiId(),
             isPremium = user?.isPremium == true,
+            profileColors = profileColors[chat.profileAccentColorId],
+            profileEmojiId = chat.profileBackgroundCustomEmojiId,
         )
     }
 
@@ -629,7 +681,55 @@ class ChatsStore(
         // UpdateScopeNotificationSettings when settings get a notifications page
         isMuted = !notificationSettings.useDefaultMuteFor && notificationSettings.muteFor > 0,
         isForum = viewAsTopics,
+        hasProtectedContent = hasProtectedContent,
+        hasScheduledMessages = hasScheduledMessages,
+        unreadReactionCount = unreadReactionCount,
+        animationFileId = animatedPhotoFileId(),
+        emojiStatusId = (privateUser()?.emojiStatus ?: emojiStatus).customEmojiId(),
+        isPremium = privateUser()?.isPremium == true,
     )
+
+    private fun TdApi.Chat.privateUser() = when (val type = type) {
+        is TdApi.ChatTypePrivate -> users[type.userId]
+        is TdApi.ChatTypeSecret -> users[type.userId]
+        else -> null
+    }
+
+    /**
+     * The small animated version of the chat's photo, asking TDLib for the full info the first
+     * time it's seen; 0 meanwhile or without one. Under the lock.
+     */
+    private fun TdApi.Chat.animatedPhotoFileId(): Int {
+        if (photo?.hasAnimation != true) {
+            return 0
+        }
+        animatedPhotoFileIds[id]?.let { return it }
+        animatedPhotoFileIds[id] = 0
+        val chatId = id
+        val onPhoto: (TdApi.ChatPhoto?) -> Unit = { fullPhoto ->
+            val animation = fullPhoto?.smallAnimation ?: fullPhoto?.animation
+            if (animation != null) {
+                synchronized(lock) { animatedPhotoFileIds[chatId] = animation.file.id }
+                version.update { it + 1 }
+            }
+        }
+        when (val type = type) {
+            is TdApi.ChatTypePrivate -> send(TdApi.GetUserFullInfo(type.userId)) {
+                onPhoto((it as? TdApi.UserFullInfo)?.let { info -> info.personalPhoto ?: info.photo ?: info.publicPhoto })
+            }
+
+            is TdApi.ChatTypeSupergroup -> send(TdApi.GetSupergroupFullInfo(type.supergroupId)) {
+                onPhoto((it as? TdApi.SupergroupFullInfo)?.photo)
+            }
+
+            is TdApi.ChatTypeBasicGroup -> send(TdApi.GetBasicGroupFullInfo(type.basicGroupId)) {
+                onPhoto((it as? TdApi.BasicGroupFullInfo)?.photo)
+            }
+
+            else -> Unit
+        }
+        return 0
+    }
 
     private fun TdApi.Message.toPreview(chat: TdApi.Chat): MessagePreview {
         val isGroup = chat.isGroup
@@ -656,6 +756,9 @@ class ChatsStore(
         private const val PAGE_SIZE = 50
         private const val PHOTO_DOWNLOAD_PRIORITY = 1
         private const val TOPICS_LIMIT = 100
+
+        /** TDLib's colors are RGB. */
+        private const val OPAQUE = 0xFF000000.toInt()
 
         private val TdApi.MessageTopic?.forumTopicId
             get() = (this as? TdApi.MessageTopicForum)?.forumTopicId ?: 0

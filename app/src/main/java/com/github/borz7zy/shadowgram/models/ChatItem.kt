@@ -43,6 +43,18 @@ data class ChatItem(
     val isForum: Boolean = false,
     /** ARGB of the topic icon when this row is a forum topic, null for chats. */
     val topicIconColor: Int? = null,
+    /** Its messages can't be copied, forwarded, saved or screenshotted. */
+    val hasProtectedContent: Boolean = false,
+    /** Messages are waiting to be sent later, the composer shows a button for them. */
+    val hasScheduledMessages: Boolean = false,
+    /** Reactions to this account's messages not seen yet. */
+    val unreadReactionCount: Int = 0,
+    /** The small animated version of the photo, a file to stream; 0 for none. */
+    val animationFileId: Int = 0,
+    /** The emoji status next to the name, a custom emoji id, 0 for none. */
+    val emojiStatusId: Long = 0L,
+    /** A Premium user, shown with a star when there's no emoji status. */
+    val isPremium: Boolean = false,
 ) : UniqueItem<ChatItem> {
     /**
      * @param senderName The name of the sender, null if it shouldn't be shown

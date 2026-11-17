@@ -5,17 +5,22 @@
 
 package com.github.borz7zy.shadowgram.fragments
 
+import android.graphics.Color
+import android.graphics.Rect
 import android.os.Bundle
 import android.telephony.PhoneNumberUtils
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnPreDraw
 import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -23,22 +28,32 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import androidx.viewpager2.widget.ViewPager2
+import com.github.borz7zy.rustcore.RustMedia
 import com.github.borz7zy.shadowgram.R
+import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.navigateSafe
+import com.github.borz7zy.shadowgram.telegram.EmojiStickers
 import com.github.borz7zy.shadowgram.telegram.ProfilePage
 import com.github.borz7zy.shadowgram.ui.text.subtitleText
 import com.github.borz7zy.shadowgram.ui.views.AvatarView
+import com.github.borz7zy.shadowgram.ui.views.CustomEmojiView
+import com.github.borz7zy.shadowgram.ui.views.ProfileCoverView
+import com.github.borz7zy.shadowgram.viewmodels.PhotoViewerViewModel
 import com.github.borz7zy.shadowgram.viewmodels.ProfileViewModel
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.color.MaterialColors
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * The profile of a user, group or channel, laid out like the contacts app: the big avatar, the
@@ -59,6 +74,10 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
     private val messageMaterialButton by getViewProperty<MaterialButton>(R.id.messageMaterialButton)
     private val muteMaterialButton by getViewProperty<MaterialButton>(R.id.muteMaterialButton)
     private val muteTextView by getViewProperty<TextView>(R.id.muteTextView)
+    private val headerLinearLayout by getViewProperty<LinearLayout>(R.id.headerLinearLayout)
+    private val titleLinearLayout by getViewProperty<LinearLayout>(R.id.titleLinearLayout)
+    private val emojiStatusView by getViewProperty<CustomEmojiView>(R.id.emojiStatusView)
+    private val profileCoverView by getViewProperty<ProfileCoverView>(R.id.profileCoverView)
     private val phoneLinearLayout by getViewProperty<LinearLayout>(R.id.phoneLinearLayout)
     private val phoneTextView by getViewProperty<TextView>(R.id.phoneTextView)
     private val subtitleTextView by getViewProperty<TextView>(R.id.subtitleTextView)
@@ -73,6 +92,16 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
 
     private val startTransition = Runnable { activity?.supportStartPostponedEnterTransition() }
 
+    private val viewerAnchor by activityViewModels<PhotoViewerViewModel.Anchor>()
+
+    /** The custom emoji the cover's pattern is loaded for, 0 for none. */
+    private var coverEmojiId = 0L
+
+    private var isCollapsed = false
+
+    /** The status bar's height: the cover goes up under it. */
+    private var statusBarHeight = 0
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
@@ -82,6 +111,9 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
             v.updatePadding(left = insets.left, top = insets.top, right = insets.right)
+            statusBarHeight = insets.top
+            profileCoverView.translationY = -insets.top.toFloat()
+            headerLinearLayout.requestLayout()
             windowInsets
         }
 
@@ -91,9 +123,30 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
 
         // The name moves to the top bar once the header is scrolled away
         appBarLayout.addOnOffsetChangedListener { appBar, offset ->
-            val isCollapsed = appBar.totalScrollRange > 0 && -offset >= appBar.totalScrollRange
+            isCollapsed = appBar.totalScrollRange > 0 && -offset >= appBar.totalScrollRange
             toolbar.title = if (isCollapsed) titleTextView.text else null
+            bindCoverColors()
         }
+
+        // The cover goes down to the name, the pattern around the avatar
+        headerLinearLayout.addOnLayoutChangeListener { header, _, _, _, _, _, _, _, _ ->
+            val height = statusBarHeight + header.top +
+                    subtitleTextView.bottom.coerceAtLeast(titleLinearLayout.bottom) +
+                    resources.getDimensionPixelSize(R.dimen.profile_cover_bottom_padding)
+            if (profileCoverView.layoutParams.height != height) {
+                profileCoverView.post {
+                    profileCoverView.updateLayoutParams { this.height = height }
+                }
+            }
+            profileCoverView.setAvatar(
+                header.left + avatarView.left + avatarView.width / 2f,
+                statusBarHeight + header.top + avatarView.top + avatarView.height / 2f,
+                avatarView.width / 2f,
+                (statusBarHeight + header.top + titleLinearLayout.top).toFloat(),
+            )
+        }
+
+        avatarView.setOnClickListener { openPhotos() }
 
         messageMaterialButton.setOnClickListener {
             when (requireArguments().getBoolean(ARG_IS_FROM_CHAT)) {
@@ -113,14 +166,25 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
-                    combine(viewModel.header, viewModel.photoPath, ::Pair)
-                        .collectLatest { (header, photoPath) ->
+                    combine(viewModel.header, viewModel.photoPath, viewModel.animationFileId, ::Triple)
+                        .collectLatest { (header, photoPath, animationFileId) ->
                             header ?: return@collectLatest
 
+                            // The big photo and its big animation, the small ones until they're there
                             avatarView.setChat(
-                                header.chat.copy(photoPath = photoPath ?: header.chat.photoPath)
+                                header.chat.copy(
+                                    photoPath = photoPath ?: header.chat.photoPath,
+                                    animationFileId = animationFileId.takeIf { it != 0 }
+                                        ?: header.chat.animationFileId,
+                                )
                             )
                             titleTextView.text = header.chat.title
+                            emojiStatusView.setEmojiStatus(header.emojiStatusId, header.isPremium)
+                            // Without one the name stays centered
+                            emojiStatusView.isVisible = header.emojiStatusId != 0L || header.isPremium
+                            profileCoverView.setColors(header.profileColors)
+                            loadCoverEmoji(header.profileEmojiId.takeIf { header.profileColors != null } ?: 0L)
+                            bindCoverColors()
 
                             val subtitle = requireContext().subtitleText(header.subtitle)
                             subtitleTextView.text = subtitle
@@ -144,12 +208,91 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
                 launch {
                     viewModel.info.collectLatest { it?.let(::setInfo) }
                 }
+
             }
         }
     }
 
+    /** White over the profile's colors, the theme's own over the surface. */
+    private fun bindCoverColors() {
+        val isOnCover = profileCoverView.hasColors
+        val onSurface = MaterialColors.getColor(titleTextView, com.google.android.material.R.attr.colorOnSurface)
+        val onSurfaceVariant = MaterialColors.getColor(
+            titleTextView, com.google.android.material.R.attr.colorOnSurfaceVariant
+        )
+        titleTextView.setTextColor(if (isOnCover) Color.WHITE else onSurface)
+        subtitleTextView.setTextColor(if (isOnCover) COVER_SUBTITLE_COLOR else onSurfaceVariant)
+        toolbar.setNavigationIconTint(if (isOnCover && !isCollapsed) Color.WHITE else onSurface)
+        WindowCompat.getInsetsController(requireActivity().window, requireView()).isAppearanceLightStatusBars =
+            if (isOnCover && !isCollapsed) false else isLightTheme()
+    }
+
+    private fun isLightTheme() = resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK != android.content.res.Configuration.UI_MODE_NIGHT_YES
+
+    /** The first frame of the pattern's emoji, made white by the cover. */
+    private fun loadCoverEmoji(emojiId: Long) {
+        if (emojiId == coverEmojiId) {
+            return
+        }
+        coverEmojiId = emojiId
+        if (emojiId == 0L) {
+            profileCoverView.setEmoji(null)
+            return
+        }
+        val size = resources.getDimensionPixelSize(R.dimen.profile_cover_emoji_size)
+        val profileCoverView = profileCoverView
+        viewLifecycleOwner.lifecycleScope.launch {
+            val client = (requireContext().applicationContext as ShadowgramApplication)
+                .accountsRepository.activeClient()
+            val file = EmojiStickers.customEmoji(client, emojiId) ?: return@launch
+            val bitmap = withContext(Dispatchers.IO) {
+                when (file.isAnimated) {
+                    true -> RustMedia.AnimatedSticker.open(File(file.path), size, size)?.use { sticker ->
+                        sticker.newBitmap().takeIf { sticker.frame(0, it) }
+                    }
+
+                    false -> RustMedia.decode(File(file.path), size, size)
+                }
+            }
+            if (coverEmojiId == emojiId) {
+                profileCoverView.setEmoji(bitmap)
+            }
+        }
+    }
+
+    /** The profile photos, from the avatar: the current one first, the older ones after it. */
+    private fun openPhotos() {
+        if (!viewModel.hasPhoto) {
+            return
+        }
+        val photoId = PhotoViewerViewModel.CURRENT_PROFILE_PHOTO_ID
+        val drawable = avatarView.photoDrawable ?: return
+        fun frame() = avatarView.let {
+            val location = IntArray(2).also(it::getLocationOnScreen)
+            PhotoViewerViewModel.Frame(
+                Rect(location[0], location[1], location[0] + it.width, location[1] + it.height),
+                FloatArray(4) { _ -> it.width / 2f },
+            )
+        }
+        viewerAnchor.drawable = drawable.constantState?.newDrawable(resources) ?: drawable
+        viewerAnchor.frame = frame()
+        viewerAnchor.locate = { id -> if (id == photoId && avatarView.isAttachedToWindow) frame() else null }
+        findNavController().navigateSafe(
+            R.id.action_profileFragment_to_photoViewerDialogFragment,
+            PhotoViewerDialogFragment.createProfileBundle(viewModel.chatId),
+        )
+    }
+
     override fun onDestroyView() {
         view?.removeCallbacks(startTransition)
+        // The next view's cover gets the pattern again (back from the player)
+        coverEmojiId = 0L
+        isCollapsed = false
+        view?.let {
+            WindowCompat.getInsetsController(requireActivity().window, it).isAppearanceLightStatusBars =
+                isLightTheme()
+        }
 
         super.onDestroyView()
     }
@@ -216,6 +359,9 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         private const val ARG_IS_FROM_CHAT = "is_from_chat"
 
         private const val TRANSITION_TIMEOUT_MS = 500L
+
+        /** The status under the name, over the profile's colors. */
+        private const val COVER_SUBTITLE_COLOR = 0xCCFFFFFF.toInt()
 
         /**
          * Create a [Bundle] to use as the arguments for this fragment or its activity.

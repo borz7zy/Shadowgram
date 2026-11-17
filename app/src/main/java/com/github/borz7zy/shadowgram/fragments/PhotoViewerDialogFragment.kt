@@ -23,6 +23,7 @@ import android.view.LayoutInflater
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -146,6 +147,10 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog =
         (super.onCreateDialog(savedInstanceState) as ComponentDialog).apply {
             window?.let {
+                // A protected chat keeps its photos out of screenshots too
+                if (requireActivity().window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0) {
+                    it.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
                 WindowCompat.setDecorFitsSystemWindows(it, false)
                 it.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 // Full screen for the photo, a swipe from the edge brings the status bar back
@@ -182,8 +187,9 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
 
         toolbar.setNavigationOnClickListener { close() }
         toolbar.setOnMenuItemClickListener {
-            if (it.itemId == R.id.save) {
-                save()
+            when (it.itemId) {
+                R.id.save -> save()
+                R.id.more -> showGifMenu()
             }
             true
         }
@@ -305,11 +311,14 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
                 DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_MONTH,
             ),
         ).joinToString(", ")
-        toolbar.menu.findItem(R.id.save)?.isVisible = photo.canBeSaved
+        toolbar.menu.findItem(R.id.save)?.isVisible = photo.canBeSaved && !photo.isGif
+        toolbar.menu.findItem(R.id.more)?.isVisible = photo.canBeSaved && photo.isGif
         captionTextView.text = photo.caption
         captionTextView.isVisible = photo.caption != null
-        videoControlsLinearLayout.isVisible = photo.video != null
-        bottomLinearLayout.isVisible = photo.caption != null || photo.video != null
+        // GIFs and animated profile photos just loop
+        val hasControls = photo.video?.isAnimation == false
+        videoControlsLinearLayout.isVisible = hasControls
+        bottomLinearLayout.isVisible = photo.caption != null || hasControls
     }
 
     /** The player on the shown page if it's a video, stopped otherwise. */
@@ -347,6 +356,8 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
                 player = it
             }
         player.setVideoTextureView(holder.textureView)
+        player.repeatMode = if (video.isAnimation) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        player.volume = if (video.isAnimation) 0f else 1f
         player.setMediaItem(MediaItem.fromUri(TdFileDataSource.uriOf(video.fileId)))
         player.prepare()
         // Played once it flew in
@@ -548,7 +559,39 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
     override fun onDismiss() = close()
 
     /** Into the gallery's Pictures or Movies, no permission needed for a file this app adds. */
-    private fun save() {
+    /** A GIF's "more": to the downloads, or to the account's GIFs. */
+    private fun showGifMenu() {
+        val photo = viewModel.state.value.photos.getOrNull(viewPager2.currentItem) ?: return
+        val video = photo.video ?: return
+        val anchor = toolbar.findViewById<View>(R.id.more) ?: toolbar
+        androidx.appcompat.widget.PopupMenu(requireContext(), anchor).apply {
+            menu.add(0, MENU_SAVE_DOWNLOADS, 0, R.string.photo_viewer_save_downloads)
+            menu.add(0, MENU_SAVE_GIFS, 1, R.string.photo_viewer_save_gifs)
+            setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    MENU_SAVE_DOWNLOADS -> save(toDownloads = true)
+                    MENU_SAVE_GIFS -> {
+                        val context = requireContext().applicationContext
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            Toast.makeText(
+                                context,
+                                when (viewModel.saveGif(video.fileId)) {
+                                    true -> R.string.photo_viewer_saved_gif
+                                    false -> R.string.photo_viewer_save_gif_failed
+                                },
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                }
+                true
+            }
+            show()
+        }
+    }
+
+    /** To the gallery, a video to Movies; to the downloads when [toDownloads]. */
+    private fun save(toDownloads: Boolean = false) {
         val photo = viewModel.state.value.photos.getOrNull(viewPager2.currentItem)
             ?.takeIf { it.canBeSaved } ?: return
         val context = requireContext().applicationContext
@@ -561,8 +604,14 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
             val isSaved = path != null && withContext(Dispatchers.IO) {
                 runCatching {
                     val values = ContentValues().apply {
-                        when (video) {
-                            null -> {
+                        when {
+                            toDownloads -> {
+                                put(MediaStore.Downloads.DISPLAY_NAME, "shadowgram_${photo.messageId}.mp4")
+                                put(MediaStore.Downloads.MIME_TYPE, "video/mp4")
+                                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Shadowgram")
+                            }
+
+                            video == null -> {
                                 put(MediaStore.Images.Media.DISPLAY_NAME, "shadowgram_${photo.messageId}.jpg")
                                 put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
                                 put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Shadowgram")
@@ -575,8 +624,9 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
                             }
                         }
                     }
-                    val collection: Uri = when (video) {
-                        null -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    val collection: Uri = when {
+                        toDownloads -> MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                        video == null -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
                         else -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
                     }
                     val uri = context.contentResolver.insert(collection, values)
@@ -591,6 +641,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
                 context,
                 when {
                     !isSaved -> R.string.photo_viewer_save_failed
+                    toDownloads -> R.string.photo_viewer_saved_downloads
                     video != null -> R.string.photo_viewer_saved_video
                     else -> R.string.photo_viewer_saved
                 },
@@ -736,6 +787,9 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
 
         private const val MAX_SIZE = 4096
 
+        private const val MENU_SAVE_DOWNLOADS = 1
+        private const val MENU_SAVE_GIFS = 2
+
         /** The frame a closing video flies back with, its longest side. */
         private const val FRAME_MAX_SIZE = 1280
         private const val POSITION_UPDATE_MS = 200L
@@ -753,6 +807,16 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
             PhotoViewerViewModel.ARG_CHAT_ID to chatId,
             PhotoViewerViewModel.ARG_MESSAGE_ID to messageId,
             PhotoViewerViewModel.ARG_MESSAGE_IDS to messageIds,
+        )
+
+        /**
+         * Create a [Bundle] to use as the arguments for this fragment, for a chat's profile
+         * photos: the current one first, [PhotoViewerViewModel.CURRENT_PROFILE_PHOTO_ID].
+         */
+        fun createProfileBundle(chatId: Long) = bundleOf(
+            PhotoViewerViewModel.ARG_CHAT_ID to chatId,
+            PhotoViewerViewModel.ARG_MESSAGE_ID to PhotoViewerViewModel.CURRENT_PROFILE_PHOTO_ID,
+            PhotoViewerViewModel.ARG_PROFILE to true,
         )
 
         /**

@@ -59,6 +59,73 @@
             android:id="@+id/action_chatFragment_to_profileActivity"
             app:destination="@id/profileActivity" />
 
+        <!-- A long press on the top bar, the pinned bar's list button -->
+        <action
+            android:id="@+id/action_chatFragment_to_chatSearchFragment"
+            app:destination="@id/chatSearchFragment" />
+
+        <!-- The scheduled messages button in the composer -->
+        <action
+            android:id="@+id/action_chatFragment_to_scheduledChatFragment"
+            app:destination="@id/scheduledChatFragment" />
+
+    </fragment>
+
+    <fragment
+        android:id="@+id/chatSearchFragment"
+        android:name="com.github.borz7zy.shadowgram.fragments.ChatSearchFragment"
+        tools:layout="@layout/fragment_chat_search">
+
+        <argument
+            android:name="chat_id"
+            app:argType="long" />
+
+        <argument
+            android:name="topic_id"
+            android:defaultValue="0"
+            app:argType="integer" />
+
+        <!-- The pinned messages rather than a search -->
+        <argument
+            android:name="pinned"
+            android:defaultValue="false"
+            app:argType="boolean" />
+
+    </fragment>
+
+    <!-- The chat's scheduled messages: the same screen without the composer. Its actions have
+         the chat's ids, so the screen opens them the same way -->
+    <fragment
+        android:id="@+id/scheduledChatFragment"
+        android:name="com.github.borz7zy.shadowgram.fragments.ChatFragment"
+        tools:layout="@layout/fragment_chat">
+
+        <argument
+            android:name="chat_id"
+            app:argType="long" />
+
+        <argument
+            android:name="topic_id"
+            android:defaultValue="0"
+            app:argType="integer" />
+
+        <argument
+            android:name="scheduled"
+            android:defaultValue="false"
+            app:argType="boolean" />
+
+        <action
+            android:id="@+id/action_chatFragment_to_photoViewerDialogFragment"
+            app:destination="@id/photoViewerDialogFragment" />
+
+        <action
+            android:id="@+id/action_chatFragment_to_messageMenuDialogFragment"
+            app:destination="@id/messageMenuDialogFragment" />
+
+        <action
+            android:id="@+id/action_chatFragment_to_profileActivity"
+            app:destination="@id/profileActivity" />
+
     </fragment>
 
     <dialog
@@ -118,6 +185,18 @@
             android:defaultValue="@null"
             app:argType="string"
             app:nullable="true" />
+
+        <!-- A scheduled message: "Send now" and no reactions -->
+        <argument
+            android:name="scheduled"
+            android:defaultValue="false"
+            app:argType="boolean" />
+
+        <!-- "Forward": the menu is still the current destination when the chat gets it, and
+             goes away by itself for the picker -->
+        <action
+            android:id="@+id/action_messageMenuDialogFragment_to_fragment_chat_picker"
+            app:destination="@id/fragment_chat_picker" />
 
     </dialog>
 

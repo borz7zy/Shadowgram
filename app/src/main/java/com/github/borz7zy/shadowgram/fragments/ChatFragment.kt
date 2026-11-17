@@ -8,15 +8,6 @@ package com.github.borz7zy.shadowgram.fragments
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
-import android.location.Location
-import android.location.LocationManager
-import android.net.Uri
-import android.os.Build
-import android.os.Bundle
-import android.os.CancellationSignal
-import android.provider.ContactsContract
-import android.text.format.DateFormat
-import android.text.format.DateUtils
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -25,26 +16,40 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
+import android.location.Location
+import android.location.LocationManager
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.os.CancellationSignal
+import android.provider.ContactsContract
 import android.text.Spanned
+import android.text.format.DateFormat
+import android.text.format.DateUtils
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityOptionsCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-import androidx.core.location.LocationManagerCompat
-import androidx.core.view.children
 import androidx.core.graphics.withTranslation
+import androidx.core.location.LocationManagerCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.children
+import androidx.core.view.descendants
 import androidx.core.view.doOnNextLayout
 import androidx.core.view.drawToBitmap
-import androidx.core.view.descendants
 import androidx.core.view.isVisible
+import androidx.core.view.updatePadding
 import androidx.core.widget.doAfterTextChanged
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
@@ -63,14 +68,17 @@ import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.navigateSafe
 import com.github.borz7zy.shadowgram.ext.setProgressCompat
 import com.github.borz7zy.shadowgram.ext.toPx
-import com.github.borz7zy.shadowgram.models.FlowResult
+import com.github.borz7zy.shadowgram.models.ChatHeader
 import com.github.borz7zy.shadowgram.models.ChatItem
+import com.github.borz7zy.shadowgram.models.ContactItem
+import com.github.borz7zy.shadowgram.models.FlowResult
 import com.github.borz7zy.shadowgram.models.MessageItem
 import com.github.borz7zy.shadowgram.models.MessageRow
 import com.github.borz7zy.shadowgram.playback.MessagePlayer
 import com.github.borz7zy.shadowgram.telegram.Downloads
 import com.github.borz7zy.shadowgram.telegram.InputContents
 import com.github.borz7zy.shadowgram.telegram.StickersStore
+import com.github.borz7zy.shadowgram.ui.album.AlbumView
 import com.github.borz7zy.shadowgram.ui.composer.AttachPanelView
 import com.github.borz7zy.shadowgram.ui.composer.AttachmentStripView
 import com.github.borz7zy.shadowgram.ui.composer.GalleryPanelView
@@ -80,34 +88,35 @@ import com.github.borz7zy.shadowgram.ui.composer.RecentEmoji
 import com.github.borz7zy.shadowgram.ui.composer.StickerKeyboardView
 import com.github.borz7zy.shadowgram.ui.recyclerview.MessageListAdapter
 import com.github.borz7zy.shadowgram.ui.recyclerview.SenderAvatarDecoration
-import com.github.borz7zy.shadowgram.ui.views.ChatHeaderView
-import com.github.borz7zy.shadowgram.ui.views.TopRoundedLayout
-import com.github.borz7zy.shadowgram.videonote.VideoNoteCamera
-import com.github.borz7zy.shadowgram.videonote.VideoNoteDialogFragment
 import com.github.borz7zy.shadowgram.ui.text.CustomEmojiSpan
 import com.github.borz7zy.shadowgram.ui.text.attachCustomEmoji
 import com.github.borz7zy.shadowgram.ui.text.customEmojiRanges
 import com.github.borz7zy.shadowgram.ui.text.removeEmojiUnderCustom
 import com.github.borz7zy.shadowgram.ui.text.stringResId
+import com.github.borz7zy.shadowgram.ui.views.ChatHeaderView
+import com.github.borz7zy.shadowgram.ui.views.PinnedIndicatorView
+import com.github.borz7zy.shadowgram.ui.views.TopRoundedLayout
+import com.github.borz7zy.shadowgram.videonote.VideoNoteCamera
+import com.github.borz7zy.shadowgram.videonote.VideoNoteDialogFragment
 import com.github.borz7zy.shadowgram.viewmodels.ChatViewModel
 import com.github.borz7zy.shadowgram.viewmodels.MessageMenuViewModel
 import com.github.borz7zy.shadowgram.viewmodels.PhotoViewerViewModel
-import com.google.android.material.card.MaterialCardView
-import com.google.android.material.shape.ShapeAppearancePathProvider
-import com.github.borz7zy.shadowgram.ui.album.AlbumView
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
 import com.google.android.material.datepicker.CalendarConstraints
 import com.google.android.material.datepicker.DateValidatorPointForward
 import com.google.android.material.datepicker.MaterialDatePicker
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.LinearProgressIndicator
+import com.google.android.material.shape.ShapeAppearancePathProvider
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.timepicker.MaterialTimePicker
 import com.google.android.material.timepicker.TimeFormat
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import org.drinkless.tdlib.TdApi
 import java.io.File
 import java.util.Calendar
 import java.util.TimeZone
@@ -132,11 +141,29 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private val noElementsLinearLayout by getViewProperty<LinearLayout>(R.id.noElementsLinearLayout)
     private val recyclerView by getViewProperty<RecyclerView>(R.id.recyclerView)
     private val sendMaterialButton by getViewProperty<MaterialButton>(R.id.sendMaterialButton)
+    private val pinnedLinearLayout by getViewProperty<LinearLayout>(R.id.pinnedLinearLayout)
+    private val reactionsFrameLayout by getViewProperty<View>(R.id.reactionsFrameLayout)
+    private val reactionsFloatingActionButton by getViewProperty<View>(R.id.reactionsFloatingActionButton)
+    private val reactionsCountTextView by getViewProperty<TextView>(R.id.reactionsCountTextView)
+    private val mentionsFrameLayout by getViewProperty<View>(R.id.mentionsFrameLayout)
+    private val mentionsFloatingActionButton by getViewProperty<View>(R.id.mentionsFloatingActionButton)
+    private val mentionsCountTextView by getViewProperty<TextView>(R.id.mentionsCountTextView)
+    private val scrollDownFrameLayout by getViewProperty<View>(R.id.scrollDownFrameLayout)
+    private val scrollDownFloatingActionButton by getViewProperty<View>(R.id.scrollDownFloatingActionButton)
+    private val scrollDownCountTextView by getViewProperty<TextView>(R.id.scrollDownCountTextView)
+    private val pinnedIndicatorView by getViewProperty<PinnedIndicatorView>(R.id.pinnedIndicatorView)
+    private val pinnedTitleTextView by getViewProperty<TextView>(R.id.pinnedTitleTextView)
+    private val pinnedTextView by getViewProperty<TextView>(R.id.pinnedTextView)
+    private val pinnedListMaterialButton by getViewProperty<MaterialButton>(R.id.pinnedListMaterialButton)
+    private val sendMenuLinearLayout by getViewProperty<LinearLayout>(R.id.sendMenuLinearLayout)
+    private val sendMenuScrimView by getViewProperty<View>(R.id.sendMenuScrimView)
+    private val sendLaterMaterialButton by getViewProperty<MaterialButton>(R.id.sendLaterMaterialButton)
+    private val sendWhenOnlineMaterialButton by getViewProperty<MaterialButton>(R.id.sendWhenOnlineMaterialButton)
     private val toolbar by getViewProperty<MaterialToolbar>(R.id.toolbar)
     private val videoNoteMaterialButton by getViewProperty<MaterialButton>(R.id.videoNoteMaterialButton)
     private val attachMaterialButton by getViewProperty<MaterialButton>(R.id.attachMaterialButton)
     private val emojiMaterialButton by getViewProperty<MaterialButton>(R.id.emojiMaterialButton)
-    private val galleryMaterialButton by getViewProperty<MaterialButton>(R.id.galleryMaterialButton)
+    private val scheduledMaterialButton by getViewProperty<MaterialButton>(R.id.scheduledMaterialButton)
     private val panelCardView by getViewProperty<TopRoundedLayout>(R.id.panelCardView)
     private val stickerKeyboardView by getViewProperty<StickerKeyboardView>(R.id.stickerKeyboardView)
     private val galleryPanelView by getViewProperty<GalleryPanelView>(R.id.galleryPanelView)
@@ -156,7 +183,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private val emojiInvalidator = Runnable {
         messageEditText.invalidate()
         replyTextTextView.invalidate()
-        recyclerView.descendants.filterIsInstance<TextView>().forEach(View::invalidate)
+        pinnedTextView.invalidate()
+        adapter.invalidateEmoji()
     }
 
     // Pickers and permissions
@@ -222,6 +250,11 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 Downloads.onTap(requireContext(), document) { viewModel.toggleDownload(document) }
             }
 
+            override fun onReplyClick(message: MessageItem) {
+                val reply = message.reply ?: return
+                jumpTo(reply.messageId, reply.quote, reply.quotePosition)
+            }
+
             override fun onReactionClick(message: MessageItem, reaction: MessageItem.Reaction) {
                 if (!reaction.isPaid) {
                     viewModel.toggleReaction(message.id, reaction.emoji, reaction.customEmojiId)
@@ -235,6 +268,15 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
 
     /** The photo whose picture the viewer shows meanwhile, hidden here. */
     private var viewerMessageId = 0L
+
+    private var isSendMenuOpen = false
+
+    private val sendMenuOnBackPressedCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() = setSendMenuOpen(false)
+    }
+
+    /** A reply's original to scroll to and flash once its rows are in. */
+    private var pendingJump: MessageListAdapter.Highlight? = null
 
     /** The message whose menu is open. */
     private var menuMessage: MessageItem? = null
@@ -284,8 +326,24 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             }
 
             viewVisibleMessages()
+            updatePinnedBar()
+
+            // Scrolling down away from the newest brings the way back to it, up hides it
+            when {
+                isAtNewest() -> setScrollDownShown(false)
+                dy > SCROLL_SLOP_PX -> setScrollDownShown(true)
+                dy < -SCROLL_SLOP_PX -> setScrollDownShown(false)
+            }
         }
     }
+
+    private var isScrollDownShown = false
+
+    /** Back to the newest was asked for while reading old messages, they're reloaded first. */
+    private var isScrollToNewestPending = false
+
+    /** The pinned message the bar shows, the one a tap on it goes to. */
+    private var shownPinnedId = 0L
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -305,6 +363,18 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             ::onPanelChanged,
         )
         setUpComposer()
+        // Scheduled messages are only looked at here, they're written in the chat
+        if (viewModel.isScheduled) {
+            composerLinearLayout.isVisible = false
+            // Without the composer the list goes down to the navigation bar
+            val paddingBottom = recyclerView.paddingBottom
+            ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { v, windowInsets ->
+                v.updatePadding(
+                    bottom = paddingBottom + windowInsets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+                )
+                windowInsets
+            }
+        }
 
         toolbar.setNavigationOnClickListener {
             requireActivity().onBackPressedDispatcher.onBackPressed()
@@ -328,6 +398,21 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             )
         }
 
+        // All the messages, searched; the pinned ones listed
+        chatHeaderView.setOnLongClickListener {
+            openSearch(isPinned = false)
+            true
+        }
+        pinnedListMaterialButton.setOnClickListener { openSearch(isPinned = true) }
+        scrollDownFloatingActionButton.setOnClickListener { scrollToNewest() }
+        mentionsFloatingActionButton.setOnClickListener { goToUnread(isReaction = false) }
+        reactionsFloatingActionButton.setOnClickListener { goToUnread(isReaction = true) }
+        setScrollDownShown(false)
+        pinnedLinearLayout.setOnClickListener { jumpTo(shownPinnedId) }
+        setFragmentResultListener(ChatSearchFragment.REQUEST_KEY) { _, bundle ->
+            jumpTo(bundle.getLong(ChatSearchFragment.KEY_MESSAGE_ID))
+        }
+
         recyclerView.layoutManager = LinearLayoutManager(requireContext()).apply {
             reverseLayout = true
         }
@@ -348,6 +433,10 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 messageEditText.attachCustomEmoji()
             }
             updateSendButton()
+            // Not the text a rotation puts back
+            if (isResumed) {
+                viewModel.onTyping(it.isNullOrEmpty())
+            }
         }
 
         // CameraX and both cameras' capabilities, so the recorder opens at once
@@ -386,37 +475,53 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             }
         }
 
-        sendMaterialButton.setOnClickListener {
-            val raw = messageEditText.text?.toString().orEmpty()
-            val text = raw.trim().takeIf { it.isNotEmpty() }
-            // Custom emoji offsets in the trimmed text
-            val trimmed = raw.indexOfFirst { !it.isWhitespace() }.coerceAtLeast(0)
-            val customEmoji = messageEditText.text?.customEmojiRanges().orEmpty()
-                .map { it.copy(offset = it.offset - trimmed) }
-                .filter { text != null && it.offset >= 0 && it.offset + it.length <= text.length }
-            notifySchedule()
-            when {
-                // Picked files go with the text as the caption of the first
-                viewModel.attachments.isNotEmpty() -> {
-                    viewModel.send(viewModel.attachments, viewModel.isGrouped, caption = text)
-                    attachmentStripView.clear()
-                }
-
-                text.isNullOrEmpty() -> return@setOnClickListener
-                else -> viewModel.send(text, customEmoji)
-            }
-            messageEditText.text = null
-            recyclerView.scrollToPosition(0)
+        sendMaterialButton.setOnClickListener { send(null) }
+        // When it goes, like the new chat menu
+        sendMaterialButton.setOnLongClickListener {
+            val subtitle = viewModel.header.value?.subtitle
+            // Only a user who isn't online now can come online
+            sendWhenOnlineMaterialButton.tag = subtitle is ChatHeader.Subtitle.Status
+                    && subtitle.lastSeen.kind != ContactItem.LastSeen.Kind.ONLINE
+            setSendMenuOpen(true)
+            true
         }
+        sendMenuScrimView.setOnClickListener { setSendMenuOpen(false) }
+        sendLaterMaterialButton.setOnClickListener {
+            setSendMenuOpen(false)
+            pickScheduleDate { send(TdApi.MessageSchedulingStateSendAtDate(it, 0)) }
+        }
+        sendWhenOnlineMaterialButton.setOnClickListener {
+            setSendMenuOpen(false)
+            send(TdApi.MessageSchedulingStateSendWhenOnline())
+        }
+        isSendMenuOpen = false
+        sendMenuOnBackPressedCallback.isEnabled = false
+        requireActivity().onBackPressedDispatcher.addCallback(
+            viewLifecycleOwner, sendMenuOnBackPressedCallback
+        )
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
-                    viewModel.header.collectLatest { it?.let(chatHeaderView::setHeader) }
+                    viewModel.header.collectLatest {
+                        it ?: return@collectLatest
+                        chatHeaderView.setHeader(it)
+                        scheduledMaterialButton.isVisible = it.chat.hasScheduledMessages
+                        bindJumpButtons(it.chat)
+                        // A protected chat: no screenshots, no screen recording
+                        when (it.chat.hasProtectedContent) {
+                            true -> requireActivity().window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                            false -> requireActivity().window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        }
+                    }
                 }
 
                 launch {
                     viewModel.rows.collectLatest(::setRows)
+                }
+
+                launch {
+                    viewModel.pinned.collectLatest { updatePinnedBar() }
                 }
 
                 launch {
@@ -431,16 +536,6 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                         replyTextTextView.text = Emoji.replaceEmoji(
                             reply.text, replyTextTextView.paint.fontMetricsInt, false
                         )
-                    }
-                }
-
-                launch {
-                    viewModel.scheduleAt.collectLatest { at ->
-                        messageEditText.hint = when (at) {
-                            null -> getString(R.string.chat_message_hint)
-                            else -> getString(R.string.chat_scheduled_hint, formatDate(at))
-                        }
-                        attachPanelView.setScheduled(at != null)
                     }
                 }
             }
@@ -495,9 +590,25 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private fun setUpComposer() {
         Emoji.registerInvalidator(emojiInvalidator)
 
-        attachMaterialButton.setOnClickListener { panels?.toggle(KeyboardPanels.Panel.ATTACH) }
+        // The gallery opens from the attachments, the button closes either
+        attachMaterialButton.setOnClickListener {
+            val panels = panels ?: return@setOnClickListener
+            when (panels.current) {
+                KeyboardPanels.Panel.ATTACH, KeyboardPanels.Panel.GALLERY -> panels.showKeyboard()
+                else -> panels.show(KeyboardPanels.Panel.ATTACH)
+            }
+        }
         emojiMaterialButton.setOnClickListener { panels?.toggle(KeyboardPanels.Panel.STICKERS) }
-        galleryMaterialButton.setOnClickListener { panels?.toggle(KeyboardPanels.Panel.GALLERY) }
+        scheduledMaterialButton.setOnClickListener {
+            findNavController().navigateSafe(
+                R.id.action_chatFragment_to_scheduledChatFragment,
+                createBundle(
+                    requireArguments().getLong(ChatViewModel.ARG_CHAT_ID),
+                    requireArguments().getInt(ChatViewModel.ARG_TOPIC_ID),
+                    isScheduled = true,
+                ),
+            )
+        }
 
         stickerKeyboardView.listener = object : KeyboardListener {
             override fun onEmoji(code: String) {
@@ -530,13 +641,11 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             }
 
             override fun onSticker(sticker: StickersStore.Sticker) {
-                notifySchedule()
                 viewModel.sendSticker(sticker)
                 recyclerView.scrollToPosition(0)
             }
 
             override fun onGif(gif: StickersStore.Gif) {
-                notifySchedule()
                 viewModel.sendGif(gif)
                 recyclerView.scrollToPosition(0)
             }
@@ -578,6 +687,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
 
         attachPanelView.onAction = { action ->
             when (action) {
+                AttachPanelView.Action.GALLERY -> panels?.show(KeyboardPanels.Panel.GALLERY)
+
                 AttachPanelView.Action.CAMERA -> {
                     val directory = File(requireContext().cacheDir, "outgoing/${System.nanoTime()}")
                         .apply { mkdirs() }
@@ -602,14 +713,6 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 AttachPanelView.Action.CONTACT -> pickContact.launch(
                     Intent(Intent.ACTION_PICK).setType(ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE)
                 )
-
-                AttachPanelView.Action.SCHEDULE -> when (viewModel.scheduleAt.value) {
-                    null -> pickScheduleDate()
-                    else -> {
-                        viewModel.scheduleAt.value = null
-                        Toast.makeText(requireContext(), R.string.chat_schedule_cleared, Toast.LENGTH_SHORT).show()
-                    }
-                }
             }
         }
     }
@@ -621,11 +724,12 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         emojiMaterialButton.contentDescription = getString(
             if (panel == KeyboardPanels.Panel.STICKERS) R.string.chat_keyboard else R.string.chat_emoji
         )
+        val isAttaching = panel == KeyboardPanels.Panel.ATTACH || panel == KeyboardPanels.Panel.GALLERY
         attachMaterialButton.setIconResource(
-            if (panel == KeyboardPanels.Panel.ATTACH) R.drawable.ic_close else R.drawable.ic_add_circle
+            if (isAttaching) R.drawable.ic_close else R.drawable.ic_add_circle
         )
         attachMaterialButton.contentDescription = getString(
-            if (panel == KeyboardPanels.Panel.ATTACH) R.string.chat_attach_close else R.string.chat_attach
+            if (isAttaching) R.string.chat_attach_close else R.string.chat_attach
         )
 
         when (panel) {
@@ -673,6 +777,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 Rect(it.left + dx, it.top + dy, it.left + dx + bounds.width(), it.top + dy + bounds.height())
             }
         }
+        menuAnchor.text = selectableTextOf(message, bubble)
         menuMessage = message
         findNavController().navigateSafe(
             R.id.action_chatFragment_to_messageMenuDialogFragment,
@@ -680,8 +785,39 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 requireArguments().getLong(ChatViewModel.ARG_CHAT_ID),
                 message.id,
                 message.text?.takeIf { it.isNotBlank() },
+                viewModel.isScheduled,
+                viewModel.pinned.value.items.any { it.messageId == message.id },
             ),
         )
+    }
+
+    /** The text of [bubble] as it's laid out, for the menu to select a part of it over its picture. */
+    private fun selectableTextOf(message: MessageItem, bubble: View): MessageMenuViewModel.SelectableText? {
+        val textView = bubble.findViewById<TextView>(R.id.messageTextView)
+            ?.takeIf { it.isShown && !it.text.isNullOrEmpty() } ?: return null
+        val textSize = textView.textSize
+        val typeface = textView.typeface
+        val lineSpacingExtra = textView.lineSpacingExtra
+        val lineSpacingMultiplier = textView.lineSpacingMultiplier
+        val letterSpacing = textView.letterSpacing
+        val breakStrategy = textView.breakStrategy
+        val hyphenationFrequency = textView.hyphenationFrequency
+        val includeFontPadding = textView.includeFontPadding
+        val padding = Rect(textView.paddingLeft, textView.paddingTop, textView.paddingRight, textView.paddingBottom)
+        return MessageMenuViewModel.SelectableText(
+            text = textView.text,
+            bounds = textView.boundsOnScreen(),
+            shift = (textView.text.length - message.text.orEmpty().length).coerceAtLeast(0),
+        ) {
+            it.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, textSize)
+            it.typeface = typeface
+            it.setLineSpacing(lineSpacingExtra, lineSpacingMultiplier)
+            it.letterSpacing = letterSpacing
+            it.breakStrategy = breakStrategy
+            it.hyphenationFrequency = hyphenationFrequency
+            it.includeFontPadding = includeFontPadding
+            it.setPadding(padding.left, padding.top, padding.right, padding.bottom)
+        }
     }
 
     /** A picture of [bubble] and where it is, with the sender's avatar when it's drawn beside it. */
@@ -779,6 +915,14 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         )
     }
 
+    /** Every message of the album [messageId] is in, or just it. */
+    private fun albumIdsOf(messageId: Long): LongArray {
+        val row = adapter.currentList.firstOrNull { row ->
+            row is MessageRow.Bubble && row.album.any { it.id == messageId }
+        } as? MessageRow.Bubble
+        return row?.album?.map { it.id }?.sorted()?.toLongArray() ?: longArrayOf(messageId)
+    }
+
     /** The photos of the message [messageId] is in: its album's, or just it. */
     private fun albumOf(messageId: Long): LongArray {
         val row = adapter.currentList.firstOrNull { row ->
@@ -787,6 +931,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         return row?.album
             ?.filter {
                 it.kind == ChatItem.MessagePreview.Kind.PHOTO || it.kind == ChatItem.MessagePreview.Kind.VIDEO
+                        || it.kind == ChatItem.MessagePreview.Kind.ANIMATION
             }
             ?.map { it.id }?.sorted()?.toLongArray()
             ?: longArrayOf(messageId)
@@ -829,24 +974,16 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         setMenuBubbleHidden(message.id, false)
         menuAnchor.bitmap = null
         menuAnchor.locate = null
+        menuAnchor.text = null
 
         when (bundle.getString(MessageMenuDialogFragment.KEY_ACTION)) {
-            MessageMenuDialogFragment.ACTION_REPLY -> {
-                viewModel.setReply(
-                    ChatViewModel.Reply(
-                        message.id,
-                        when {
-                            message.isOutgoing -> getString(R.string.playback_you)
-                            else -> message.senderName ?: viewModel.header.value?.chat?.title.orEmpty()
-                        },
-                        message.text?.takeIf { it.isNotBlank() }
-                            ?: getString(message.kind.stringResId),
-                    )
-                )
-                messageEditText.requestFocus()
-                androidx.core.view.WindowCompat.getInsetsController(requireActivity().window, messageEditText)
-                    .show(androidx.core.view.WindowInsetsCompat.Type.ime())
-            }
+            MessageMenuDialogFragment.ACTION_REPLY -> replyTo(message, null, 0)
+
+            MessageMenuDialogFragment.ACTION_QUOTE -> replyTo(
+                message,
+                bundle.getString(MessageMenuDialogFragment.KEY_QUOTE),
+                bundle.getInt(MessageMenuDialogFragment.KEY_QUOTE_POSITION),
+            )
 
             MessageMenuDialogFragment.ACTION_REACTION -> viewModel.toggleReaction(
                 message.id,
@@ -854,10 +991,115 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 bundle.getLong(MessageMenuDialogFragment.KEY_CUSTOM_EMOJI_ID),
             )
 
+            MessageMenuDialogFragment.ACTION_SEND_NOW -> viewModel.sendNow(message.id)
+
+            MessageMenuDialogFragment.ACTION_PIN -> viewModel.setPinned(
+                message.id, viewModel.pinned.value.items.none { it.messageId == message.id }
+            )
+
+            MessageMenuDialogFragment.ACTION_FORWARD -> findNavController().navigateSafe(
+                R.id.action_messageMenuDialogFragment_to_fragment_chat_picker,
+                ChatPickerFragment.createForwardBundle(
+                    requireArguments().getLong(ChatViewModel.ARG_CHAT_ID), albumIdsOf(message.id)
+                ),
+            )
+
             MessageMenuDialogFragment.ACTION_DELETE -> confirmDelete(
                 message.id, bundle.getBoolean(MessageMenuDialogFragment.KEY_CAN_REVOKE)
             )
         }
+    }
+
+    /** Reply to [message], to its [quote] when there's one, and type it. */
+    private fun replyTo(message: MessageItem, quote: String?, quotePosition: Int) {
+        viewModel.setReply(
+            ChatViewModel.Reply(
+                message.id,
+                when {
+                    message.isOutgoing -> getString(R.string.playback_you)
+                    else -> message.senderName ?: viewModel.header.value?.chat?.title.orEmpty()
+                },
+                quote ?: message.text?.takeIf { it.isNotBlank() } ?: getString(message.kind.stringResId),
+                quote,
+                quotePosition,
+            )
+        )
+        messageEditText.requestFocus()
+        androidx.core.view.WindowCompat.getInsetsController(requireActivity().window, messageEditText)
+            .show(androidx.core.view.WindowInsetsCompat.Type.ime())
+    }
+
+    /** Go to [messageId] in the chat and flash it, marking its [quote] when there's one. */
+    private fun jumpTo(messageId: Long, quote: String? = null, quotePosition: Int = 0) {
+        if (messageId == 0L) {
+            return
+        }
+        pendingJump = MessageListAdapter.Highlight(messageId, quote, quotePosition)
+        viewModel.loadAt(messageId)
+        jumpIfLoaded()
+    }
+
+    private fun openSearch(isPinned: Boolean) {
+        findNavController().navigateSafe(
+            R.id.action_chatFragment_to_chatSearchFragment,
+            ChatSearchFragment.createBundle(
+                requireArguments().getLong(ChatViewModel.ARG_CHAT_ID),
+                requireArguments().getInt(ChatViewModel.ARG_TOPIC_ID),
+                isPinned,
+            ),
+        )
+    }
+
+    /**
+     * Show the newest pinned message above what's on screen, like Telegram: one on screen hands
+     * the bar to the one before it, above them all it starts over from the newest.
+     */
+    private fun updatePinnedBar() {
+        val pinnedMessages = viewModel.pinned.value
+        val pinned = pinnedMessages.items
+        pinnedLinearLayout.isVisible = pinned.isNotEmpty()
+        if (pinned.isEmpty()) {
+            return
+        }
+        // Reversed: the last visible position is the oldest message on screen
+        val layoutManager = recyclerView.layoutManager as LinearLayoutManager
+        val top = layoutManager.findLastVisibleItemPosition()
+        val oldestOnScreen = (top downTo 0).firstNotNullOfOrNull {
+            (adapter.currentList.getOrNull(it) as? MessageRow.Bubble)?.message?.id
+        } ?: Long.MAX_VALUE
+        val index = pinned.indexOfFirst { it.messageId < oldestOnScreen }.coerceAtLeast(0)
+        val item = pinned[index]
+        shownPinnedId = item.messageId
+
+        pinnedTitleTextView.text = when (pinnedMessages.total) {
+            1 -> getString(R.string.chat_pinned_message)
+            // Counted from the oldest, like Telegram
+            else -> getString(R.string.chat_pinned_message_number, pinnedMessages.total - index)
+        }
+        pinnedTextView.text = Emoji.replaceEmoji(
+            item.text?.takeIf { it.isNotBlank() } ?: getString(item.kind.stringResId),
+            pinnedTextView.paint.fontMetricsInt,
+            false,
+        )
+        pinnedIndicatorView.set(pinnedMessages.total, index)
+    }
+
+    /** Scroll to the reply's original and flash it, once the history around it is loaded. */
+    private fun jumpIfLoaded() {
+        // The diff may finish after the view is gone
+        view ?: return
+        val jump = pendingJump ?: return
+        val position = adapter.currentList.indexOfFirst {
+            it is MessageRow.Bubble && (it.message.id == jump.messageId || it.album.any { item -> item.id == jump.messageId })
+        }
+        if (position < 0) {
+            return
+        }
+        pendingJump = null
+        // Reversed: the offset is from the bottom, a third of the way up
+        (recyclerView.layoutManager as LinearLayoutManager)
+            .scrollToPositionWithOffset(position, recyclerView.height / 3)
+        adapter.highlight(jump)
     }
 
     private fun confirmDelete(messageId: Long, canRevoke: Boolean) {
@@ -890,12 +1132,78 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         attachmentStripView.add(uris.map { InputContents.Picked(it, asFiles) })
     }
 
+    /** Send what the composer has: the picked files with the text as the caption, or the text. */
+    private fun send(scheduling: TdApi.MessageSchedulingState?) {
+        val raw = messageEditText.text?.toString().orEmpty()
+        val text = raw.trim().takeIf { it.isNotEmpty() }
+        // Custom emoji offsets in the trimmed text
+        val trimmed = raw.indexOfFirst { !it.isWhitespace() }.coerceAtLeast(0)
+        val customEmoji = messageEditText.text?.customEmojiRanges().orEmpty()
+            .map { it.copy(offset = it.offset - trimmed) }
+            .filter { text != null && it.offset >= 0 && it.offset + it.length <= text.length }
+        when {
+            // Picked files go with the text as the caption of the first
+            viewModel.attachments.isNotEmpty() -> {
+                viewModel.send(viewModel.attachments, viewModel.isGrouped, text, scheduling)
+                attachmentStripView.clear()
+            }
+
+            text.isNullOrEmpty() -> return
+            else -> viewModel.send(text, customEmoji, scheduling)
+        }
+        notifySchedule(scheduling)
+        messageEditText.text = null
+        recyclerView.scrollToPosition(0)
+    }
+
     /** A scheduled message doesn't show in the chat, say when it goes. */
-    private fun notifySchedule() {
-        val at = viewModel.scheduleAt.value ?: return
-        Toast.makeText(
-            requireContext(), getString(R.string.chat_scheduled, formatDate(at)), Toast.LENGTH_LONG
-        ).show()
+    private fun notifySchedule(scheduling: TdApi.MessageSchedulingState?) {
+        val message = when (scheduling) {
+            is TdApi.MessageSchedulingStateSendAtDate ->
+                getString(R.string.chat_scheduled, formatDate(scheduling.sendDate))
+
+            is TdApi.MessageSchedulingStateSendWhenOnline ->
+                getString(R.string.chat_scheduled_when_online)
+
+            else -> return
+        }
+        Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
+    }
+
+    /** Slide the send options out of the send button, or back in. */
+    private fun setSendMenuOpen(open: Boolean) {
+        if (isSendMenuOpen == open) {
+            return
+        }
+        isSendMenuOpen = open
+        sendMenuOnBackPressedCallback.isEnabled = open
+
+        val scrimView = sendMenuScrimView
+        if (open) {
+            scrimView.isVisible = true
+        }
+        scrimView.animate()
+            .alpha(if (open) 1f else 0f)
+            .withEndAction { scrimView.isVisible = isSendMenuOpen }
+
+        // The closest one first, like the new chat menu
+        sendMenuLinearLayout.children
+            .filter { it != sendWhenOnlineMaterialButton || it.tag == true }
+            .toList()
+            .asReversed()
+            .forEachIndexed { index, action ->
+                val offset = action.resources.displayMetrics.density *
+                        SEND_MENU_ACTION_OFFSET_DP * (index + 1)
+                if (open) {
+                    action.alpha = 0f
+                    action.translationY = offset
+                    action.isVisible = true
+                }
+                action.animate()
+                    .alpha(if (open) 1f else 0f)
+                    .translationY(if (open) 0f else offset)
+                    .withEndAction { action.isVisible = isSendMenuOpen }
+            }
     }
 
     private fun formatDate(unixTime: Int) = DateUtils.formatDateTime(
@@ -904,7 +1212,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_MONTH,
     )
 
-    private fun pickScheduleDate() {
+    /** Pick a day and a time in the future, [onPicked] gets it as unix time. */
+    private fun pickScheduleDate(onPicked: (Int) -> Unit) {
         val datePicker = MaterialDatePicker.Builder.datePicker()
             .setCalendarConstraints(
                 CalendarConstraints.Builder()
@@ -934,8 +1243,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 // Telegram needs it in the future
                 val seconds = (at.timeInMillis / 1000).toInt()
                     .coerceAtLeast((System.currentTimeMillis() / 1000).toInt() + MIN_SCHEDULE_DELAY_S)
-                viewModel.scheduleAt.value = seconds
-                panels?.hide()
+                onPicked(seconds)
             }
             timePicker.show(childFragmentManager, "schedule_time")
         }
@@ -966,8 +1274,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             when (location) {
                 null -> Toast.makeText(context, R.string.chat_location_failed, Toast.LENGTH_LONG).show()
                 else -> {
-                    notifySchedule()
-                    viewModel.sendLocation(
+                        viewModel.sendLocation(
                         location.latitude, location.longitude, location.accuracy.toDouble()
                     )
                     panels?.hide()
@@ -984,7 +1291,6 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         )
         requireContext().contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) {
-                notifySchedule()
                 viewModel.sendContact(cursor.getString(0).orEmpty(), cursor.getString(1).orEmpty())
                 panels?.hide()
                 recyclerView.scrollToPosition(0)
@@ -1003,7 +1309,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         val layoutManager = recyclerView.layoutManager as LinearLayoutManager
         // Only once the list shows where the chat opens, before that it's at the bottom for
         // a frame and following new messages would undo the positioning
-        val wasAtBottom = canView && result.data.isNewestLoaded
+        // Not laid out yet (the view was just made again): it is wherever it was put, not at the bottom
+        val wasAtBottom = canView && result.data.isNewestLoaded && layoutManager.childCount > 0
                 && layoutManager.findFirstCompletelyVisibleItemPosition() <= 0
 
         // The diff runs in background and may complete after this view is gone,
@@ -1016,12 +1323,96 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                     positionAtUnread(recyclerView, rows)
                 }
 
+                // A reply's original was asked for: there, rather than anywhere else
+                pendingJump != null -> jumpIfLoaded()
+
+                // Back to the newest, reloaded for it
+                isScrollToNewestPending && result.data.isNewestLoaded && rows.isNotEmpty() -> {
+                    isScrollToNewestPending = false
+                    recyclerView.scrollToPosition(0)
+                }
+
                 // Follow new messages, unless reading older ones
                 wasAtBottom -> recyclerView.scrollToPosition(0)
             }
         }
 
         noElementsLinearLayout.isVisible = rows.isEmpty()
+
+        // A page of newer messages may not fill the screen, nothing scrolls to ask for the next
+        if (!result.data.isNewestLoaded && layoutManager.childCount > 0
+            && layoutManager.findFirstVisibleItemPosition() <= LOAD_MORE_THRESHOLD
+        ) {
+            viewModel.loadNewer()
+        }
+    }
+
+    /** At the newest message, nothing newer to scroll to. */
+    private fun isAtNewest(): Boolean {
+        val rows = (viewModel.rows.value as? FlowResult.Success)?.data ?: return true
+        val layoutManager = recyclerView.layoutManager as LinearLayoutManager
+        return rows.isNewestLoaded && layoutManager.findFirstVisibleItemPosition() <= 0
+    }
+
+    private fun setScrollDownShown(isShown: Boolean) {
+        val isShown = isShown && !viewModel.isScheduled
+        if (isScrollDownShown == isShown && scrollDownFrameLayout.isVisible == isShown) {
+            return
+        }
+        isScrollDownShown = isShown
+        val view = scrollDownFrameLayout
+        if (isShown) {
+            view.isVisible = true
+            view.scaleX = 0.6f
+            view.scaleY = 0.6f
+            view.alpha = 0f
+        }
+        view.animate().cancel()
+        view.animate()
+            .alpha(if (isShown) 1f else 0f)
+            .scaleX(if (isShown) 1f else 0.6f)
+            .scaleY(if (isShown) 1f else 0.6f)
+            .withEndAction { view.isVisible = isScrollDownShown }
+    }
+
+    /** To the newest message: scrolled to when it's loaded, reloaded first when it isn't. */
+    private fun scrollToNewest() {
+        val rows = (viewModel.rows.value as? FlowResult.Success)?.data
+        setScrollDownShown(false)
+        if (rows?.isNewestLoaded != true) {
+            isScrollToNewestPending = true
+            viewModel.showNewest()
+            return
+        }
+        // A long way: most of it at once, the end of it smoothly
+        val layoutManager = recyclerView.layoutManager as LinearLayoutManager
+        if (layoutManager.findFirstVisibleItemPosition() > SMOOTH_SCROLL_MAX_ITEMS) {
+            recyclerView.scrollToPosition(SMOOTH_SCROLL_MAX_ITEMS)
+        }
+        recyclerView.smoothScrollToPosition(0)
+    }
+
+    /** The oldest unread mention or unseen reaction, viewed so the count goes down. */
+    private fun goToUnread(isReaction: Boolean) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val messageId = viewModel.firstUnread(isReaction) ?: return@launch
+            jumpTo(messageId)
+            viewModel.view(longArrayOf(messageId))
+        }
+    }
+
+    /** The mentions and reactions buttons while there are unread ones, the unread count on the way down. */
+    private fun bindJumpButtons(chat: ChatItem) {
+        val isScheduled = viewModel.isScheduled
+        fun bind(frame: View, count: TextView, unread: Int) {
+            frame.isVisible = !isScheduled && unread > 0
+            count.isVisible = unread > 0
+            count.text = unread.toString()
+        }
+        bind(mentionsFrameLayout, mentionsCountTextView, chat.unreadMentionCount)
+        bind(reactionsFrameLayout, reactionsCountTextView, chat.unreadReactionCount)
+        scrollDownCountTextView.isVisible = chat.unreadCount > 0
+        scrollDownCountTextView.text = chat.unreadCount.toString()
     }
 
     /**
@@ -1078,10 +1469,13 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
 
     companion object {
         private const val LOAD_MORE_THRESHOLD = 15
+        private const val SCROLL_SLOP_PX = 8
+        private const val SMOOTH_SCROLL_MAX_ITEMS = 15
 
         /** Typed for a custom emoji that names no emoji. */
         private const val CUSTOM_EMOJI_FALLBACK = "⭐"
         private const val MIN_SCHEDULE_DELAY_S = 60
+        private const val SEND_MENU_ACTION_OFFSET_DP = 24
         private const val UNREAD_SEPARATOR_HEIGHT_DP = 56
 
         /**
@@ -1089,10 +1483,12 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
          *
          * @param chatId The chat to open
          * @param topicId The forum topic to open, 0 for the whole chat
+         * @param isScheduled Its scheduled messages instead, without the composer
          */
-        fun createBundle(chatId: Long, topicId: Int = 0) = Bundle().apply {
+        fun createBundle(chatId: Long, topicId: Int = 0, isScheduled: Boolean = false) = Bundle().apply {
             putLong(ChatViewModel.ARG_CHAT_ID, chatId)
             putInt(ChatViewModel.ARG_TOPIC_ID, topicId)
+            putBoolean(ChatViewModel.ARG_SCHEDULED, isScheduled)
         }
     }
 }

@@ -6,6 +6,7 @@
 package com.github.borz7zy.shadowgram.telegram
 
 import android.util.Log
+import com.github.borz7zy.shadowgram.models.ChatItem.MessagePreview
 import com.github.borz7zy.shadowgram.models.MessageItem
 import com.github.borz7zy.shadowgram.models.Result
 import com.github.borz7zy.shadowgram.ui.text.CustomEmojiRange
@@ -27,7 +28,7 @@ import java.util.TreeMap
 
 /**
  * Messages of an open chat, or of one forum topic when [topicId] isn't 0, kept up to date from
- * TDLib updates.
+ * TDLib updates. With [isScheduled] the ones waiting to be sent later instead, all loaded at once.
  *
  * A chat with unread messages opens around the first of them and pages both ways, otherwise it
  * opens at the newest message and pages backwards. Pictures of the loaded messages and avatars of
@@ -40,6 +41,7 @@ class ChatHistory(
     private val client: TelegramClient,
     val chatId: Long,
     val topicId: Int,
+    private val isScheduled: Boolean = false,
 ) {
     /**
      * @param messages Oldest first
@@ -68,9 +70,16 @@ class ChatHistory(
     private var isLoaded = false
     private var isLoadingOlder = false
     private var isLoadingNewer = false
-    private var isOldestLoaded = false
+    private var isOldestLoaded = isScheduled
     private var isNewestLoaded = true
     private var newMessageCount = 0
+
+    /** Replied messages that aren't loaded, by id; asked for once. Guarded by lock. */
+    private val replied = HashMap<Long, TdApi.Message>()
+    private val requestedReplies = HashSet<Long>()
+
+    /** Replied messages TDLib couldn't find, deleted. Guarded by lock. */
+    private val missingReplies = HashSet<Long>()
 
     /** Latest state of the files this history asked TDLib to download, by file id. */
     private val files = HashMap<Int, TdApi.File>()
@@ -97,7 +106,8 @@ class ChatHistory(
         client.addUpdateListener(onUpdate)
 
         val readState = client.chats.readState(chatId, topicId)
-        val opensAtUnread = readState.unreadCount > 0 && readState.lastReadInboxMessageId > 0
+        val opensAtUnread = !isScheduled && readState.unreadCount > 0
+                && readState.lastReadInboxMessageId > 0
         synchronized(lock) {
             isGroup = readState.isGroup
             lastReadOutboxMessageId = readState.lastReadOutboxMessageId
@@ -107,9 +117,10 @@ class ChatHistory(
             }
         }
 
-        when (opensAtUnread) {
-            true -> loadAround(readState.lastReadInboxMessageId)
-            false -> loadOlder()
+        when {
+            isScheduled -> loadScheduled()
+            opensAtUnread -> loadAround(readState.lastReadInboxMessageId)
+            else -> loadOlder()
         }
 
         launch {
@@ -164,9 +175,10 @@ class ChatHistory(
         }
 
         request(fromMessageId, -(PAGE_SIZE - 1)) { page, isAnswer ->
+            val last = client.chats.lastMessageId(chatId, topicId)
             synchronized(lock) {
                 isLoadingNewer = false
-                isNewestLoaded = isAnswer && page.none { it.id > fromMessageId }
+                isNewestLoaded = isAnswer && reachesNewest(last) { page.none { it.id > fromMessageId } }
             }
         }
     }
@@ -201,25 +213,25 @@ class ChatHistory(
     }
 
     /**
-     * Send [content], at [scheduleAt] (unix time) or right away when null.
+     * Send [content], when [scheduling] says or right away when null.
      *
      * @return Why TDLib refused it, null once accepted: failures after that show on the message
      */
-    suspend fun send(content: TdApi.InputMessageContent, scheduleAt: Int? = null) = submit { replyTo ->
-        TdApi.SendMessage(chatId, topic(), replyTo, options(scheduleAt), null, content)
+    suspend fun send(content: TdApi.InputMessageContent, scheduling: TdApi.MessageSchedulingState? = null) = submit { replyTo ->
+        TdApi.SendMessage(chatId, topic(), replyTo, options(scheduling), null, content)
     }
 
     /** Send [contents] grouped into one album, see [send]. */
-    suspend fun sendAlbum(contents: List<TdApi.InputMessageContent>, scheduleAt: Int? = null) =
+    suspend fun sendAlbum(contents: List<TdApi.InputMessageContent>, scheduling: TdApi.MessageSchedulingState? = null) =
         submit { replyTo ->
-            TdApi.SendMessageAlbum(chatId, topic(), replyTo, options(scheduleAt), contents.toTypedArray())
+            TdApi.SendMessageAlbum(chatId, topic(), replyTo, options(scheduling), contents.toTypedArray())
         }
 
     /** Send a result of an inline bot query, a GIF found through @gif, see [send]. */
-    suspend fun sendInlineResult(queryId: Long, resultId: String, scheduleAt: Int? = null) =
+    suspend fun sendInlineResult(queryId: Long, resultId: String, scheduling: TdApi.MessageSchedulingState? = null) =
         submit { replyTo ->
             TdApi.SendInlineQueryResultMessage(
-                chatId, topic(), replyTo, options(scheduleAt), queryId, resultId, true
+                chatId, topic(), replyTo, options(scheduling), queryId, resultId, true
             )
         }
 
@@ -237,21 +249,44 @@ class ChatHistory(
         }
     }
 
-    /** The message the next one replies to, 0 for none. Cleared once sent. */
-    @Volatile
-    var replyToMessageId = 0L
-
-    private fun takeReplyTo() = replyToMessageId.takeIf { it != 0L }?.let {
-        replyToMessageId = 0L
-        TdApi.InputMessageReplyToMessage(it, null, 0, "")
+    /**
+     * The message the next one replies to, 0 for none, and the part of its text quoted, null
+     * for none. Cleared once sent.
+     */
+    fun setReplyTo(messageId: Long, quote: String? = null, quotePosition: Int = 0) {
+        replyTo = messageId.takeIf { it != 0L }?.let {
+            TdApi.InputMessageReplyToMessage(
+                it,
+                quote?.let { text ->
+                    TdApi.InputTextQuote(TdApi.FormattedText(text, arrayOf()), arrayOf(), quotePosition)
+                },
+                0,
+                "",
+            )
+        }
     }
+
+    @Volatile
+    private var replyTo: TdApi.InputMessageReplyTo? = null
+
+    private fun takeReplyTo() = replyTo.also { replyTo = null }
 
     private fun topic() = topicId.takeIf { it != 0 }?.let { TdApi.MessageTopicForum(it) }
 
-    private fun options(scheduleAt: Int?) = scheduleAt?.let {
-        TdApi.MessageSendOptions().apply {
-            schedulingState = TdApi.MessageSchedulingStateSendAtDate(it, 0)
-        }
+    private fun options(scheduling: TdApi.MessageSchedulingState?) = scheduling?.let {
+        TdApi.MessageSendOptions().apply { schedulingState = it }
+    }
+
+    /** Show the others that a message is being typed, or stop showing it. */
+    fun setTyping(isTyping: Boolean) {
+        client.send(
+            TdApi.SendChatAction(
+                chatId,
+                topic(),
+                null,
+                if (isTyping) TdApi.ChatActionTyping() else TdApi.ChatActionCancel(),
+            )
+        ) {}
     }
 
     /** A message sent while reading old ones lands after a gap, jump to the newest first. */
@@ -273,10 +308,94 @@ class ChatHistory(
     }
 
     /**
+     * A pinned message as the chat's pinned bar shows it.
+     *
+     * @param text What it says, null when it's only its [kind]
+     */
+    data class Pinned(val messageId: Long, val kind: MessagePreview.Kind, val text: String?)
+
+    /**
+     * @param items Newest first
+     * @param total How many there are, more than [items] past its limit
+     */
+    data class PinnedMessages(val items: List<Pinned> = listOf(), val total: Int = 0)
+
+    /**
+     * The pinned messages, newest first, again whenever one is pinned or unpinned.
+     *
+     * ponytail: the newest [PINNED_LIMIT] only, page with nextFromMessageId if chats with more
+     * show up
+     */
+    fun pinned(): Flow<PinnedMessages> = callbackFlow {
+        fun load() {
+            client.send(
+                TdApi.SearchChatMessages(
+                    chatId, topic(), "", null, 0, 0, PINNED_LIMIT, TdApi.SearchMessagesFilterPinned()
+                )
+            ) { result ->
+                val found = result as? TdApi.FoundChatMessages ?: return@send
+                val items = found.messages.map {
+                    val (kind, text) = it.content.toPreviewContent()
+                    Pinned(it.id, kind, text)
+                }
+                trySend(PinnedMessages(items, found.totalCount.coerceAtLeast(items.size)))
+            }
+        }
+
+        val listener: (TdApi.Object) -> Unit = {
+            if (it is TdApi.UpdateMessageIsPinned && it.chatId == chatId) {
+                load()
+            }
+        }
+        client.addUpdateListener(listener)
+        load()
+        awaitClose { client.removeUpdateListener(listener) }
+    }
+
+    /** Pin a message without notifying anyone, or unpin it. */
+    fun setPinned(messageId: Long, isPinned: Boolean) {
+        client.send(
+            when (isPinned) {
+                true -> TdApi.PinChatMessage(chatId, messageId, true, false)
+                false -> TdApi.UnpinChatMessage(chatId, messageId)
+            }
+        ) {}
+    }
+
+    /**
+     * Load the history around [messageId] unless it's loaded already, to show it: a reply's
+     * original. Paging goes on both ways from there.
+     */
+    fun loadAt(messageId: Long) {
+        synchronized(lock) {
+            if (messageId in messages) {
+                return
+            }
+            messages.clear()
+            isNewestLoaded = false
+            isOldestLoaded = false
+        }
+        version.update { it + 1 }
+        loadAround(messageId)
+    }
+
+    /**
      * Mark messages as read, TDLib ignores the ones that already are.
      */
     fun view(messageIds: LongArray) {
         client.send(TdApi.ViewMessages(chatId, messageIds, null, false)) {}
+    }
+
+    /** Scheduled messages come in one answer, there are at most a few hundred. */
+    private fun loadScheduled() {
+        client.send(TdApi.GetChatScheduledMessages(chatId)) { result ->
+            synchronized(lock) {
+                (result as? TdApi.Messages)?.messages.orEmpty().filter(::belongs)
+                    .forEach { messages[it.id] = it }
+                isLoaded = true
+            }
+            version.update { it + 1 }
+        }
     }
 
     private fun loadAround(messageId: Long) {
@@ -286,17 +405,44 @@ class ChatHistory(
         }
 
         request(messageId, -AROUND_NEWER) { page, isAnswer ->
+            val last = client.chats.lastMessageId(chatId, topicId)
             val needsOlder = synchronized(lock) {
                 isLoadingOlder = false
                 isLoadingNewer = false
-                // Fewer newer messages than asked for: the newest one is in
-                isNewestLoaded = !isAnswer || page.count { it.id > messageId } < AROUND_NEWER
+                isNewestLoaded = !isAnswer || reachesNewest(last) { page.count { it.id > messageId } < AROUND_NEWER }
                 isAnswer && page.count { it.id <= messageId } < PAGE_SIZE - AROUND_NEWER
             }
             if (needsOlder) {
                 loadOlder()
             }
         }
+    }
+
+    /**
+     * Whether the loaded messages go up to [last], the chat's newest. TDLib's first answer often
+     * only has what it had locally, a short page doesn't mean the newest is in; only without
+     * [last] does [isShortPage] decide. Under the lock.
+     */
+    private inline fun reachesNewest(last: Long, isShortPage: () -> Boolean) = when (last) {
+        0L -> isShortPage()
+        else -> (messages.keys.lastOrNull() ?: 0L) >= last
+    }
+
+    /** Back to the newest messages, reloading them when reading old ones. */
+    fun showNewest() = jumpToNewest()
+
+    /**
+     * The oldest unread mention of this account, or the oldest message with reactions it hasn't
+     * seen; null for none. Telegram goes through them from the oldest.
+     */
+    suspend fun firstUnread(isReaction: Boolean): Long? {
+        val result = client.send(
+            TdApi.SearchChatMessages(
+                chatId, topic(), "", null, 0, 0, UNREAD_LIMIT,
+                if (isReaction) TdApi.SearchMessagesFilterUnreadReaction() else TdApi.SearchMessagesFilterUnreadMention(),
+            )
+        )
+        return (result as? Result.Success)?.data?.messages?.lastOrNull()?.id
     }
 
     /**
@@ -325,8 +471,10 @@ class ChatHistory(
         }
     }
 
-    private fun belongs(message: TdApi.Message) = message.chatId == chatId && (topicId == 0
-            || (message.topicId as? TdApi.MessageTopicForum)?.forumTopicId == topicId)
+    /** Of this chat or topic, and scheduled or not like this history. */
+    private fun belongs(message: TdApi.Message) = message.chatId == chatId
+            && (message.schedulingState != null) == isScheduled
+            && (topicId == 0 || (message.topicId as? TdApi.MessageTopicForum)?.forumTopicId == topicId)
 
     private fun apply(update: TdApi.Object): Boolean {
         when (update) {
@@ -449,10 +597,12 @@ class ChatHistory(
      */
     private fun snapshot(processing: Map<String, Int>): Snapshot {
         val messages: List<TdApi.Message>
+        val known: Map<Long, TdApi.Message>
         val lastRead: Long
         val snapshot: Snapshot
         synchronized(lock) {
             messages = this.messages.values.toList()
+            known = HashMap(replied).apply { putAll(this@ChatHistory.messages) }
             lastRead = lastReadOutboxMessageId
             snapshot = Snapshot(
                 listOf(), isGroup, isLoaded, isNewestLoaded, unreadAfterId, newMessageCount
@@ -461,7 +611,9 @@ class ChatHistory(
 
         // Senders take the chats store lock, never hold ours meanwhile
         return snapshot.copy(
-            messages = messages.map { it.toItem(snapshot.isGroup, lastRead, processing) }
+            messages = messages.map { it.toItem(snapshot.isGroup, lastRead, processing, known) }
+                // Scheduled ones in the order they go, not the order they were scheduled in
+                .let { items -> if (isScheduled) items.sortedBy { it.date } else items }
         )
     }
 
@@ -499,10 +651,67 @@ class ChatHistory(
         else -> 0L
     }
 
+    /** Who a message was forwarded or replied from, and the id of their profile, 0 if hidden. */
+    private fun originOf(origin: TdApi.MessageOrigin): Pair<ChatsStore.Sender, Long> = when (origin) {
+        is TdApi.MessageOriginUser ->
+            client.chats.sender(TdApi.MessageSenderUser(origin.senderUserId)) to origin.senderUserId
+
+        is TdApi.MessageOriginChat ->
+            client.chats.sender(TdApi.MessageSenderChat(origin.senderChatId)) to origin.senderChatId
+
+        is TdApi.MessageOriginChannel ->
+            client.chats.sender(TdApi.MessageSenderChat(origin.chatId)) to origin.chatId
+
+        is TdApi.MessageOriginHiddenUser -> ChatsStore.Sender(origin.senderName, 0, null) to 0L
+        else -> ChatsStore.Sender(null, 0, null) to 0L
+    }
+
+    /**
+     * What a reply's bubble shows of the message it replies to: from this chat's loaded messages,
+     * TDLib asked for it once when it isn't, or what TDLib sends along from another chat.
+     */
+    private fun TdApi.Message.replyOf(
+        replyTo: TdApi.MessageReplyToMessage,
+        known: Map<Long, TdApi.Message>,
+    ): MessageItem.Reply {
+        val isHere = replyTo.chatId == chatId
+        val original = known[replyTo.messageId]?.takeIf { isHere }
+        val isMissing = isHere && original == null && synchronized(lock) {
+            if (requestedReplies.add(replyTo.messageId)) {
+                val replyingId = id
+                client.send(TdApi.GetRepliedMessage(chatId, replyingId)) { result ->
+                    synchronized(lock) {
+                        when (result) {
+                            is TdApi.Message -> replied[result.id] = result
+                            else -> missingReplies.add(replyTo.messageId)
+                        }
+                    }
+                    version.update { it + 1 }
+                }
+            }
+            replyTo.messageId in missingReplies
+        }
+        val sender = original?.let { client.chats.sender(it.senderId) }
+            ?: replyTo.origin?.let { originOf(it).first }
+        val (kind, text) = (original?.content ?: replyTo.content)?.toPreviewContent()
+            ?: (MessagePreview.Kind.TEXT to null)
+        return MessageItem.Reply(
+            messageId = if (isHere) replyTo.messageId else 0L,
+            name = sender?.name,
+            accentColorId = sender?.accentColorId ?: 0,
+            kind = kind,
+            text = text,
+            quote = replyTo.quote?.text?.text,
+            quotePosition = replyTo.quote?.position ?: 0,
+            isDeleted = isMissing,
+        )
+    }
+
     private fun TdApi.Message.toItem(
         isGroup: Boolean,
         lastReadOutbox: Long,
         processing: Map<String, Int>,
+        known: Map<Long, TdApi.Message>,
     ): MessageItem {
         // Being sent: the file is generated first (transcoded), then uploaded
         val file = content.uploadFile()
@@ -536,7 +745,8 @@ class ChatHistory(
             senderPhotoPath = pathOf(sender?.photo, AVATAR_PRIORITY),
             kind = kind,
             text = text,
-            date = date,
+            // A scheduled message shows when it goes
+            date = (schedulingState as? TdApi.MessageSchedulingStateSendAtDate)?.sendDate ?: date,
             state = when {
                 sendingState is TdApi.MessageSendingStatePending -> MessageItem.State.PENDING
                 sendingState is TdApi.MessageSendingStateFailed -> MessageItem.State.FAILED
@@ -550,6 +760,16 @@ class ChatHistory(
                 }
             },
             mediaAlbumId = mediaAlbumId,
+            forward = forwardInfo?.origin?.let { origin ->
+                val (sender, originId) = originOf(origin)
+                MessageItem.Forward(
+                    sender.name.orEmpty(),
+                    sender.accentColorId,
+                    originId,
+                    pathOf(sender.photo, AVATAR_PRIORITY),
+                )
+            },
+            reply = (replyTo as? TdApi.MessageReplyToMessage)?.let { replyOf(it, known) },
             senderEmojiStatusId = sender?.emojiStatusId ?: 0L,
             senderIsPremium = sender?.isPremium == true,
             reactions = interactionInfo?.reactions?.reactions.orEmpty().map {
@@ -725,6 +945,8 @@ class ChatHistory(
 
         /** Newer messages asked for when opening at the first unread one. */
         private const val AROUND_NEWER = 30
+        private const val PINNED_LIMIT = 100
+        private const val UNREAD_LIMIT = 100
 
         private const val PHOTO_MAX_SIZE = 1280
         private const val MEDIA_PRIORITY = 16

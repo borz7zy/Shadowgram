@@ -38,6 +38,62 @@
 
         </com.google.android.material.appbar.MaterialToolbar>
 
+        <!-- The pinned message closest above what's on screen: shows it, the button lists all -->
+        <LinearLayout
+            android:id="@+id/pinnedLinearLayout"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <com.github.borz7zy.shadowgram.ui.views.PinnedIndicatorView
+                android:id="@+id/pinnedIndicatorView"
+                android:layout_width="3dp"
+                android:layout_height="40dp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/pinnedTitleTextView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:textAppearance="?attr/textAppearanceLabelLarge"
+                    android:textColor="?attr/colorPrimary"
+                    tools:text="Pinned message #2" />
+
+                <TextView
+                    android:id="@+id/pinnedTextView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    tools:text="Hello there" />
+
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/pinnedListMaterialButton"
+                style="?attr/materialIconButtonStyle"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="4dp"
+                android:contentDescription="@string/chat_pinned_messages"
+                android:tooltipText="@string/chat_pinned_messages"
+                app:icon="@drawable/ic_list" />
+
+        </LinearLayout>
+
         <!-- The voice or video message playing -->
         <com.github.borz7zy.shadowgram.ui.views.PlaybackBarView
             android:id="@+id/playbackBarView"
@@ -98,6 +154,136 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:indeterminate="true" />
+
+                <!-- To the oldest unseen reaction, to the oldest unread mention, to the newest
+                     message: the last one shows while scrolling down away from it -->
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom|end"
+                    android:layout_margin="6dp"
+                    android:clipChildren="false"
+                    android:clipToPadding="false"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
+
+                    <FrameLayout
+                        android:id="@+id/reactionsFrameLayout"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:clipChildren="false"
+                        android:clipToPadding="false"
+                        android:visibility="gone"
+                        tools:visibility="visible">
+
+                        <com.google.android.material.floatingactionbutton.FloatingActionButton
+                            android:id="@+id/reactionsFloatingActionButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_margin="6dp"
+                            android:contentDescription="@string/chat_unread_reactions"
+                            android:tooltipText="@string/chat_unread_reactions"
+                            app:fabSize="mini"
+                            app:srcCompat="@drawable/ic_favorite" />
+
+                        <TextView
+                            android:id="@+id/reactionsCountTextView"
+                            style="@style/Theme.Shadowgram.Chat.FabBadge"
+                            tools:text="3" />
+
+                    </FrameLayout>
+
+                    <FrameLayout
+                        android:id="@+id/mentionsFrameLayout"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:clipChildren="false"
+                        android:clipToPadding="false"
+                        android:visibility="gone"
+                        tools:visibility="visible">
+
+                        <com.google.android.material.floatingactionbutton.FloatingActionButton
+                            android:id="@+id/mentionsFloatingActionButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_margin="6dp"
+                            android:contentDescription="@string/chat_unread_mentions"
+                            android:tooltipText="@string/chat_unread_mentions"
+                            app:fabSize="mini"
+                            app:srcCompat="@drawable/ic_alternate_email" />
+
+                        <TextView
+                            android:id="@+id/mentionsCountTextView"
+                            style="@style/Theme.Shadowgram.Chat.FabBadge"
+                            tools:text="3" />
+
+                    </FrameLayout>
+
+                    <FrameLayout
+                        android:id="@+id/scrollDownFrameLayout"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:clipChildren="false"
+                        android:clipToPadding="false"
+                        android:visibility="gone"
+                        tools:visibility="visible">
+
+                        <com.google.android.material.floatingactionbutton.FloatingActionButton
+                            android:id="@+id/scrollDownFloatingActionButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_margin="6dp"
+                            android:contentDescription="@string/chat_scroll_down"
+                            android:tooltipText="@string/chat_scroll_down"
+                            app:fabSize="mini"
+                            app:srcCompat="@drawable/ic_keyboard_arrow_down" />
+
+                        <TextView
+                            android:id="@+id/scrollDownCountTextView"
+                            style="@style/Theme.Shadowgram.Chat.FabBadge"
+                            tools:text="3" />
+
+                    </FrameLayout>
+
+                </LinearLayout>
+
+                <!-- A long press on send: when the message goes, like the new chat menu -->
+                <View
+                    android:id="@+id/sendMenuScrimView"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:alpha="0"
+                    android:background="@color/fab_menu_scrim"
+                    android:importantForAccessibility="no"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/sendMenuLinearLayout"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom|end"
+                    android:layout_margin="12dp"
+                    android:gravity="end"
+                    android:orientation="vertical">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/sendLaterMaterialButton"
+                        style="@style/Theme.Shadowgram.FabMenu.Action"
+                        android:text="@string/chat_send_later"
+                        app:icon="@drawable/ic_schedule"
+                        tools:visibility="visible" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/sendWhenOnlineMaterialButton"
+                        style="@style/Theme.Shadowgram.FabMenu.Action"
+                        android:text="@string/chat_send_when_online"
+                        app:icon="@drawable/ic_person"
+                        tools:visibility="visible" />
+
+                </LinearLayout>
 
             </FrameLayout>
 
@@ -234,14 +420,16 @@
                                 android:tooltipText="@string/chat_emoji"
                                 app:icon="@drawable/ic_mood" />
 
+                            <!-- Only while the chat has scheduled messages -->
                             <com.google.android.material.button.MaterialButton
-                                android:id="@+id/galleryMaterialButton"
+                                android:id="@+id/scheduledMaterialButton"
                                 style="?attr/materialIconButtonStyle"
                                 android:layout_width="48dp"
                                 android:layout_height="56dp"
-                                android:contentDescription="@string/chat_gallery"
-                                android:tooltipText="@string/chat_gallery"
-                                app:icon="@drawable/ic_gallery" />
+                                android:contentDescription="@string/chat_scheduled_messages"
+                                android:tooltipText="@string/chat_scheduled_messages"
+                                android:visibility="gone"
+                                app:icon="@drawable/ic_schedule" />
 
                         </LinearLayout>
 

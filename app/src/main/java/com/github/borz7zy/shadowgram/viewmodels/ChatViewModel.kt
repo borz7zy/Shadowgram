@@ -57,11 +57,14 @@ class ChatViewModel(
     private val chatId = savedStateHandle.get<Long>(ARG_CHAT_ID) ?: 0L
     private val topicId = savedStateHandle.get<Int>(ARG_TOPIC_ID) ?: 0
 
+    /** The chat's scheduled messages rather than its history. */
+    val isScheduled = savedStateHandle.get<Boolean>(ARG_SCHEDULED) ?: false
+
     private val client = viewModelScope.async {
         getApplication<ShadowgramApplication>().accountsRepository.activeClient()
     }
 
-    private val history = viewModelScope.async { ChatHistory(client.await(), chatId, topicId) }
+    private val history = viewModelScope.async { ChatHistory(client.await(), chatId, topicId, isScheduled) }
 
     private val snapshots = flow { emitAll(history.await().snapshots()) }
         .shareIn(viewModelScope, SharingStarted.Eagerly, 1)
@@ -103,6 +106,7 @@ class ChatViewModel(
         snapshots.map { it.newMessageCount }.distinctUntilChanged(),
     ) { header, count, newCount ->
         when {
+            header != null && isScheduled -> header.copy(subtitle = ChatHeader.Subtitle.Scheduled)
             header != null && count != null && header.subtitle == ChatHeader.Subtitle.None ->
                 header.copy(subtitle = ChatHeader.Subtitle.TopicMessages(count + newCount))
 
@@ -142,6 +146,10 @@ class ChatViewModel(
      * (typing, live views) and reads them as they are viewed.
      */
     fun setOpen(isOpen: Boolean) {
+        // The chat's own screen is under this one and keeps it open
+        if (isScheduled) {
+            return
+        }
         viewModelScope.launch {
             client.await().send(
                 when (isOpen) {
@@ -160,30 +168,52 @@ class ChatViewModel(
         viewModelScope.launch { history.await().loadNewer() }
     }
 
-    /**
-     * When the next message is sent, unix time, null to send right away. Cleared once used.
-     */
-    val scheduleAt = MutableStateFlow<Int?>(null)
-
-    /** Take the schedule for one message; the reply goes with it too. */
-    private fun takeSchedule() = scheduleAt.value.also {
-        scheduleAt.value = null
+    /** The reply goes with the next message, the composer stops showing it. */
+    private fun clearReply() {
         replyTo.value = null
+    }
+
+    /** When the others were last told a message is being typed, 0 when they weren't. */
+    private var typingSentAt = 0L
+
+    /**
+     * The composer's text changed: tell the others a message is being typed, again every few
+     * seconds while it goes on (Telegram drops it after 6), or that it stopped once it's empty.
+     */
+    fun onTyping(isEmpty: Boolean) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val isTyping = when {
+            isEmpty -> if (typingSentAt != 0L) false else return
+            now - typingSentAt < TYPING_REPEAT_MS -> return
+            else -> true
+        }
+        typingSentAt = if (isTyping) now else 0L
+        viewModelScope.launch { history.await().setTyping(isTyping) }
     }
 
     /**
      * The message the next one replies to.
      *
      * @param name Who sent it
-     * @param text What it says, or what it is
+     * @param text What it says, or what it is; the quote when there's one
+     * @param quote The part of its text quoted, null for the whole message
+     * @param quotePosition Where [quote] starts in its text, UTF-16
      */
-    data class Reply(val messageId: Long, val name: String, val text: String)
+    data class Reply(
+        val messageId: Long,
+        val name: String,
+        val text: String,
+        val quote: String? = null,
+        val quotePosition: Int = 0,
+    )
 
     val replyTo = MutableStateFlow<Reply?>(null)
 
     fun setReply(reply: Reply?) {
         replyTo.value = reply
-        viewModelScope.launch { history.await().replyToMessageId = reply?.messageId ?: 0L }
+        viewModelScope.launch {
+            history.await().setReplyTo(reply?.messageId ?: 0L, reply?.quote, reply?.quotePosition ?: 0)
+        }
     }
 
     /** Add the reaction, or take it back if it's already there. */
@@ -203,6 +233,13 @@ class ChatViewModel(
                 true -> client.send(TdApi.RemoveMessageReaction(chatId, messageId, type))
                 false -> client.send(TdApi.AddMessageReaction(chatId, messageId, type, false, true))
             }
+        }
+    }
+
+    /** Send a scheduled message right away. */
+    fun sendNow(messageId: Long) {
+        viewModelScope.launch {
+            client.await().send(TdApi.EditMessageSchedulingState(chatId, messageId, null))
         }
     }
 
@@ -240,16 +277,23 @@ class ChatViewModel(
 
     /**
      * @param customEmoji Custom emoji in [text], sent as its entities
+     * @param scheduling When it goes, null for right away
      */
-    fun send(text: String, customEmoji: List<CustomEmojiRange> = listOf()) {
-        val scheduleAt = takeSchedule()
+    fun send(
+        text: String,
+        customEmoji: List<CustomEmojiRange> = listOf(),
+        scheduling: TdApi.MessageSchedulingState? = null,
+    ) {
+        clearReply()
+        // Sending ends the typing on Telegram's side
+        typingSentAt = 0L
         val entities = customEmoji.map {
             TdApi.TextEntity(it.offset, it.length, TdApi.TextEntityTypeCustomEmoji(it.customEmojiId))
         }.toTypedArray()
         viewModelScope.launch {
             val error = history.await().send(
                 TdApi.InputMessageText(TdApi.FormattedText(text, entities), null, true),
-                scheduleAt,
+                scheduling,
             )
             // ponytail: custom emoji come back as plain text, keep the spans if that annoys
             error?.let { _sendFailures.send(Failed(it.message, text)) }
@@ -266,9 +310,16 @@ class ChatViewModel(
      * Send picked files, [caption] on the first. Only now are they read and uploaded.
      *
      * @param grouped Into albums where Telegram allows, else one message each
+     * @param scheduling When they go, null for right away
      */
-    fun send(picked: List<InputContents.Picked>, grouped: Boolean, caption: String? = null) {
-        val scheduleAt = takeSchedule()
+    fun send(
+        picked: List<InputContents.Picked>,
+        grouped: Boolean,
+        caption: String? = null,
+        scheduling: TdApi.MessageSchedulingState? = null,
+    ) {
+        clearReply()
+        typingSentAt = 0L
         viewModelScope.launch {
             // One unreadable file and nothing goes, rather than a message missing it
             val contents = picked.mapIndexed { index, it ->
@@ -285,8 +336,8 @@ class ChatViewModel(
             var sent = 0
             albums.forEach { album ->
                 val error = when (album.size) {
-                    1 -> history.send(album.single(), scheduleAt)
-                    else -> history.sendAlbum(album, scheduleAt)
+                    1 -> history.send(album.single(), scheduling)
+                    else -> history.sendAlbum(album, scheduling)
                 }
                 if (error != null) {
                     _sendFailures.send(
@@ -300,7 +351,7 @@ class ChatViewModel(
     }
 
     fun sendSticker(sticker: StickersStore.Sticker) {
-        val scheduleAt = takeSchedule()
+        clearReply()
         sendNow { history ->
             history.send(
                 TdApi.InputMessageSticker(
@@ -309,13 +360,12 @@ class ChatViewModel(
                     ),
                     sticker.emoji,
                 ),
-                scheduleAt,
             )
         }
     }
 
     fun sendGif(gif: StickersStore.Gif) {
-        val scheduleAt = takeSchedule()
+        clearReply()
         sendNow { history ->
             when (val resultId = gif.resultId) {
                 null -> history.send(
@@ -326,30 +376,27 @@ class ChatViewModel(
                         ),
                         null, false, false,
                     ),
-                    scheduleAt,
                 )
 
-                else -> history.sendInlineResult(gif.queryId, resultId, scheduleAt)
+                else -> history.sendInlineResult(gif.queryId, resultId)
             }
         }
     }
 
     fun sendLocation(latitude: Double, longitude: Double, accuracy: Double) {
-        val scheduleAt = takeSchedule()
+        clearReply()
         sendNow { history ->
             history.send(
                 TdApi.InputMessageLocation(TdApi.Location(latitude, longitude, accuracy)),
-                scheduleAt,
             )
         }
     }
 
     fun sendContact(phoneNumber: String, name: String) {
-        val scheduleAt = takeSchedule()
+        clearReply()
         sendNow { history ->
             history.send(
                 TdApi.InputMessageContact(TdApi.Contact(phoneNumber, name, "", "", 0)),
-                scheduleAt,
             )
         }
     }
@@ -424,6 +471,32 @@ class ChatViewModel(
         viewModelScope.launch { history.await().delete(messageId) }
     }
 
+    /** The pinned messages, newest first; none for the scheduled ones. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val pinned = flow {
+        if (!isScheduled) {
+            emitAll(history.await().pinned())
+        }
+    }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ChatHistory.PinnedMessages())
+
+    fun setPinned(messageId: Long, isPinned: Boolean) {
+        viewModelScope.launch { history.await().setPinned(messageId, isPinned) }
+    }
+
+    /** Back to the newest messages, reloading them when reading old ones. */
+    fun showNewest() {
+        viewModelScope.launch { history.await().showNewest() }
+    }
+
+    /** The oldest unread mention, or message with unseen reactions; null for none. */
+    suspend fun firstUnread(isReaction: Boolean) = history.await().firstUnread(isReaction)
+
+    /** Load the history around [messageId] to show it, unless it's loaded already. */
+    fun loadAt(messageId: Long) {
+        viewModelScope.launch { history.await().loadAt(messageId) }
+    }
+
     fun view(messageIds: LongArray) {
         viewModelScope.launch { history.await().view(messageIds) }
     }
@@ -433,8 +506,10 @@ class ChatViewModel(
 
         private const val STICKERS_STOP_MS = 5_000L
         private const val GIF_SEARCH_DEBOUNCE_MS = 400L
+        private const val TYPING_REPEAT_MS = 5_000L
 
         const val ARG_CHAT_ID = "chat_id"
         const val ARG_TOPIC_ID = "topic_id"
+        const val ARG_SCHEDULED = "scheduled"
     }
 }

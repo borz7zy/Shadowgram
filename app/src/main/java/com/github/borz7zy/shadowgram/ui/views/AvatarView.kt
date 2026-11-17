@@ -19,6 +19,7 @@ import coil3.dispose
 import coil3.load
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.models.ChatItem
+import com.github.borz7zy.shadowgram.playback.TdFileDataSource
 import com.github.borz7zy.shadowgram.ui.text.initials
 import com.google.android.material.card.MaterialCardView
 import java.io.File
@@ -52,6 +53,9 @@ class AvatarView @JvmOverloads constructor(
         IntArray(it.length()) { i -> it.getColor(i, 0) }
     }
 
+    /** An animated photo, looped over the still; made the first time there is one. */
+    private var animationView: AnimationView? = null
+
     private var chat: ChatItem? = null
 
     init {
@@ -68,9 +72,26 @@ class AvatarView @JvmOverloads constructor(
         initialsTextView.setTextSize(TypedValue.COMPLEX_UNIT_PX, minOf(w, h) * INITIALS_SCALE)
     }
 
+    /**
+     * Loop the animated version of the photo over it, a file streamed while it downloads; 0 for
+     * none, just the still.
+     */
+    fun setAnimation(fileId: Int) {
+        val view = animationView ?: if (fileId == 0) return else AnimationView(context).also {
+            it.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+            animationView = it
+            addView(it, 1, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        }
+        view.setVideo(fileId.takeIf { it != 0 }?.let(TdFileDataSource::uriOf))
+    }
+
+    /** What the avatar shows now, the photo the viewer opens from; null without one. */
+    val photoDrawable get() = photoImageView.drawable?.takeIf { photoImageView.isVisible }
+
     fun setChat(chat: ChatItem) {
         val old = this.chat
         this.chat = chat
+        setAnimation(chat.animationFileId)
 
         if (old?.title != chat.title || old.topicIconColor != chat.topicIconColor) {
             initialsTextView.text = when (chat.topicIconColor) {

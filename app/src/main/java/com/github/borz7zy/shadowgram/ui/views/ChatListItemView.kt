@@ -40,6 +40,7 @@ class ChatListItemView @JvmOverloads constructor(
     private val avatarView by lazy { findViewById<AvatarView>(R.id.avatarView) }
     private val checkImageView by lazy { findViewById<ImageView>(R.id.checkImageView) }
     private val dateTextView by lazy { findViewById<TextView>(R.id.dateTextView) }
+    private val emojiStatusView by lazy { findViewById<CustomEmojiView>(R.id.emojiStatusView) }
     private val mentionTextView by lazy { findViewById<TextView>(R.id.mentionTextView) }
     private val mutedImageView by lazy { findViewById<ImageView>(R.id.mutedImageView) }
     private val pinnedImageView by lazy { findViewById<ImageView>(R.id.pinnedImageView) }
@@ -98,6 +99,11 @@ class ChatListItemView @JvmOverloads constructor(
         }
 
         avatarView.setChat(chat)
+
+        if (old == null || old.emojiStatusId != chat.emojiStatusId || old.isPremium != chat.isPremium) {
+            emojiStatusView.isVisible = chat.emojiStatusId != 0L || chat.isPremium
+            emojiStatusView.setEmojiStatus(chat.emojiStatusId, chat.isPremium)
+        }
 
         val date = chat.lastMessage?.date
         if (old == null || old.lastMessage?.date != date) {

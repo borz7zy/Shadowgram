@@ -6,4 +6,6 @@
 <resources>
     <!-- A chat list row collapsed to its avatar: 16dp padding, 56dp avatar, 16dp padding -->
     <dimen name="chat_list_rail_width">88dp</dimen>
+    <!-- The emoji status after a name in the chat list -->
+    <dimen name="chat_list_emoji_status_size">18dp</dimen>
 </resources>

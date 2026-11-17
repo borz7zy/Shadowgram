@@ -49,6 +49,8 @@ fun Context.subtitleText(subtitle: ChatHeader.Subtitle): String? = when (subtitl
     is ChatHeader.Subtitle.TopicMessages -> resources.getQuantityString(
         R.plurals.topic_messages, subtitle.count, subtitle.count
     )
+
+    ChatHeader.Subtitle.Scheduled -> getString(R.string.chat_scheduled_messages)
 }
 
 fun Context.formatLastSeen(lastSeen: LastSeen): String = when (lastSeen.kind) {

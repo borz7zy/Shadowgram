@@ -54,6 +54,14 @@ class ProfileViewModel(
     private val _info = MutableStateFlow<Info?>(null)
     val info = _info.asStateFlow()
 
+    /** It has a photo, the avatar opens the photo viewer. */
+    var hasPhoto = false
+        private set
+
+    /** The animated version of the photo, a file to stream; 0 for none. */
+    private val _animationFileId = MutableStateFlow(0)
+    val animationFileId = _animationFileId.asStateFlow()
+
     /** The big photo, once downloaded. */
     private val _photoPath = MutableStateFlow<String?>(null)
     val photoPath = _photoPath.asStateFlow()
@@ -70,11 +78,16 @@ class ProfileViewModel(
                 ?: (client.send(TdApi.CreatePrivateChat(chatId, false)) as? Result.Success)?.data
                 ?: return@launch
 
+            hasPhoto = chat.photo != null
             launch {
                 val photo = chat.photo?.big ?: return@launch
                 val file = client.send(TdApi.DownloadFile(photo.id, PHOTO_PRIORITY, 0, 0, true))
                 _photoPath.value = (file as? Result.Success)?.data?.local
                     ?.takeIf { it.isDownloadingCompleted }?.path
+            }
+
+            if (chat.photo?.hasAnimation == true) {
+                launch { _animationFileId.value = fullPhoto(chat.type)?.animation?.file?.id ?: 0 }
             }
 
             _info.value = when (val type = chat.type) {
@@ -101,6 +114,23 @@ class ProfileViewModel(
 
                 else -> Info(false, null, null, null, CHAT_TABS)
             }
+        }
+    }
+
+    /** The current photo in full, with its animation: only the full infos have it. */
+    private suspend fun fullPhoto(type: TdApi.ChatType): TdApi.ChatPhoto? {
+        val client = client.await()
+        return when (type) {
+            is TdApi.ChatTypePrivate -> (client.send(TdApi.GetUserFullInfo(type.userId)) as? Result.Success)
+                ?.data?.let { it.personalPhoto ?: it.photo ?: it.publicPhoto }
+
+            is TdApi.ChatTypeSupergroup -> (client.send(TdApi.GetSupergroupFullInfo(type.supergroupId)) as? Result.Success)
+                ?.data?.photo
+
+            is TdApi.ChatTypeBasicGroup -> (client.send(TdApi.GetBasicGroupFullInfo(type.basicGroupId)) as? Result.Success)
+                ?.data?.photo
+
+            else -> null
         }
     }
 

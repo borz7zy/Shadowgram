@@ -106,20 +106,20 @@
     <string name="chat_attach_close">Close attachments</string>
     <string name="chat_emoji">Emoji and stickers</string>
     <string name="chat_keyboard">Keyboard</string>
-    <string name="chat_gallery">Gallery</string>
-    <string name="chat_scheduled_hint">Scheduled for %1$s</string>
+    <string name="chat_scheduled_messages">Scheduled messages</string>
     <string name="chat_scheduled">Message scheduled for %1$s</string>
-    <string name="chat_schedule_cleared">Schedule cleared</string>
+    <string name="chat_send_later">Send later</string>
+    <string name="chat_send_when_online">Send when online</string>
+    <string name="chat_scheduled_when_online">Message will be sent when they\'re online</string>
     <string name="chat_location_failed">Couldn\'t get the location</string>
     <string name="chat_file_failed">Couldn\'t read the file</string>
 
     <!-- Attachments panel -->
+    <string name="attach_gallery">Gallery</string>
     <string name="attach_camera">Camera</string>
     <string name="attach_files">Files</string>
     <string name="attach_location">Location</string>
     <string name="attach_contact">Contact</string>
-    <string name="attach_schedule">Schedule</string>
-    <string name="attach_schedule_cancel">Unschedule</string>
 
     <!-- Gallery panel -->
     <string name="gallery_allow_camera">Allow camera</string>
@@ -233,6 +233,21 @@
     <string name="message_reply">Reply</string>
     <string name="message_copy">Copy</string>
     <string name="message_copy_link">Copy link</string>
+    <string name="message_forward">Forward</string>
+    <string name="message_quote">Quote</string>
+    <string name="message_pin">Pin</string>
+    <string name="message_unpin">Unpin</string>
+    <string name="chat_pinned_message">Pinned message</string>
+    <string name="chat_pinned_message_number">Pinned message #%1$d</string>
+    <string name="chat_pinned_messages">Pinned messages</string>
+    <string name="chat_search_hint">Search messages</string>
+    <string name="chat_search_empty">Nothing found</string>
+    <string name="chat_unread_reactions">Unread reactions</string>
+    <string name="chat_unread_mentions">Unread mentions</string>
+    <string name="chat_scroll_down">Scroll to the newest</string>
+    <string name="message_forwarded_from">Forwarded from %1$s</string>
+    <string name="message_reply_deleted">Deleted message</string>
+    <string name="message_send_now">Send now</string>
     <string name="message_save_to_downloads">Save to Downloads</string>
     <string name="message_delete">Delete</string>
     <string name="message_delete_title">Delete message?</string>
@@ -249,6 +264,12 @@
     <string name="photo_viewer_saved">Saved to Pictures</string>
     <string name="photo_viewer_save_failed">Couldn\'t save the photo</string>
     <string name="photo_viewer_saved_video">Saved to Movies</string>
+    <string name="photo_viewer_more">More</string>
+    <string name="photo_viewer_save_downloads">Save to Downloads</string>
+    <string name="photo_viewer_save_gifs">Save to my GIFs</string>
+    <string name="photo_viewer_saved_downloads">Saved to Downloads</string>
+    <string name="photo_viewer_saved_gif">Added to your GIFs</string>
+    <string name="photo_viewer_save_gif_failed">Couldn\'t add the GIF</string>
     <string name="photo_viewer_play_pause">Play or pause</string>
     <string name="photo_viewer_seek">Position in the video</string>
 </resources>

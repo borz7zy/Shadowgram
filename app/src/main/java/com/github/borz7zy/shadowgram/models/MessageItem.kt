@@ -48,7 +48,41 @@ data class MessageItem(
     val customEmoji: List<com.github.borz7zy.shadowgram.ui.text.CustomEmojiRange> = listOf(),
     /** Messages sent together as an album share it, 0 for none. TDLib's mediaAlbumId. */
     val mediaAlbumId: Long = 0L,
+    /** Where it was forwarded from, null when it wasn't. */
+    val forward: Forward? = null,
+    /** The message it replies to, null when it doesn't. */
+    val reply: Reply? = null,
 ) {
+    /**
+     * @param originId The user or chat whose profile opens, 0 when they hid their account
+     * @param photoPath Their downloaded small photo, for the avatar next to the name
+     */
+    data class Forward(
+        val name: String,
+        val accentColorId: Int,
+        val originId: Long,
+        val photoPath: String?,
+    )
+
+    /**
+     * @param messageId The replied message in this chat, 0 when it's in another one
+     * @param name Who sent it, null while TDLib loads it
+     * @param kind What it is, said when it has no [text]
+     * @param quote The part of its text the reply is about, null for the whole message
+     * @param quotePosition Where [quote] starts in its text, UTF-16
+     */
+    data class Reply(
+        val messageId: Long,
+        val name: String?,
+        val accentColorId: Int,
+        val kind: MessagePreview.Kind,
+        val text: String?,
+        val quote: String? = null,
+        val quotePosition: Int = 0,
+        /** It's gone: the reply says so instead. */
+        val isDeleted: Boolean = false,
+    )
+
     /**
      * @param emoji A plain emoji reaction, null for the others
      * @param customEmojiId A custom emoji reaction, 0 for the others; neither one is a paid star

@@ -249,6 +249,22 @@
     </style>
 
     <!-- Chat -->
+    <!-- The count on a chat's scroll buttons -->
+    <style name="Theme.Shadowgram.Chat.FabBadge" parent="">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">20dp</item>
+        <item name="android:layout_gravity">top|center_horizontal</item>
+        <item name="android:background">@drawable/bg_chat_badge</item>
+        <item name="android:backgroundTint">?attr/colorPrimary</item>
+        <item name="android:elevation">8dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:minWidth">20dp</item>
+        <item name="android:paddingHorizontal">6dp</item>
+        <item name="android:textAppearance">?attr/textAppearanceLabelSmall</item>
+        <item name="android:textColor">?attr/colorOnPrimary</item>
+        <item name="android:visibility">gone</item>
+    </style>
+
     <style name="ShapeAppearance.Shadowgram.ChatCard" parent="">
         <item name="cornerFamily">rounded</item>
         <item name="cornerSizeTopLeft">28dp</item>

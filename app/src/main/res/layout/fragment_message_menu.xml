@@ -69,6 +69,14 @@
         android:clipToPadding="false"
         android:orientation="vertical">
 
+        <!-- A scheduled message, right away -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/sendNowMaterialButton"
+            style="@style/Theme.Shadowgram.MessageMenu.Action"
+            android:text="@string/message_send_now"
+            app:icon="@drawable/ic_send"
+            tools:visibility="visible" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/replyMaterialButton"
             style="@style/Theme.Shadowgram.MessageMenu.Action"
@@ -88,6 +96,20 @@
             style="@style/Theme.Shadowgram.MessageMenu.Action"
             android:text="@string/message_copy_link"
             app:icon="@drawable/ic_link"
+            tools:visibility="visible" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/pinMaterialButton"
+            style="@style/Theme.Shadowgram.MessageMenu.Action"
+            android:text="@string/message_pin"
+            app:icon="@drawable/ic_push_pin"
+            tools:visibility="visible" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/forwardMaterialButton"
+            style="@style/Theme.Shadowgram.MessageMenu.Action"
+            android:text="@string/message_forward"
+            app:icon="@drawable/ic_forward"
             tools:visibility="visible" />
 
         <com.google.android.material.button.MaterialButton

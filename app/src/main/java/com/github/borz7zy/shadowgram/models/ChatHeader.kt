@@ -18,7 +18,14 @@ data class ChatHeader(
     val emojiStatusId: Long = 0L,
     /** A Premium user, shown with a star when there's no emoji status. */
     val isPremium: Boolean = false,
+    /** The profile's background chosen in Telegram, null for none. */
+    val profileColors: ProfileColors? = null,
+    /** The custom emoji patterned over [profileColors], 0 for none. */
+    val profileEmojiId: Long = 0L,
 ) {
+    /** The 1-2 colors of a profile's background, ARGB, for either theme. */
+    data class ProfileColors(val light: List<Int>, val dark: List<Int>)
+
     sealed interface Subtitle {
         data object None : Subtitle
         data object Bot : Subtitle
@@ -26,5 +33,6 @@ data class ChatHeader(
         data class Members(val count: Int, val isChannel: Boolean) : Subtitle
         data class Typing(val typing: ChatItem.Typing) : Subtitle
         data class TopicMessages(val count: Int) : Subtitle
+        data object Scheduled : Subtitle
     }
 }

@@ -43,7 +43,9 @@ class CustomEmojiSpan(
 ) : ReplacementSpan() {
     private val size = (abs(fontMetrics.ascent) + abs(fontMetrics.descent)).coerceAtLeast(1)
 
-    val drawable get() = CustomEmojiDrawable.of(customEmojiId, size)
+    // Held here: the shared ones are kept weakly, a drawable still loading could be collected
+    // and the text would get a new one nobody loads
+    val drawable = CustomEmojiDrawable.of(customEmojiId, size)
 
     override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
         fm?.let { paint.getFontMetricsInt(it) }
@@ -64,6 +66,8 @@ class CustomEmojiSpan(
         val emojiTop = (y + paint.fontMetricsInt.descent - size)
         drawable.setBounds(x.toInt(), emojiTop, x.toInt() + size, emojiTop + size)
         drawable.draw(canvas)
+        // Drawn means on screen: start it if nothing did yet, or again after it paused
+        drawable.resume()
     }
 }
 
@@ -83,6 +87,9 @@ class CustomEmojiDrawable private constructor(
     // Main thread
     private var current: Bitmap? = null
     private var isLoading = false
+
+    /** TDLib had no file for it: not asked again on every draw. */
+    private var isFailed = false
     private var isRunning = false
     private var file: EmojiStickers.File? = null
 
@@ -91,11 +98,22 @@ class CustomEmojiDrawable private constructor(
     private var bitmaps = arrayOf<Bitmap?>(null, null)
 
     fun attach(host: View, context: Context) {
+        appContext = context.applicationContext
         hosts[host] = Unit
         val file = file
         when {
             file == null -> load(context)
             file.isAnimated && !isRunning -> play()
+        }
+    }
+
+    /** Load it if it isn't, play it again if it paused; it's being drawn. */
+    fun resume() {
+        val file = file
+        val context = appContext ?: return
+        when {
+            file == null -> if (!isFailed) main.post { load(context) }
+            file.isAnimated && !isRunning -> main.post { if (!isRunning) play() }
         }
     }
 
@@ -109,7 +127,11 @@ class CustomEmojiDrawable private constructor(
                 .accountsRepository.activeClient()
             val file = EmojiStickers.customEmoji(client, customEmojiId)
             isLoading = false
-            this@CustomEmojiDrawable.file = file ?: return@launch
+            if (file == null) {
+                isFailed = true
+                return@launch
+            }
+            this@CustomEmojiDrawable.file = file
             when (file.isAnimated) {
                 true -> play()
                 false -> decoder.post {
@@ -166,17 +188,20 @@ class CustomEmojiDrawable private constructor(
     private fun invalidateHosts(): Boolean {
         var isShown = false
         hosts.keys.toList().forEach { host ->
-            val isShowing = host.isAttachedToWindow && host.windowVisibility == View.VISIBLE
-                    && ((host as? TextView)?.text as? Spanned)
+            val hasIt = ((host as? TextView)?.text as? Spanned)
                 ?.getSpans(0, host.text.length, CustomEmojiSpan::class.java)
                 ?.any { it.drawable === this } == true
             when {
-                isShowing -> {
-                    isShown = true
+                // Detached ones too (a list row bound before it's attached, or kept aside while
+                // scrolling): they draw again when they're back, not what they drew before
+                hasIt -> {
                     host.invalidate()
+                    if (host.isAttachedToWindow && host.windowVisibility == View.VISIBLE) {
+                        isShown = true
+                    }
                 }
 
-                !host.isAttachedToWindow || (host as? TextView)?.text !is Spanned -> hosts.remove(host)
+                else -> hosts.remove(host)
             }
         }
         return isShown
@@ -201,6 +226,9 @@ class CustomEmojiDrawable private constructor(
         private const val DEFAULT_FRAME_MS = 33L
 
         private val scope = MainScope()
+
+        /** For loading from [resume], set by the first [attach]. */
+        private var appContext: Context? = null
         private val main = Handler(Looper.getMainLooper())
 
         // ponytail: one thread for every custom emoji on screen, like StickerView's; a pool if

@@ -25,16 +25,14 @@ class AttachPanelView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
 ) : GridLayout(context, attrs) {
     enum class Action(@DrawableRes val icon: Int, @StringRes val label: Int) {
+        GALLERY(R.drawable.ic_gallery, R.string.attach_gallery),
         CAMERA(R.drawable.ic_photo_camera, R.string.attach_camera),
         FILES(R.drawable.ic_attach_file, R.string.attach_files),
         LOCATION(R.drawable.ic_place, R.string.attach_location),
         CONTACT(R.drawable.ic_person, R.string.attach_contact),
-        SCHEDULE(R.drawable.ic_schedule, R.string.attach_schedule),
     }
 
     var onAction: ((Action) -> Unit)? = null
-
-    private val labels = HashMap<Action, TextView>()
 
     init {
         columnCount = COLUMNS
@@ -68,18 +66,10 @@ class AttachPanelView @JvmOverloads constructor(
                 setText(action.label)
                 setPadding(0, dp(8), 0, 0)
             }
-            labels[action] = label
             item.addView(label)
 
             addView(item, LayoutParams(spec(UNDEFINED, 1f), spec(UNDEFINED, 1f)).apply { width = 0 })
         }
-    }
-
-    /** Scheduling turns into cancelling it while a time is set. */
-    fun setScheduled(isScheduled: Boolean) {
-        labels[Action.SCHEDULE]?.setText(
-            if (isScheduled) R.string.attach_schedule_cancel else R.string.attach_schedule
-        )
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()

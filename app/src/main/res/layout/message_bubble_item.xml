@@ -53,6 +53,84 @@
 
             </LinearLayout>
 
+            <!-- Where it was forwarded from, opens their profile unless they hid it -->
+            <LinearLayout
+                android:id="@+id/forwardLinearLayout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="14dp"
+                android:paddingTop="8dp"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <com.github.borz7zy.shadowgram.ui.views.AvatarView
+                    android:id="@+id/forwardAvatarView"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_marginEnd="6dp" />
+
+                <TextView
+                    android:id="@+id/forwardTextView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:textAppearance="?attr/textAppearanceLabelLarge"
+                    tools:text="Forwarded from Pavel" />
+
+            </LinearLayout>
+
+            <!-- The message it replies to, shows it in the chat -->
+            <LinearLayout
+                android:id="@+id/replyPlateLinearLayout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="8dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_message_reply"
+                android:orientation="horizontal"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <View
+                    android:id="@+id/replyBarView"
+                    android:layout_width="3dp"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/bg_message_reply" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:id="@+id/replyNameTextView"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textAppearance="?attr/textAppearanceLabelLarge"
+                        tools:text="Pavel" />
+
+                    <!-- What it says, or the quote: up to a few lines, in italics -->
+                    <TextView
+                        android:id="@+id/replyTextView"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
+                        tools:text="Hello there" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
             <FrameLayout
                 android:id="@+id/mediaFrameLayout"
                 android:layout_width="wrap_content"

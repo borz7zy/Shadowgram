@@ -13,4 +13,13 @@
         app:iconTint="@android:color/white"
         app:showAsAction="ifRoom" />
 
+    <!-- A GIF: to the downloads or to the account's GIFs -->
+    <item
+        android:id="@+id/more"
+        android:icon="@drawable/ic_more_vert"
+        android:title="@string/photo_viewer_more"
+        android:visible="false"
+        app:iconTint="@android:color/white"
+        app:showAsAction="always" />
+
 </menu>

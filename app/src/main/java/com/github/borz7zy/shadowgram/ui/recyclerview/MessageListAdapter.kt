@@ -48,6 +48,7 @@ import com.github.borz7zy.shadowgram.ui.text.attachCustomEmoji
 import com.github.borz7zy.shadowgram.ui.text.setCustomEmoji
 import com.github.borz7zy.shadowgram.ui.text.stringResId
 import com.github.borz7zy.shadowgram.ui.views.AnimationView
+import com.github.borz7zy.shadowgram.ui.views.AvatarView
 import com.github.borz7zy.shadowgram.playback.MessagePlayer
 import com.github.borz7zy.shadowgram.playback.TdFileDataSource
 import com.github.borz7zy.shadowgram.ui.album.AlbumView
@@ -79,6 +80,39 @@ class MessageListAdapter(
     /** The message the menu lifted, its bubble hidden meanwhile; 0 for none. */
     var hiddenMessageId = 0L
 
+    /**
+     * A message to flash once it's bound: a reply's original shown in the chat.
+     *
+     * @param quote The part of its text to mark too, null for none
+     * @param quotePosition Where [quote] starts in its text, UTF-16
+     */
+    data class Highlight(val messageId: Long, val quote: String?, val quotePosition: Int)
+
+    private var highlight: Highlight? = null
+
+    /** Flash the bubble of [highlight] when it's on screen, once. */
+    fun highlight(highlight: Highlight) {
+        this.highlight = highlight
+        val position = currentList.indexOfFirst {
+            it is MessageRow.Bubble && (it.message.id == highlight.messageId
+                    || it.album.any { item -> item.id == highlight.messageId })
+        }
+        if (position >= 0) {
+            notifyItemChanged(position, PAYLOAD_HIGHLIGHT)
+        }
+    }
+
+    /**
+     * An emoji sprite loaded: every row draws its texts again, the ones kept aside while
+     * scrolling too, which come back without being bound otherwise.
+     */
+    fun invalidateEmoji() = notifyItemRangeChanged(0, itemCount, PAYLOAD_EMOJI)
+
+    /** [highlight] when it's for [row], taken: it flashes once. */
+    private fun takeHighlight(row: MessageRow.Bubble): Highlight? = highlight
+        ?.takeIf { h -> row.message.id == h.messageId || row.album.any { it.id == h.messageId } }
+        ?.also { highlight = null }
+
     interface Callbacks {
         /** Tapped: the message menu, from where [bubble] is. */
         fun onMessageClick(message: MessageItem, bubble: View)
@@ -93,6 +127,9 @@ class MessageListAdapter(
 
         /** The button of [MessageItem.document]: download, cancel or open it. */
         fun onDocumentClick(message: MessageItem)
+
+        /** The reply plate: show the replied message in the chat. */
+        fun onReplyClick(message: MessageItem)
     }
 
     override fun getItemViewType(position: Int) = when (getItem(position)) {
@@ -108,7 +145,9 @@ class MessageListAdapter(
                 onCancelUpload,
                 trackOf,
                 callbacks,
-            ) { hiddenMessageId }
+                { hiddenMessageId },
+                ::takeHighlight,
+            )
 
             else -> SeparatorViewHolder(
                 inflater.inflate(R.layout.message_separator_item, parent, false) as TextView
@@ -142,6 +181,11 @@ class MessageListAdapter(
             // Only the document's download went on
             payloads.isNotEmpty() && payloads.all { it == PAYLOAD_DOCUMENT } && row is MessageRow.Bubble ->
                 (holder as BubbleViewHolder).bindDocument(row.message)
+
+            payloads.isNotEmpty() && payloads.all { it == PAYLOAD_HIGHLIGHT } && row is MessageRow.Bubble ->
+                (holder as BubbleViewHolder).bindHighlight(row)
+
+            payloads.isNotEmpty() && payloads.all { it == PAYLOAD_EMOJI } -> holder.itemView.invalidateTexts()
 
             else -> super.onBindViewHolder(holder, position, payloads)
         }
@@ -192,7 +236,19 @@ class MessageListAdapter(
         private val trackOf: (MessageItem, MessageItem.Playable) -> MessagePlayer.Track,
         private val callbacks: Callbacks,
         private val hiddenMessageId: () -> Long,
+        private val takeHighlight: (MessageRow.Bubble) -> Highlight?,
     ) : RecyclerView.ViewHolder(view) {
+        private val forwardLinearLayout = view.findViewById<LinearLayout>(R.id.forwardLinearLayout)
+        private val forwardAvatarView = view.findViewById<AvatarView>(R.id.forwardAvatarView)
+        private val forwardTextView = view.findViewById<TextView>(R.id.forwardTextView)
+        private val replyPlateLinearLayout = view.findViewById<LinearLayout>(R.id.replyPlateLinearLayout)
+        private val replyBarView = view.findViewById<View>(R.id.replyBarView)
+        private val replyNameTextView = view.findViewById<TextView>(R.id.replyNameTextView)
+        private val replyTextView = view.findViewById<TextView>(R.id.replyTextView)
+
+        /** The flash of a highlighted bubble, over it until it fades. */
+        private var highlightAnimator: android.animation.ValueAnimator? = null
+        private var highlightFlash: android.graphics.drawable.Drawable? = null
         private val albumView = view.findViewById<AlbumView>(R.id.albumView)
         private val senderLinearLayout = view.findViewById<LinearLayout>(R.id.senderLinearLayout)
         private val senderEmojiStatusView = view.findViewById<CustomEmojiView>(R.id.senderEmojiStatusView)
@@ -279,20 +335,39 @@ class MessageListAdapter(
             mediaImageView.setOnClickListener {
                 val message = message ?: return@setOnClickListener
                 when (message.kind) {
-                    MessagePreview.Kind.PHOTO, MessagePreview.Kind.VIDEO ->
+                    MessagePreview.Kind.PHOTO, MessagePreview.Kind.VIDEO, MessagePreview.Kind.ANIMATION ->
                         callbacks.onMediaClick(message, mediaImageView)
                     else -> bubbleCardView.performClick()
                 }
             }
             albumView.onItemClick = { item, image ->
                 when (item.kind) {
-                    MessagePreview.Kind.PHOTO, MessagePreview.Kind.VIDEO -> callbacks.onMediaClick(item, image)
+                    MessagePreview.Kind.PHOTO, MessagePreview.Kind.VIDEO, MessagePreview.Kind.ANIMATION ->
+                        callbacks.onMediaClick(item, image)
                     else -> bubbleCardView.performClick()
                 }
             }
             senderLinearLayout.setOnClickListener {
                 message?.let { callbacks.onSenderClick(it.senderId) }
             }
+            // Their profile, unless they hid it: then it's the message like the rest
+            forwardLinearLayout.setOnClickListener {
+                val originId = message?.forward?.originId ?: 0L
+                when (originId) {
+                    0L -> bubbleCardView.performClick()
+                    else -> callbacks.onSenderClick(originId)
+                }
+            }
+            replyPlateLinearLayout.setOnClickListener {
+                val message = message ?: return@setOnClickListener
+                when (message.reply?.let { it.messageId != 0L && !it.isDeleted }) {
+                    true -> callbacks.onReplyClick(message)
+                    else -> bubbleCardView.performClick()
+                }
+            }
+            replyTextView.maxWidth = maxBubbleWidth
+            replyNameTextView.maxWidth = maxBubbleWidth
+            forwardTextView.maxWidth = maxBubbleWidth
             // Links take their taps, the rest of the text opens the menu like the bubble
             messageTextView.setOnTouchListener { _, event ->
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
@@ -399,6 +474,10 @@ class MessageListAdapter(
                 .setTopRightCornerSize(if (senderSideIsRight) top else bigCorner)
                 .setBottomRightCornerSize(if (senderSideIsRight) bottom else bigCorner)
                 .build()
+            // The card only clips to its shape when all the corners match, a photo would poke
+            // out of the tight ones. ponytail: path outlines clip since Android 13, older ones
+            // keep square photo corners in runs; clip in dispatchDraw if that matters
+            bubbleCardView.clipToOutline = true
 
             // Sender, inside the first bubble of a run, with their emoji status
             senderLinearLayout.isVisible = row.showSender && message.senderName != null && !isSticker
@@ -458,11 +537,139 @@ class MessageListAdapter(
             messageTextView.text = spanned
             messageTextView.attachCustomEmoji()
             messageTextView.isVisible = text.isNotEmpty()
-            messageTextView.updatePaddingRelative(top = view.toPx(if (senderLinearLayout.isVisible) 2 else 8))
+            bindForward(message.forward.takeUnless { isSticker }, foreground)
+            bindReply(message.reply.takeUnless { isSticker }, foreground)
+            val hasHeader = senderLinearLayout.isVisible || forwardLinearLayout.isVisible
+                    || replyPlateLinearLayout.isVisible
+            messageTextView.updatePaddingRelative(top = view.toPx(if (hasHeader) 4 else 8))
 
             bindReactions(message)
 
             bindMeta(message, textColor)
+
+            bindHighlight(row)
+        }
+
+        /** "Forwarded from" whom, with their avatar. */
+        private fun bindForward(forward: MessageItem.Forward?, foreground: Int) {
+            forwardLinearLayout.isVisible = forward != null
+            forward ?: return
+            val context = view.context
+            val template = context.getString(R.string.message_forwarded_from, "\u0000")
+            val start = template.indexOf('\u0000')
+            forwardTextView.text = SpannableStringBuilder(template.replace("\u0000", forward.name)).apply {
+                if (start >= 0) {
+                    setSpan(
+                        StyleSpan(Typeface.BOLD), start, start + forward.name.length,
+                        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                    )
+                }
+            }
+            forwardTextView.setTextColor(foreground)
+            forwardAvatarView.setChat(
+                com.github.borz7zy.shadowgram.models.ChatItem(
+                    id = forward.originId,
+                    title = forward.name,
+                    accentColorId = forward.accentColorId,
+                    photoPath = forward.photoPath,
+                    minithumbnail = null,
+                    isPinned = false,
+                    order = 0L,
+                    lastMessage = null,
+                    draft = null,
+                    typing = null,
+                    unreadCount = 0,
+                    unreadMentionCount = 0,
+                    isMarkedAsUnread = false,
+                    isMuted = false,
+                )
+            )
+        }
+
+        /** The plate of the replied message: who, and what it says or the part quoted. */
+        private fun bindReply(reply: MessageItem.Reply?, foreground: Int) {
+            replyPlateLinearLayout.isVisible = reply != null
+            reply ?: return
+            val context = view.context
+            val accent = accentColors[reply.accentColorId.mod(accentColors.size)]
+            replyPlateLinearLayout.backgroundTintList =
+                ColorStateList.valueOf(ColorUtils.setAlphaComponent(accent, REPLY_ALPHA))
+            replyBarView.backgroundTintList = ColorStateList.valueOf(accent)
+            replyNameTextView.setTextColor(accent)
+            replyTextView.setTextColor(foreground)
+
+            replyNameTextView.text = when {
+                reply.isDeleted -> context.getString(R.string.message_reply_deleted)
+                else -> reply.name ?: "…"
+            }
+            val quote = reply.quote
+            replyTextView.isVisible = !reply.isDeleted
+            replyTextView.maxLines = if (quote != null) QUOTE_MAX_LINES else 1
+            replyTextView.setTypeface(null, if (quote != null) Typeface.ITALIC else Typeface.NORMAL)
+            val text = quote ?: reply.text?.takeIf { it.isNotBlank() }
+                ?: context.getString(reply.kind.stringResId)
+            replyTextView.text = Emoji.replaceEmoji(text, replyTextView.paint.fontMetricsInt, false)
+        }
+
+        /** Flash the bubble, and mark the quote in its text, when it's the highlighted one. */
+        fun bindHighlight(row: MessageRow.Bubble) {
+            val highlight = takeHighlight(row) ?: return
+            highlightAnimator?.cancel()
+
+            // Over the bubble's own drawing, its card keeps its ripple in the foreground
+            val color = MaterialColors.getColor(view, androidx.appcompat.R.attr.colorPrimary)
+            val flash = android.graphics.drawable.ColorDrawable(color).apply {
+                alpha = 0
+                setBounds(0, 0, bubbleCardView.width, bubbleCardView.height)
+            }
+            highlightFlash?.let(bubbleCardView.overlay::remove)
+            highlightFlash = flash
+            bubbleCardView.overlay.add(flash)
+
+            // The quote stays marked a while longer than the flash
+            val quoteSpan = highlight.quote?.let { quote -> markQuote(quote, highlight.quotePosition) }
+
+            highlightAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f, 0f).apply {
+                duration = HIGHLIGHT_DURATION_MS
+                addUpdateListener { flash.alpha = ((it.animatedValue as Float) * HIGHLIGHT_ALPHA).toInt() }
+                addListener(object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                        if (highlightAnimator === animation) {
+                            highlightAnimator = null
+                        }
+                        bubbleCardView.overlay.remove(flash)
+                        if (highlightFlash === flash) {
+                            highlightFlash = null
+                        }
+                    }
+                })
+                start()
+            }
+            quoteSpan?.let { span ->
+                messageTextView.postDelayed({
+                    (messageTextView.text as? Spannable)?.removeSpan(span)
+                }, QUOTE_HIGHLIGHT_DURATION_MS)
+            }
+        }
+
+        /**
+         * Mark [quote] in the shown text, where [position] says or the first place it's in.
+         *
+         * @return The mark, to take off later; null when the text doesn't have it
+         */
+        private fun markQuote(quote: String, position: Int): Any? {
+            val text = messageTextView.text as? Spannable ?: return null
+            val message = message ?: return null
+            // Kinds that say what they are put the text after a line
+            val shift = text.length - message.text.orEmpty().length
+            val string = text.toString()
+            val start = (shift + position).takeIf { string.startsWith(quote, it) }
+                ?: string.indexOf(quote).takeIf { it >= 0 }
+                ?: return null
+            val color = MaterialColors.getColor(view, com.google.android.material.R.attr.colorTertiaryContainer)
+            return android.text.style.BackgroundColorSpan(color).also {
+                text.setSpan(it, start, start + quote.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
         }
 
         /** An album's pictures in place of the one picture of [MessageRow.Bubble.message]. */
@@ -738,6 +945,24 @@ class MessageListAdapter(
         const val PAYLOAD_UPLOAD = "upload"
         const val PAYLOAD_REACTIONS = "reactions"
         const val PAYLOAD_DOCUMENT = "document"
+        const val PAYLOAD_HIGHLIGHT = "highlight"
+        const val PAYLOAD_EMOJI = "emoji"
+
+        private fun View.invalidateTexts() {
+            invalidate()
+            (this as? ViewGroup)?.let { group ->
+                for (i in 0 until group.childCount) {
+                    group.getChildAt(i).invalidateTexts()
+                }
+            }
+        }
+
+        /** The reply plate's background, of its sender's accent color. */
+        const val REPLY_ALPHA = 0x33
+        const val QUOTE_MAX_LINES = 3
+        const val HIGHLIGHT_DURATION_MS = 1_200L
+        const val HIGHLIGHT_ALPHA = 90
+        const val QUOTE_HIGHLIGHT_DURATION_MS = 2_500L
         const val PAID_REACTION = "⭐"
 
         val ovalOutline = object : ViewOutlineProvider() {

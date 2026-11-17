@@ -42,7 +42,24 @@ class MessageMenuViewModel(
 
         /** Where the bubble is now on screen, null once it's off it. */
         var locate: (() -> Rect?)? = null
+
+        /** The bubble's text, selectable over its picture to quote or copy a part; null for none. */
+        var text: SelectableText? = null
     }
+
+    /**
+     * @param text What the bubble's text view shows
+     * @param bounds Where that view is on screen
+     * @param shift Where the message's own text starts in [text], after what kinds say they are
+     * @param style Gives a text view the same size, font and spacing, so the text lays out the
+     *   same over the picture
+     */
+    class SelectableText(
+        val text: CharSequence,
+        val bounds: Rect,
+        val shift: Int,
+        val style: (android.widget.TextView) -> Unit,
+    )
 
     /**
      * @param emoji A plain emoji, null for a custom one

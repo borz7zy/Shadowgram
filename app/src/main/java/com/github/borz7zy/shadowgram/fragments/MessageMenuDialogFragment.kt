@@ -73,6 +73,9 @@ class MessageMenuDialogFragment : DialogFragment() {
     private val copyLinkMaterialButton by getViewProperty<MaterialButton>(R.id.copyLinkMaterialButton)
     private val copyMaterialButton by getViewProperty<MaterialButton>(R.id.copyMaterialButton)
     private val deleteMaterialButton by getViewProperty<MaterialButton>(R.id.deleteMaterialButton)
+    private val sendNowMaterialButton by getViewProperty<MaterialButton>(R.id.sendNowMaterialButton)
+    private val pinMaterialButton by getViewProperty<MaterialButton>(R.id.pinMaterialButton)
+    private val forwardMaterialButton by getViewProperty<MaterialButton>(R.id.forwardMaterialButton)
     private val expandMaterialButton by getViewProperty<MaterialButton>(R.id.expandMaterialButton)
     private val reactionsCardView by getViewProperty<MaterialCardView>(R.id.reactionsCardView)
     private val reactionsRecyclerView by getViewProperty<RecyclerView>(R.id.reactionsRecyclerView)
@@ -85,6 +88,15 @@ class MessageMenuDialogFragment : DialogFragment() {
         putLong(KEY_CUSTOM_EMOJI_ID, it.customEmojiId)
     }) }
 
+    /** The bubble's text over its picture, selectable to quote or copy a part; null for none. */
+    private var textView: TextView? = null
+
+    /** Where [textView] is in the picture. */
+    private var textOffset = android.graphics.Point()
+
+    private var canQuote = false
+    private var canCopyPart = false
+
     private var isExpanded = false
     private var isClosing = false
 
@@ -96,6 +108,10 @@ class MessageMenuDialogFragment : DialogFragment() {
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog =
         (super.onCreateDialog(savedInstanceState) as ComponentDialog).apply {
             window?.let {
+                // A protected chat keeps the lifted bubble out of screenshots too
+                if (requireActivity().window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0) {
+                    it.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
                 WindowCompat.setDecorFitsSystemWindows(it, false)
                 it.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             }
@@ -120,6 +136,9 @@ class MessageMenuDialogFragment : DialogFragment() {
             return
         }
         bubbleImageView.setImageBitmap(bitmap)
+        anchor.text?.let { setUpText(it, bounds) }
+        // The text goes wherever the picture goes
+        bubbleImageView.animate().setUpdateListener { syncText() }
 
         rootFrameLayout.setOnClickListener { close(null) }
         bubbleImageView.setOnClickListener { close(null) }
@@ -142,6 +161,9 @@ class MessageMenuDialogFragment : DialogFragment() {
                 close(null)
             }
         }
+        sendNowMaterialButton.setOnClickListener { close(bundleOf(KEY_ACTION to ACTION_SEND_NOW)) }
+        pinMaterialButton.setOnClickListener { close(bundleOf(KEY_ACTION to ACTION_PIN)) }
+        forwardMaterialButton.setOnClickListener { close(bundleOf(KEY_ACTION to ACTION_FORWARD)) }
         saveMaterialButton.setOnClickListener {
             viewModel.saveToDownloads()
             close(null)
@@ -187,14 +209,28 @@ class MessageMenuDialogFragment : DialogFragment() {
 
     private fun bind(state: MessageMenuViewModel.State, text: String?) {
         val properties = state.properties
-        replyMaterialButton.isVisible = properties?.canBeReplied == true
-        copyMaterialButton.isVisible = !text.isNullOrEmpty() && properties?.canBeCopied != false
+        // A scheduled message can only go now or be deleted, nobody saw it to react to it
+        val isScheduled = requireArguments().getBoolean(ARG_SCHEDULED)
+        canQuote = !isScheduled && properties?.canBeReplied == true
+        canCopyPart = properties?.canBeCopied == true
+        textView?.isVisible = !isClosing && (canQuote || canCopyPart)
+        sendNowMaterialButton.isVisible = isScheduled
+        replyMaterialButton.isVisible = !isScheduled && properties?.canBeReplied == true
+        // Protected content can't be copied or forwarded: nothing until TDLib says it can
+        copyMaterialButton.isVisible = !text.isNullOrEmpty() && properties?.canBeCopied == true
         copyLinkMaterialButton.isVisible = properties?.canGetLink == true
+        forwardMaterialButton.isVisible = properties?.canBeForwarded == true
+        val isPinned = requireArguments().getBoolean(ARG_IS_PINNED)
+        pinMaterialButton.isVisible = !isScheduled && properties?.canBePinned == true
+        pinMaterialButton.setText(if (isPinned) R.string.message_unpin else R.string.message_pin)
         saveMaterialButton.isVisible = state.saveable != null
         deleteMaterialButton.isVisible = properties?.canBeDeletedOnlyForSelf == true
                 || properties?.canBeDeletedForAllUsers == true
-        actionsLinearLayout.isVisible = !isExpanded && (replyMaterialButton.isVisible || copyMaterialButton.isVisible
-                || copyLinkMaterialButton.isVisible || saveMaterialButton.isVisible
+        actionsLinearLayout.isVisible = !isExpanded && (sendNowMaterialButton.isVisible
+                || replyMaterialButton.isVisible || copyMaterialButton.isVisible
+                || copyLinkMaterialButton.isVisible || forwardMaterialButton.isVisible
+                || pinMaterialButton.isVisible
+                || saveMaterialButton.isVisible
                 || deleteMaterialButton.isVisible)
 
         val reactions = if (isExpanded) state.allReactions else state.topReactions
@@ -206,7 +242,7 @@ class MessageMenuDialogFragment : DialogFragment() {
             }
         )
         // Its place is kept while they load
-        reactionsCardView.isVisible = reactions.isNotEmpty() || !state.areReactionsLoaded
+        reactionsCardView.isVisible = !isScheduled && (reactions.isNotEmpty() || !state.areReactionsLoaded)
         expandMaterialButton.isVisible = !isExpanded && (state.allReactions.size > state.topReactions.size
                 || state.customPacks.isNotEmpty())
     }
@@ -237,7 +273,88 @@ class MessageMenuDialogFragment : DialogFragment() {
         source = bounds.inWindow()
         bubbleImageView.translationX = source.left.toFloat()
         bubbleImageView.translationY = source.top.toFloat()
+        syncText()
         animateBackground(0f, 1f)
+    }
+
+    /**
+     * A text view laid out like the bubble's over its picture, transparent: the picture shows the
+     * text, this one selects it. A long press selects, the selection's bar quotes the part.
+     */
+    private fun setUpText(text: MessageMenuViewModel.SelectableText, bounds: android.graphics.Rect) {
+        textOffset = android.graphics.Point(text.bounds.left - bounds.left, text.bounds.top - bounds.top)
+        textView = TextView(requireContext()).apply {
+            text.style(this)
+            setTextColor(android.graphics.Color.TRANSPARENT)
+            setText(text.text)
+            setTextIsSelectable(true)
+            isVisible = false
+            // A tap without a selection is a tap on the bubble
+            setOnClickListener { if (!hasSelection()) close(null) }
+            customSelectionActionModeCallback = object : android.view.ActionMode.Callback {
+                override fun onCreateActionMode(mode: android.view.ActionMode, menu: android.view.Menu): Boolean {
+                    menu.add(android.view.Menu.NONE, MENU_QUOTE, 0, R.string.message_quote)
+                    return true
+                }
+
+                override fun onPrepareActionMode(mode: android.view.ActionMode, menu: android.view.Menu): Boolean {
+                    if (!canQuote) {
+                        menu.removeItem(MENU_QUOTE)
+                    }
+                    // Protected content: the part can only be quoted, not copied or shared
+                    if (!canCopyPart) {
+                        (0 until menu.size()).map { menu.getItem(it).itemId }
+                            .filter { it != MENU_QUOTE && it != android.R.id.selectAll }
+                            .forEach(menu::removeItem)
+                    }
+                    return true
+                }
+
+                override fun onActionItemClicked(mode: android.view.ActionMode, item: android.view.MenuItem): Boolean {
+                    if (item.itemId != MENU_QUOTE) {
+                        return false
+                    }
+                    quote(text)
+                    mode.finish()
+                    return true
+                }
+
+                override fun onDestroyActionMode(mode: android.view.ActionMode) = Unit
+            }
+        }
+        // Under the reactions and the actions
+        rootFrameLayout.addView(
+            textView,
+            rootFrameLayout.indexOfChild(bubbleImageView) + 1,
+            FrameLayout.LayoutParams(text.bounds.width(), text.bounds.height()),
+        )
+    }
+
+    /** Reply with the selected part of the message's own text. */
+    private fun quote(text: MessageMenuViewModel.SelectableText) {
+        val textView = textView ?: return
+        val start = (minOf(textView.selectionStart, textView.selectionEnd) - text.shift).coerceAtLeast(0)
+        val end = maxOf(textView.selectionStart, textView.selectionEnd) - text.shift
+        val own = text.text.toString().substring(text.shift)
+        if (end <= start || end > own.length) {
+            return
+        }
+        close(bundleOf(
+            KEY_ACTION to ACTION_QUOTE,
+            KEY_QUOTE to own.substring(start, end),
+            KEY_QUOTE_POSITION to start,
+        ))
+    }
+
+    /** Keep the text view over the text in the picture while it moves and scales. */
+    private fun syncText() {
+        val textView = textView ?: return
+        textView.translationX = bubbleImageView.translationX + textOffset.x
+        textView.translationY = bubbleImageView.translationY + textOffset.y
+        textView.pivotX = bubbleImageView.pivotX - textOffset.x
+        textView.pivotY = bubbleImageView.pivotY - textOffset.y
+        textView.scaleX = bubbleImageView.scaleX
+        textView.scaleY = bubbleImageView.scaleY
     }
 
     /** A rect on screen, in this window. */
@@ -318,6 +435,8 @@ class MessageMenuDialogFragment : DialogFragment() {
             return
         }
         isClosing = true
+        // The picture alone goes back, the selection with its handles goes now
+        textView?.isVisible = false
 
         val finish = {
             setFragmentResult(REQUEST_KEY, result ?: Bundle())
@@ -446,6 +565,17 @@ class MessageMenuDialogFragment : DialogFragment() {
 
         const val ACTION_REPLY = "reply"
         const val ACTION_DELETE = "delete"
+        const val ACTION_FORWARD = "forward"
+        const val ACTION_SEND_NOW = "send_now"
+        const val ACTION_QUOTE = "quote"
+        const val ACTION_PIN = "pin"
+        const val KEY_QUOTE = "quote"
+        const val KEY_QUOTE_POSITION = "quote_position"
+
+        private const val MENU_QUOTE = 1
+
+        private const val ARG_SCHEDULED = "scheduled"
+        private const val ARG_IS_PINNED = "is_pinned"
         const val ACTION_REACTION = "reaction"
 
         private const val PROPERTIES_TIMEOUT_MS = 300L
@@ -464,11 +594,21 @@ class MessageMenuDialogFragment : DialogFragment() {
          * Create a [Bundle] to use as the arguments for this fragment.
          *
          * @param text What "Copy" copies, null for none
+         * @param isScheduled A scheduled message: "Send now" and no reactions
+         * @param isPinned "Unpin" rather than "Pin"
          */
-        fun createBundle(chatId: Long, messageId: Long, text: String?) = bundleOf(
+        fun createBundle(
+            chatId: Long,
+            messageId: Long,
+            text: String?,
+            isScheduled: Boolean,
+            isPinned: Boolean,
+        ) = bundleOf(
+            ARG_IS_PINNED to isPinned,
             MessageMenuViewModel.ARG_CHAT_ID to chatId,
             MessageMenuViewModel.ARG_MESSAGE_ID to messageId,
             MessageMenuViewModel.ARG_TEXT to text,
+            ARG_SCHEDULED to isScheduled,
         )
     }
 }
