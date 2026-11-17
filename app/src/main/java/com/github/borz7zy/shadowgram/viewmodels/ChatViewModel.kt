@@ -28,7 +28,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -42,6 +44,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.TdApi
@@ -490,24 +493,45 @@ class ChatViewModel(
     }
 
     /**
-     * A member to mention, offered while an @word is typed.
+     * A row offered over the composer for what is typed: a member to mention, a bot command,
+     * an inline bot result.
      *
-     * @param username Mentioned as @username, by name when there's none
+     * @param key Unique among the rows
+     * @param avatarId Whose letter and color the avatar falls back to
      */
-    data class MentionSuggestion(
-        val userId: Long,
+    data class Suggestion(
+        val key: String,
         val name: String,
-        val username: String?,
+        val text: String?,
+        val avatarId: Long,
         val accentColorId: Int,
         val photoPath: String?,
+        val action: Action,
     )
+
+    sealed interface Action {
+        /** @param username Mentioned as @username, by name when there's none */
+        data class Mention(val userId: Long, val name: String, val username: String?) : Action
+
+        /** Sent as is, /command or /command@bot */
+        data class Command(val text: String) : Action
+
+        data class InlineResult(val queryId: Long, val resultId: String) : Action
+    }
 
     /** The @word being typed without the @, empty right after it; null when there's none. */
     val mentionQuery = MutableStateFlow<String?>(null)
 
+    /** All of the composer's text, for a /command or an @bot inline query. */
+    val composerText = MutableStateFlow("")
+
+    private val chatType = viewModelScope.async {
+        (client.await().send(TdApi.GetChat(chatId)) as? Result.Success)?.data?.type
+    }
+
     /** Only groups have members to mention, not channels or private chats. */
     private val canMention = viewModelScope.async {
-        when (val type = (client.await().send(TdApi.GetChat(chatId)) as? Result.Success)?.data?.type) {
+        when (val type = chatType.await()) {
             is TdApi.ChatTypeBasicGroup -> true
             is TdApi.ChatTypeSupergroup -> !type.isChannel
             else -> false
@@ -524,7 +548,7 @@ class ChatViewModel(
      * ponytail: the first [MENTION_LIMIT] members TDLib finds, Telegram's limit per request
      */
     @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
-    val mentionSuggestions = mentionQuery
+    private val mentionSuggestions = mentionQuery
         .debounce { if (it.isNullOrEmpty()) 0L else MENTION_DEBOUNCE_MS }
         .mapLatest { query ->
             if (query == null || !canMention.await()) {
@@ -538,16 +562,184 @@ class ChatViewModel(
                 val userId = (member.memberId as? TdApi.MessageSenderUser)?.userId
                     ?.takeIf { it != myUserId } ?: return@mapNotNull null
                 val sender = client.chats.sender(member.memberId)
-                MentionSuggestion(
-                    userId = userId,
-                    name = sender.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null,
-                    username = client.chats.username(userId),
+                val name = sender.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val username = client.chats.username(userId)
+                Suggestion(
+                    key = "u$userId",
+                    name = name,
+                    text = username?.let { "@$it" },
+                    avatarId = userId,
                     accentColorId = sender.accentColorId,
                     photoPath = sender.photo?.local?.takeIf { it.isDownloadingCompleted }?.path,
+                    action = Action.Mention(userId, name, username),
                 )
             }
         }
+
+    /** Every command of the bots here: the bot of a private chat, those added to a group. */
+    private val botCommands = viewModelScope.async {
+        val client = client.await()
+        val type = chatType.await()
+        val bots = when (type) {
+            is TdApi.ChatTypePrivate -> (client.send(TdApi.GetUserFullInfo(type.userId)) as? Result.Success)
+                ?.data?.botInfo?.commands?.let { arrayOf(TdApi.BotCommands(type.userId, it)) }
+
+            is TdApi.ChatTypeBasicGroup ->
+                (client.send(TdApi.GetBasicGroupFullInfo(type.basicGroupId)) as? Result.Success)?.data?.botCommands
+
+            is TdApi.ChatTypeSupergroup ->
+                (client.send(TdApi.GetSupergroupFullInfo(type.supergroupId)) as? Result.Success)?.data?.botCommands
+
+            else -> null
+        }.orEmpty()
+        bots.flatMap { bot ->
+            val sender = client.chats.sender(TdApi.MessageSenderUser(bot.botUserId))
+            // In a group the bot is named, so the command goes to it and not to another
+            val suffix = client.chats.username(bot.botUserId)
+                ?.takeIf { type !is TdApi.ChatTypePrivate }?.let { "@$it" }.orEmpty()
+            bot.commands.map {
+                Suggestion(
+                    key = "c${bot.botUserId}/${it.command}",
+                    name = "/${it.command}",
+                    text = it.description.takeIf { it.isNotBlank() },
+                    avatarId = bot.botUserId,
+                    accentColorId = sender.accentColorId,
+                    photoPath = sender.photo?.local?.takeIf { it.isDownloadingCompleted }?.path,
+                    action = Action.Command("/${it.command}$suffix"),
+                )
+            }
+        }
+    }
+
+    /** Whether the composer offers the bots' commands. */
+    val hasBotCommands = flow { emit(botCommands.await().isNotEmpty()) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** The commands starting with the /word that is all of the text. */
+    private val commandSuggestions = combine(composerText, flow { emit(botCommands.await()) }) { text, commands ->
+        COMMAND_REGEX.matchEntire(text)?.let { match ->
+            commands.filter { it.name.startsWith("/${match.groupValues[1]}", ignoreCase = true) }
+        }.orEmpty()
+    }
+
+    /**
+     * What an inline bot finds for "@bot query", the text starting with it. Shown at once, again
+     * once the thumbnails are downloaded.
+     *
+     * ponytail: the first page only, the next with [TdApi.InlineQueryResults.nextOffset] when
+     * scrolled to the end; no location for the bots that ask for it, no switch_pm button
+     */
+    @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
+    private val inlineSuggestions = composerText
+        .map { text -> INLINE_REGEX.matchEntire(text)?.let { it.groupValues[1] to it.groupValues[2] } }
+        .distinctUntilChanged()
+        .debounce { if (it == null) 0L else INLINE_DEBOUNCE_MS }
+        .transformLatest { query ->
+            val rows = query?.let { (username, text) -> inlineResults(username, text) }.orEmpty()
+            emit(rows.map { it.first })
+            val client = client.await()
+            val downloaded = coroutineScope {
+                rows.map { (row, file) ->
+                    async {
+                        val path = file?.takeIf { row.photoPath == null }?.let {
+                            (client.send(TdApi.DownloadFile(it.id, INLINE_DOWNLOAD_PRIORITY, 0, 0, true)) as? Result.Success)
+                                ?.data?.local?.takeIf { it.isDownloadingCompleted }?.path
+                        }
+                        path?.let { row.copy(photoPath = it) } ?: row
+                    }
+                }.awaitAll()
+            }
+            if (downloaded != rows.map { it.first }) {
+                emit(downloaded)
+            }
+        }
+
+    /** The rows for an inline query with their thumbnails, empty when @[username] isn't an inline bot. */
+    private suspend fun inlineResults(username: String, query: String): List<Pair<Suggestion, TdApi.File?>> {
+        val client = client.await()
+        val chat = (client.send(TdApi.SearchPublicChat(username)) as? Result.Success)?.data
+        val botUserId = (chat?.type as? TdApi.ChatTypePrivate)?.userId ?: return listOf()
+        val user = (client.send(TdApi.GetUser(botUserId)) as? Result.Success)?.data
+        if ((user?.type as? TdApi.UserTypeBot)?.isInline != true) {
+            return listOf()
+        }
+        val results = (client.send(TdApi.GetInlineQueryResults(botUserId, chatId, null, query, "")) as? Result.Success)
+            ?.data ?: return listOf()
+        return results.results.mapNotNull { result ->
+            val (id, title, text, thumbnail) = when (result) {
+                is TdApi.InlineQueryResultArticle ->
+                    InlineRow(result.id, result.title, result.description, result.thumbnail?.file)
+
+                is TdApi.InlineQueryResultPhoto ->
+                    InlineRow(result.id, result.title, result.description, result.photo.sizes.firstOrNull()?.photo)
+
+                is TdApi.InlineQueryResultAnimation ->
+                    InlineRow(result.id, result.title, null, result.animation.thumbnail?.file)
+
+                is TdApi.InlineQueryResultVideo ->
+                    InlineRow(result.id, result.title, result.description, result.video.thumbnail?.file)
+
+                is TdApi.InlineQueryResultDocument ->
+                    InlineRow(result.id, result.title, result.description, result.document.thumbnail?.file)
+
+                is TdApi.InlineQueryResultAudio -> InlineRow(
+                    result.id, result.audio.title, result.audio.performer, result.audio.albumCoverThumbnail?.file
+                )
+
+                is TdApi.InlineQueryResultVoiceNote -> InlineRow(result.id, result.title, null, null)
+                is TdApi.InlineQueryResultSticker ->
+                    InlineRow(result.id, result.sticker.emoji, null, result.sticker.thumbnail?.file)
+
+                is TdApi.InlineQueryResultContact -> InlineRow(
+                    result.id,
+                    "${result.contact.firstName} ${result.contact.lastName}".trim(),
+                    result.contact.phoneNumber,
+                    result.thumbnail?.file,
+                )
+
+                is TdApi.InlineQueryResultLocation -> InlineRow(result.id, result.title, null, result.thumbnail?.file)
+                is TdApi.InlineQueryResultVenue ->
+                    InlineRow(result.id, result.venue.title, result.venue.address, result.thumbnail?.file)
+
+                is TdApi.InlineQueryResultGame -> InlineRow(
+                    result.id, result.game.title, result.game.description, result.game.photo.sizes.firstOrNull()?.photo
+                )
+
+                else -> return@mapNotNull null
+            }
+            Suggestion(
+                key = "i$id",
+                name = title?.takeIf { it.isNotBlank() } ?: "@$username",
+                text = text?.takeIf { it.isNotBlank() },
+                avatarId = botUserId,
+                accentColorId = user.accentColorId,
+                photoPath = thumbnail?.local?.takeIf { it.isDownloadingCompleted }?.path,
+                action = Action.InlineResult(results.inlineQueryId, id),
+            ) to thumbnail
+        }
+    }
+
+    private data class InlineRow(val id: String, val title: String?, val text: String?, val thumbnail: TdApi.File?)
+
+    /** The rows over the composer: an inline query's results, else commands, else members. */
+    val suggestions = combine(
+        inlineSuggestions, commandSuggestions, mentionSuggestions, mentionQuery,
+    ) { inline, commands, mentions, mentionQuery ->
+        when {
+            inline.isNotEmpty() -> inline
+            commands.isNotEmpty() -> commands
+            mentionQuery != null -> mentions
+            else -> listOf()
+        }
+    }
         .stateIn(viewModelScope, SharingStarted.Eagerly, listOf())
+
+    /** Send the result picked from an inline bot's, "via @bot" shown on it. */
+    fun sendInlineResult(result: Action.InlineResult) {
+        clearReply()
+        typingSentAt = 0L
+        sendNow { it.sendInlineResult(result.queryId, result.resultId, hideViaBot = false) }
+    }
 
     /** The chat or user an @username stands for, null if there's none. */
     suspend fun resolveUsername(username: String): Long? =
@@ -578,6 +770,14 @@ class ChatViewModel(
         private const val TYPING_REPEAT_MS = 5_000L
         private const val MENTION_LIMIT = 200
         private const val MENTION_DEBOUNCE_MS = 200L
+        private const val INLINE_DEBOUNCE_MS = 400L
+        private const val INLINE_DOWNLOAD_PRIORITY = 16
+
+        /** A /word that is all of the text, the start of a command. */
+        private val COMMAND_REGEX = Regex("/(\\w*)")
+
+        /** "@bot query": an inline query, from the space after the username on. */
+        private val INLINE_REGEX = Regex("@(\\w{3,}) ([\\s\\S]*)")
 
         const val ARG_CHAT_ID = "chat_id"
         const val ARG_TOPIC_ID = "topic_id"

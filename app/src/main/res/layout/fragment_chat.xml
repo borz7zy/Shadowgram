@@ -294,9 +294,9 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-                <!-- The members to mention while an @word is typed -->
+                <!-- Members to mention, bot commands or inline bot results for what is typed -->
                 <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/mentionsRecyclerView"
+                    android:id="@+id/suggestionsRecyclerView"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:background="?attr/colorSurfaceContainer"
@@ -420,6 +420,17 @@
                                 android:paddingHorizontal="8dp"
                                 android:paddingVertical="12dp"
                                 android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+                            <!-- The bots' commands, only while the chat has some and nothing is typed -->
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/botCommandsMaterialButton"
+                                style="?attr/materialIconButtonStyle"
+                                android:layout_width="48dp"
+                                android:layout_height="56dp"
+                                android:contentDescription="@string/chat_bot_commands"
+                                android:tooltipText="@string/chat_bot_commands"
+                                android:visibility="gone"
+                                app:icon="@drawable/ic_terminal" />
 
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/emojiMaterialButton"

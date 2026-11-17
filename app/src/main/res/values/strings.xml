@@ -105,6 +105,7 @@
     <string name="chat_attach">Attach</string>
     <string name="chat_attach_close">Close attachments</string>
     <string name="chat_emoji">Emoji and stickers</string>
+    <string name="chat_bot_commands">Bot commands</string>
     <string name="chat_keyboard">Keyboard</string>
     <string name="chat_scheduled_messages">Scheduled messages</string>
     <string name="chat_scheduled">Message scheduled for %1$s</string>

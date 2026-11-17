@@ -227,13 +227,21 @@ class ChatHistory(
             TdApi.SendMessageAlbum(chatId, topic(), replyTo, options(scheduling), contents.toTypedArray())
         }
 
-    /** Send a result of an inline bot query, a GIF found through @gif, see [send]. */
-    suspend fun sendInlineResult(queryId: Long, resultId: String, scheduling: TdApi.MessageSchedulingState? = null) =
-        submit { replyTo ->
-            TdApi.SendInlineQueryResultMessage(
-                chatId, topic(), replyTo, options(scheduling), queryId, resultId, true
-            )
-        }
+    /**
+     * Send a result of an inline bot query, see [send].
+     *
+     * @param hideViaBot Without "via @bot", as for a GIF found through @gif
+     */
+    suspend fun sendInlineResult(
+        queryId: Long,
+        resultId: String,
+        scheduling: TdApi.MessageSchedulingState? = null,
+        hideViaBot: Boolean = true,
+    ) = submit { replyTo ->
+        TdApi.SendInlineQueryResultMessage(
+            chatId, topic(), replyTo, options(scheduling), queryId, resultId, hideViaBot
+        )
+    }
 
     /** Every send goes here, the reply is taken by it. */
     private suspend fun <T : TdApi.Object> submit(

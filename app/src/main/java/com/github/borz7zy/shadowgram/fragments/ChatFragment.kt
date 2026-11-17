@@ -147,7 +147,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private val recyclerView by getViewProperty<RecyclerView>(R.id.recyclerView)
     private val sendMaterialButton by getViewProperty<MaterialButton>(R.id.sendMaterialButton)
     private val pinnedLinearLayout by getViewProperty<LinearLayout>(R.id.pinnedLinearLayout)
-    private val mentionsRecyclerView by getViewProperty<RecyclerView>(R.id.mentionsRecyclerView)
+    private val suggestionsRecyclerView by getViewProperty<RecyclerView>(R.id.suggestionsRecyclerView)
     private val reactionsFrameLayout by getViewProperty<View>(R.id.reactionsFrameLayout)
     private val reactionsFloatingActionButton by getViewProperty<View>(R.id.reactionsFloatingActionButton)
     private val reactionsCountTextView by getViewProperty<TextView>(R.id.reactionsCountTextView)
@@ -170,6 +170,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private val attachMaterialButton by getViewProperty<MaterialButton>(R.id.attachMaterialButton)
     private val emojiMaterialButton by getViewProperty<MaterialButton>(R.id.emojiMaterialButton)
     private val scheduledMaterialButton by getViewProperty<MaterialButton>(R.id.scheduledMaterialButton)
+    private val botCommandsMaterialButton by getViewProperty<MaterialButton>(R.id.botCommandsMaterialButton)
     private val panelCardView by getViewProperty<TopRoundedLayout>(R.id.panelCardView)
     private val stickerKeyboardView by getViewProperty<StickerKeyboardView>(R.id.stickerKeyboardView)
     private val galleryPanelView by getViewProperty<GalleryPanelView>(R.id.galleryPanelView)
@@ -433,7 +434,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             reverseLayout = true
         }
         recyclerView.adapter = adapter
-        mentionsRecyclerView.adapter = mentionSuggestionsAdapter
+        suggestionsRecyclerView.adapter = suggestionsAdapter
         avatarDecoration = SenderAvatarDecoration(recyclerView, adapter)
         recyclerView.addItemDecoration(avatarDecoration)
         recyclerView.addOnItemTouchListener(avatarTouchListener)
@@ -455,6 +456,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 viewModel.onTyping(it.isNullOrEmpty())
             }
             viewModel.mentionQuery.value = mentionQuery()
+            viewModel.composerText.value = it?.toString().orEmpty()
         }
 
         // CameraX and both cameras' capabilities, so the recorder opens at once
@@ -543,8 +545,11 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 }
 
                 launch {
-                    combine(viewModel.mentionSuggestions, viewModel.mentionQuery, ::Pair)
-                        .collectLatest { (suggestions, _) -> setMentionSuggestions(suggestions) }
+                    viewModel.suggestions.collectLatest(::setSuggestions)
+                }
+
+                launch {
+                    viewModel.hasBotCommands.collectLatest { updateSendButton() }
                 }
 
                 launch {
@@ -605,7 +610,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         galleryPanelView.stop()
         panels = null
         recyclerView.removeOnScrollListener(onScrollListener)
-        mentionsRecyclerView.adapter = null
+        suggestionsRecyclerView.adapter = null
         recyclerView.adapter = null
 
         super.onDestroyView()
@@ -623,6 +628,11 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             }
         }
         emojiMaterialButton.setOnClickListener { panels?.toggle(KeyboardPanels.Panel.STICKERS) }
+        // A slash brings up the commands over the composer, as typing one would
+        botCommandsMaterialButton.setOnClickListener {
+            messageEditText.setText("/")
+            messageEditText.setSelection(1)
+        }
         scheduledMaterialButton.setOnClickListener {
             findNavController().navigateSafe(
                 R.id.action_chatFragment_to_scheduledChatFragment,
@@ -1149,6 +1159,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         sendMaterialButton.isEnabled = canSend
         sendMaterialButton.isVisible = canSend
         videoNoteMaterialButton.isVisible = !canSend
+        botCommandsMaterialButton.isVisible = viewModel.hasBotCommands.value && messageEditText.text.isNullOrEmpty()
     }
 
     /** Picked from a system picker or shot: waits above the composer until sent. */
@@ -1391,7 +1402,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     }
 
     /** Put the member in place of the @word: by username, or by name linked to them. */
-    private fun mention(suggestion: ChatViewModel.MentionSuggestion) {
+    private fun mention(suggestion: ChatViewModel.Action.Mention) {
         val text = messageEditText.text ?: return
         val start = mentionStart() ?: return
         val end = messageEditText.selectionStart
@@ -1413,34 +1424,47 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         }
     }
 
-    /** The members to mention over the composer, a few rows high at most. */
-    private fun setMentionSuggestions(suggestions: List<ChatViewModel.MentionSuggestion>) {
-        val isShown = suggestions.isNotEmpty() && viewModel.mentionQuery.value != null
-        mentionsRecyclerView.isVisible = isShown
-        mentionSuggestionsAdapter.submitList(suggestions)
+    /** The rows over the composer, a few rows high at most. */
+    private fun setSuggestions(suggestions: List<ChatViewModel.Suggestion>) {
+        val isShown = suggestions.isNotEmpty()
+        suggestionsRecyclerView.isVisible = isShown
+        suggestionsAdapter.submitList(suggestions)
         val rowHeight = resources.getDimensionPixelSize(R.dimen.chat_mention_row_height)
-        mentionsRecyclerView.updateLayoutParams {
+        suggestionsRecyclerView.updateLayoutParams {
             height = when {
                 suggestions.size > MENTION_MAX_ROWS -> (rowHeight * (MENTION_MAX_ROWS + 0.5f)).toInt()
                 else -> ViewGroup.LayoutParams.WRAP_CONTENT
             }
         }
         if (isShown) {
-            mentionsRecyclerView.scrollToPosition(0)
+            suggestionsRecyclerView.scrollToPosition(0)
         }
     }
 
-    private val mentionSuggestionsAdapter = MentionSuggestionsAdapter { mention(it) }
+    private val suggestionsAdapter = SuggestionsAdapter {
+        when (val action = it.action) {
+            is ChatViewModel.Action.Mention -> mention(action)
+            is ChatViewModel.Action.Command -> {
+                viewModel.send(action.text)
+                messageEditText.text = null
+            }
 
-    /** A member to mention: the avatar, the name, the username. */
-    private class MentionSuggestionsAdapter(
-        private val onClick: (ChatViewModel.MentionSuggestion) -> Unit,
-    ) : androidx.recyclerview.widget.ListAdapter<ChatViewModel.MentionSuggestion, MentionSuggestionsAdapter.ViewHolder>(
-        object : androidx.recyclerview.widget.DiffUtil.ItemCallback<ChatViewModel.MentionSuggestion>() {
-            override fun areItemsTheSame(oldItem: ChatViewModel.MentionSuggestion, newItem: ChatViewModel.MentionSuggestion) =
-                oldItem.userId == newItem.userId
+            is ChatViewModel.Action.InlineResult -> {
+                viewModel.sendInlineResult(action)
+                messageEditText.text = null
+            }
+        }
+    }
 
-            override fun areContentsTheSame(oldItem: ChatViewModel.MentionSuggestion, newItem: ChatViewModel.MentionSuggestion) =
+    /** A row over the composer: the avatar or thumbnail, the name, a line under it. */
+    private class SuggestionsAdapter(
+        private val onClick: (ChatViewModel.Suggestion) -> Unit,
+    ) : androidx.recyclerview.widget.ListAdapter<ChatViewModel.Suggestion, SuggestionsAdapter.ViewHolder>(
+        object : androidx.recyclerview.widget.DiffUtil.ItemCallback<ChatViewModel.Suggestion>() {
+            override fun areItemsTheSame(oldItem: ChatViewModel.Suggestion, newItem: ChatViewModel.Suggestion) =
+                oldItem.key == newItem.key
+
+            override fun areContentsTheSame(oldItem: ChatViewModel.Suggestion, newItem: ChatViewModel.Suggestion) =
                 oldItem == newItem
         }
     ) {
@@ -1461,7 +1485,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             holder.itemView.setOnClickListener { onClick(suggestion) }
             holder.avatarView.setChat(
                 ChatItem(
-                    id = suggestion.userId,
+                    id = suggestion.avatarId,
                     title = suggestion.name,
                     accentColorId = suggestion.accentColorId,
                     photoPath = suggestion.photoPath,
@@ -1478,8 +1502,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 )
             )
             holder.nameTextView.text = suggestion.name
-            holder.textTextView.isVisible = suggestion.username != null
-            holder.textTextView.text = suggestion.username?.let { "@$it" }
+            holder.textTextView.isVisible = suggestion.text != null
+            holder.textTextView.text = suggestion.text
         }
     }
 
