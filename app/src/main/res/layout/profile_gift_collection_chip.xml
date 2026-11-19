@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<com.google.android.material.chip.Chip xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    style="@style/Widget.Material3.Chip.Filter"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:ellipsize="end"
+    android:maxWidth="240dp"
+    app:checkedIconVisible="false"
+    app:chipIconSize="@dimen/profile_gift_collection_icon_size"
+    app:chipIconVisible="true" />

@@ -29,7 +29,9 @@ object EmojiStickers {
         customEmoji[id]?.let { return it }
         // ponytail: one request per emoji, batch the ids of a screen if it shows up in profiles
         val sticker = (client.send(TdApi.GetCustomEmojiStickers(longArrayOf(id))) as? Result.Success)
-            ?.data?.stickers?.firstOrNull() ?: return null
+            ?.data?.stickers?.firstOrNull {
+                (it.fullType as? TdApi.StickerFullTypeCustomEmoji)?.customEmojiId == id
+            } ?: return null
         return download(client, sticker)?.also { customEmoji[id] = it }
     }
 

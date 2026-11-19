@@ -11,6 +11,8 @@ import android.util.AttributeSet
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.annotation.ColorInt
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.isVisible
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.models.MessageItem
@@ -43,6 +45,14 @@ class DocumentView @JvmOverloads constructor(
         sizeTextView = findViewById(R.id.sizeTextView)
 
         actionMaterialButton.setOnClickListener { onActionClick?.invoke() }
+    }
+
+    /** Uses the same Material foreground as the message hosting the file. */
+    fun setBubbleContentColor(@ColorInt color: Int) {
+        nameTextView.setTextColor(color)
+        sizeTextView.setTextColor(color)
+        downloadProgressIndicator.setIndicatorColor(color)
+        downloadProgressIndicator.trackColor = ColorUtils.setAlphaComponent(color, 0x40)
     }
 
     fun bind(document: MessageItem.Document) {

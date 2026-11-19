@@ -20,8 +20,10 @@ data class ChatHeader(
     val isPremium: Boolean = false,
     /** The profile's background chosen in Telegram, null for none. */
     val profileColors: ProfileColors? = null,
-    /** The custom emoji patterned over [profileColors], 0 for none. */
+    /** The custom emoji patterned over the profile header, 0 for none. */
     val profileEmojiId: Long = 0L,
+    /** The symbol tint of a collectible profile backdrop, if set. */
+    val profilePatternColor: Int? = null,
 ) {
     /** The 1-2 colors of a profile's background, ARGB, for either theme. */
     data class ProfileColors(val light: List<Int>, val dark: List<Int>)

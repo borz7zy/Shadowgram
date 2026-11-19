@@ -221,6 +221,11 @@ class ChatsStore(
                 accentColorId = update.accentColorId
                 profileAccentColorId = update.profileAccentColorId
                 profileBackgroundCustomEmojiId = update.profileBackgroundCustomEmojiId
+                // TDLib can deliver the chat update before the matching user update.
+                profileUser()?.let { user ->
+                    user.profileAccentColorId = update.profileAccentColorId
+                    user.profileBackgroundCustomEmojiId = update.profileBackgroundCustomEmojiId
+                }
             }
 
             is TdApi.UpdateProfileAccentColors -> update.colors.forEach {
@@ -305,7 +310,10 @@ class ChatsStore(
 
             is TdApi.UpdateUser -> users[update.user.id] = update.user
 
-            is TdApi.UpdateChatEmojiStatus -> chat(update.chatId) { emojiStatus = update.emojiStatus }
+            is TdApi.UpdateChatEmojiStatus -> chat(update.chatId) {
+                emojiStatus = update.emojiStatus
+                profileUser()?.emojiStatus = update.emojiStatus
+            }
 
             is TdApi.UpdateUserStatus -> users[update.userId]?.status = update.status
 
@@ -393,6 +401,15 @@ class ChatsStore(
             loadMemberCount(chatId)
         }
         .flowOn(Dispatchers.Default)
+
+    /** Read the current TDLib user and apply it in order with the other TDLib updates. */
+    suspend fun readProfileUser(userId: Long): TdApi.User? = suspendCancellableCoroutine { continuation ->
+        send(TdApi.GetUser(userId)) { result ->
+            val user = result as? TdApi.User
+            user?.let { onUpdate(TdApi.UpdateUser(it)) }
+            continuation.resume(user)
+        }
+    }
 
     /**
      * A message sender as shown in groups.
@@ -593,18 +610,24 @@ class ChatsStore(
             }
         }
 
-        val user = when (val type = chat.type) {
-            is TdApi.ChatTypePrivate -> users[type.userId]
-            is TdApi.ChatTypeSecret -> users[type.userId]
-            else -> null
+        val user = chat.profileUser()
+        val emojiStatus = if (user != null) user.emojiStatus else chat.emojiStatus
+        val collectible = emojiStatus?.type as? TdApi.EmojiStatusTypeUpgradedGift
+        val backdrop = collectible?.backdropColors
+        val collectibleColors = backdrop?.let {
+            val colors = listOf(it.edgeColor or OPAQUE, it.centerColor or OPAQUE)
+            ChatHeader.ProfileColors(colors, colors)
         }
+        val profileAccentColorId = user?.profileAccentColorId ?: chat.profileAccentColorId
         return ChatHeader(
             item,
             subtitle,
-            emojiStatusId = (user?.emojiStatus ?: chat.emojiStatus).customEmojiId(),
+            emojiStatusId = emojiStatus.customEmojiId(),
             isPremium = user?.isPremium == true,
-            profileColors = profileColors[chat.profileAccentColorId],
-            profileEmojiId = chat.profileBackgroundCustomEmojiId,
+            profileColors = collectibleColors ?: profileColors[profileAccentColorId],
+            profileEmojiId = collectible?.symbolCustomEmojiId
+                ?: user?.profileBackgroundCustomEmojiId ?: chat.profileBackgroundCustomEmojiId,
+            profilePatternColor = backdrop?.symbolColor?.or(OPAQUE),
         )
     }
 
@@ -629,6 +652,12 @@ class ChatsStore(
             is TdApi.ChatTypeSupergroup -> !type.isChannel
             else -> false
         }
+
+    private fun TdApi.Chat.profileUser() = when (val type = type) {
+        is TdApi.ChatTypePrivate -> users[type.userId]
+        is TdApi.ChatTypeSecret -> users[type.userId]
+        else -> null
+    }
 
     private inline fun chat(chatId: Long, block: TdApi.Chat.() -> Unit) {
         chats[chatId]?.block()

@@ -510,6 +510,7 @@ class MessageListAdapter(
             val textColor = if (isSticker) colorOnSurfaceVariant else foreground
             messageTextView.setTextColor(foreground)
             messageTextView.setLinkTextColor(foreground)
+            documentView.setBubbleContentColor(foreground)
 
             // Runs of messages get tight corners on the side of the sender, where they touch
             val isRtl = view.layoutDirection == View.LAYOUT_DIRECTION_RTL
@@ -543,11 +544,11 @@ class MessageListAdapter(
             val pictures = row.album.takeIf { files.isEmpty() }.orEmpty()
 
             bindMedia(media, message.uploadProgress != null)
-            bindPlayable(message, media)
+            bindPlayable(message, media, background, foreground)
             bindDocument(message)
             bindAlbum(pictures)
             bindSourceVisibility(row)
-            bindFiles(files)
+            bindFiles(files, background, foreground)
             bindUpload(message)
 
             // Photos fill their bubble: the text and reactions wrap under them, not widen it
@@ -822,7 +823,7 @@ class MessageListAdapter(
          * A music or file album: a player or file row per message, the views kept while their
          * kinds stay, so progress updates don't make them again.
          */
-        private fun bindFiles(album: List<MessageItem>) {
+        private fun bindFiles(album: List<MessageItem>, background: Int, foreground: Int) {
             filesLinearLayout.isVisible = album.isNotEmpty()
             if (album.isNotEmpty()) {
                 // The stack stands for the bubble's own player or file row
@@ -844,10 +845,11 @@ class MessageListAdapter(
                     filesLinearLayout.addView(child, i, LinearLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT))
                 }
                 when (child) {
-                    is VoiceNoteView -> child.bind(trackOf(item, playable!!))
+                    is VoiceNoteView -> child.bind(trackOf(item, playable!!), background, foreground)
                     is DocumentView -> {
                         val document = item.document
                         child.isVisible = document != null
+                        child.setBubbleContentColor(foreground)
                         document?.let(child::bind)
                         child.onActionClick = { callbacks.onDocumentClick(item) }
                     }
@@ -859,7 +861,12 @@ class MessageListAdapter(
         }
 
         /** Voice messages get a player, video messages play in place of their still. */
-        private fun bindPlayable(message: MessageItem, media: MessageItem.Media?) {
+        private fun bindPlayable(
+            message: MessageItem,
+            media: MessageItem.Media?,
+            background: Int,
+            foreground: Int,
+        ) {
             val playable = message.playable
             val isVideoNote = playable?.isVideo == true && media?.type == MessageItem.Media.Type.VIDEO_NOTE
             val isVoiceNote = playable != null && !playable.isVideo
@@ -879,7 +886,7 @@ class MessageListAdapter(
                     videoNoteView.bind(trackOf(message, playable!!), media!!.path, media.minithumbnail)
                 }
 
-                isVoiceNote -> voiceNoteView.bind(trackOf(message, playable!!))
+                isVoiceNote -> voiceNoteView.bind(trackOf(message, playable!!), background, foreground)
             }
         }
 

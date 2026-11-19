@@ -33,11 +33,9 @@ import com.github.borz7zy.rustcore.RustMedia
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.MainActivity
 import com.github.borz7zy.shadowgram.ProfileActivity
-import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.navigateSafe
 import com.github.borz7zy.shadowgram.ext.navigateBackInPane
-import com.github.borz7zy.shadowgram.telegram.EmojiStickers
 import com.github.borz7zy.shadowgram.telegram.ProfilePage
 import com.github.borz7zy.shadowgram.ui.text.subtitleText
 import com.github.borz7zy.shadowgram.ui.views.AvatarView
@@ -55,6 +53,8 @@ import com.google.android.material.tabs.TabLayoutMediator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -100,9 +100,6 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
     }
 
     private val viewerAnchor by activityViewModels<PhotoViewerViewModel.Anchor>()
-
-    /** The custom emoji the cover's pattern is loaded for, 0 for none. */
-    private var coverEmojiId = 0L
 
     private var isCollapsed = false
 
@@ -204,8 +201,7 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
                             emojiStatusView.setEmojiStatus(header.emojiStatusId, header.isPremium)
                             // Without one the name stays centered
                             emojiStatusView.isVisible = header.emojiStatusId != 0L || header.isPremium
-                            profileCoverView.setColors(header.profileColors)
-                            loadCoverEmoji(header.profileEmojiId.takeIf { header.profileColors != null } ?: 0L)
+                            profileCoverView.setColors(header.profileColors, header.profilePatternColor)
                             bindCoverColors()
 
                             val subtitle = requireContext().subtitleText(header.subtitle)
@@ -231,6 +227,10 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
                     viewModel.info.collectLatest { it?.let(::setInfo) }
                 }
 
+                launch {
+                    viewModel.header.mapNotNull { it?.profileEmojiId }.distinctUntilChanged()
+                        .collectLatest(::loadCoverEmoji)
+                }
             }
         }
     }
@@ -257,35 +257,17 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
     private fun isLightTheme() = resources.configuration.uiMode and
             android.content.res.Configuration.UI_MODE_NIGHT_MASK != android.content.res.Configuration.UI_MODE_NIGHT_YES
 
-    /** The first frame of the pattern's emoji, made white by the cover. */
-    private fun loadCoverEmoji(emojiId: Long) {
-        if (emojiId == coverEmojiId) {
-            return
-        }
-        coverEmojiId = emojiId
-        if (emojiId == 0L) {
-            profileCoverView.setEmoji(null)
-            return
-        }
-        val size = resources.getDimensionPixelSize(R.dimen.profile_cover_emoji_size)
-        val profileCoverView = profileCoverView
-        viewLifecycleOwner.lifecycleScope.launch {
-            val client = (requireContext().applicationContext as ShadowgramApplication)
-                .accountsRepository.activeClient()
-            val file = EmojiStickers.customEmoji(client, emojiId) ?: return@launch
-            val bitmap = withContext(Dispatchers.IO) {
-                when (file.isAnimated) {
-                    true -> RustMedia.AnimatedSticker.open(File(file.path), size, size)?.use { sticker ->
-                        sticker.newBitmap().takeIf { sticker.frame(0, it) }
-                    }
+    /** The first frame of the pattern's emoji. */
+    private suspend fun loadCoverEmoji(emojiId: Long) {
+        profileCoverView.setEmoji(null)
+        if (emojiId == 0L) return
 
-                    false -> RustMedia.decode(File(file.path), size, size)
-                }
-            }
-            if (coverEmojiId == emojiId) {
-                profileCoverView.setEmoji(bitmap)
-            }
+        val size = resources.getDimensionPixelSize(R.dimen.profile_cover_emoji_size)
+        val file = viewModel.coverEmoji(emojiId) ?: return
+        val bitmap = withContext(Dispatchers.IO) {
+            RustMedia.decode(File(file.path), size, size)
         }
+        profileCoverView.setEmoji(bitmap)
     }
 
     /** The profile photos, from the avatar: the current one first, the older ones after it. */
@@ -325,8 +307,6 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
 
     override fun onDestroyView() {
         view?.removeCallbacks(startTransition)
-        // The next view's cover gets the pattern again (back from the player)
-        coverEmojiId = 0L
         isCollapsed = false
         view?.takeIf { activity is ProfileActivity }?.let {
             WindowCompat.getInsetsController(requireActivity().window, it).isAppearanceLightStatusBars =

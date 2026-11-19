@@ -5,13 +5,17 @@
 
 package com.github.borz7zy.shadowgram.fragments
 
+import android.graphics.Rect
+import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
 import android.view.View
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnAttach
+import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
@@ -23,6 +27,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.github.borz7zy.rustcore.RustMedia
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.MainActivity
 import com.github.borz7zy.shadowgram.ext.getViewProperty
@@ -36,10 +41,17 @@ import com.github.borz7zy.shadowgram.telegram.ProfilePage
 import com.github.borz7zy.shadowgram.ui.recyclerview.ProfileItemAdapter
 import com.github.borz7zy.shadowgram.viewmodels.PhotoViewerViewModel
 import com.github.borz7zy.shadowgram.viewmodels.ProfilePageViewModel
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
 import com.google.android.material.progressindicator.LinearProgressIndicator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.drinkless.tdlib.TdApi
+import java.io.File
 
 /**
  * A tab of a profile, its own list: a grid of media cells or rows. The voice tab has voice and
@@ -54,6 +66,9 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
     private val noElementsLinearLayout by getViewProperty<LinearLayout>(R.id.noElementsLinearLayout)
     private val recyclerView by getViewProperty<RecyclerView>(R.id.recyclerView)
     private val voiceToggleGroup by getViewProperty<MaterialButtonToggleGroup>(R.id.voiceToggleGroup)
+    private val giftCollectionsScrollView by getViewProperty<HorizontalScrollView>(R.id.giftCollectionsScrollView)
+    private val giftCollectionsGroup by getViewProperty<ChipGroup>(R.id.giftCollectionsGroup)
+    private val giftRetryButton by getViewProperty<MaterialButton>(R.id.giftRetryButton)
 
     // RecyclerView
     private val adapter = ProfileItemAdapter { item, image ->
@@ -91,10 +106,15 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
 
     private val onScrollListener = object : RecyclerView.OnScrollListener() {
         override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-            val layoutManager = recyclerView.layoutManager as GridLayoutManager
-            if (layoutManager.findLastVisibleItemPosition() >= adapter.itemCount - LOAD_MORE_THRESHOLD) {
-                viewModel.loadMore()
-            }
+            loadNextPageIfNeeded(recyclerView)
+        }
+    }
+
+    private fun loadNextPageIfNeeded(list: RecyclerView) {
+        val layoutManager = list.layoutManager as GridLayoutManager
+        val lastVisible = layoutManager.findLastVisibleItemPosition()
+        if (lastVisible != RecyclerView.NO_POSITION && lastVisible >= adapter.itemCount - LOAD_MORE_THRESHOLD) {
+            viewModel.loadMore()
         }
     }
 
@@ -118,6 +138,15 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
         }
         recyclerView.adapter = adapter
         recyclerView.addOnScrollListener(onScrollListener)
+
+        if (viewModel.kind.value == ProfilePage.Kind.GIFTS) {
+            giftRetryButton.setOnClickListener { viewModel.loadMore(retry = true) }
+            viewLifecycleOwner.lifecycleScope.launch {
+                viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.giftCollections.collect(::setGiftCollections)
+                }
+            }
+        }
 
         val isVoice = viewModel.kind.value == ProfilePage.Kind.VOICE_NOTES
                 || viewModel.kind.value == ProfilePage.Kind.VIDEO_NOTES
@@ -215,18 +244,67 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
         linearProgressIndicator.setProgressCompat(result)
 
         if (result !is FlowResult.Success) {
+            if (viewModel.kind.value == ProfilePage.Kind.GIFTS) adapter.submitList(null)
+            noElementsLinearLayout.isVisible = false
+            giftRetryButton.isVisible = false
             return
         }
 
-        val (kind, items) = result.data
+        val (kind, items, collectionId, giftLoadFailed) = result.data
+        if (kind == ProfilePage.Kind.GIFTS && collectionId != viewModel.selectedGiftCollectionId.value) return
         if (kind != adapter.kind) {
             // Another kind is another list, with other cells
             adapter.kind = kind
             adapter.submitList(null)
         }
-        adapter.submitList(items)
+        adapter.submitList(items) {
+            if (kind == ProfilePage.Kind.GIFTS && !giftLoadFailed && view != null) {
+                recyclerView.doOnLayout { loadNextPageIfNeeded(it as RecyclerView) }
+            }
+        }
 
-        noElementsLinearLayout.isVisible = items.isEmpty()
+        giftRetryButton.isVisible = giftLoadFailed
+        noElementsLinearLayout.isVisible = items.isEmpty() && !giftLoadFailed
+    }
+
+    private fun setGiftCollections(collections: List<TdApi.GiftCollection>) {
+        giftCollectionsScrollView.isVisible = collections.isNotEmpty()
+        if (collections.isEmpty() || giftCollectionsGroup.childCount > 0) return
+
+        addGiftCollectionChip(0, getString(R.string.profile_gifts_all))
+        collections.forEach { collection ->
+            val chip = addGiftCollectionChip(collection.id, collection.name)
+            if (collection.icon != null) {
+                val size = resources.getDimensionPixelSize(R.dimen.profile_gift_collection_icon_size)
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val path = viewModel.giftCollectionIcon(collection) ?: return@launch
+                    val bitmap = withContext(Dispatchers.IO) { RustMedia.decode(File(path), size, size) }
+                        ?: return@launch
+                    chip.chipIcon = BitmapDrawable(resources, bitmap)
+                }
+            }
+        }
+    }
+
+    private fun addGiftCollectionChip(collectionId: Int, name: String): Chip {
+        val chip = layoutInflater.inflate(
+            R.layout.profile_gift_collection_chip, giftCollectionsGroup, false,
+        ) as Chip
+        chip.id = View.generateViewId()
+        chip.text = name
+        chip.isChecked = collectionId == viewModel.selectedGiftCollectionId.value
+        giftCollectionsGroup.addView(chip)
+        if (chip.isChecked) {
+            chip.doOnLayout { it.requestRectangleOnScreen(Rect(0, 0, it.width, it.height)) }
+        }
+        chip.setOnClickListener {
+            if (collectionId != viewModel.selectedGiftCollectionId.value) {
+                viewModel.selectGiftCollection(collectionId)
+                adapter.submitList(null)
+                recyclerView.scrollToPosition(0)
+            }
+        }
+        return chip
     }
 
     companion object {

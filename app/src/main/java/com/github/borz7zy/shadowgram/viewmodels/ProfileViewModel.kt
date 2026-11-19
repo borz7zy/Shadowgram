@@ -11,6 +11,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.models.Result
+import com.github.borz7zy.shadowgram.telegram.EmojiStickers
 import com.github.borz7zy.shadowgram.telegram.ProfilePage
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -138,8 +139,8 @@ class ProfileViewModel(
     // change while the profile is open
     private suspend fun userInfo(userId: Long): Info {
         val client = client.await()
-        val user = (client.send(TdApi.GetUser(userId)) as? Result.Success)?.data
         val fullInfo = (client.send(TdApi.GetUserFullInfo(userId)) as? Result.Success)?.data
+        val user = client.chats.readProfileUser(userId)
         return Info(
             true,
             user?.phoneNumber?.takeIf { it.isNotEmpty() },
@@ -148,6 +149,8 @@ class ProfileViewModel(
             USER_TABS,
         )
     }
+
+    suspend fun coverEmoji(id: Long) = EmojiStickers.customEmoji(client.await(), id)
 
     /** Mute the chat for good, or unmute it. */
     fun toggleMute() {

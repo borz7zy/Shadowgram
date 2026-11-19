@@ -32,12 +32,14 @@ import org.drinkless.tdlib.TdApi
  *
  * @param context Formats sizes, dates and durations
  * @param chatId The chat of the profile, for users their private chat (its id is the user id)
+ * @param giftCollectionId The selected collection on the gifts tab, 0 for all gifts
  */
 class ProfilePage(
     private val client: TelegramClient,
     private val context: Context,
     private val chatId: Long,
     val kind: Kind,
+    private val giftCollectionId: Int = 0,
 ) {
     /**
      * @param isGrid Shown as a grid of pictures rather than rows
@@ -61,7 +63,11 @@ class ProfilePage(
     /**
      * @param isLoaded Whether TDLib answered at least once, so an empty page really is empty
      */
-    data class Snapshot(val items: List<ProfileItem>, val isLoaded: Boolean)
+    data class Snapshot(
+        val items: List<ProfileItem>,
+        val isLoaded: Boolean,
+        val giftLoadFailed: Boolean,
+    )
 
     private val lock = Any()
 
@@ -71,9 +77,11 @@ class ProfilePage(
     private var isLoading = false
     private var isComplete = false
     private var isLoaded = false
+    private var giftLoadFailed = false
     private var nextMessageId = 0L
     private var nextStoryId = 0
     private var nextOffset = ""
+    private val loadedGiftOffsets = HashSet<String>()
     private var nextMemberOffset = 0
     private var nextGroupId = 0L
 
@@ -97,7 +105,7 @@ class ProfilePage(
     fun snapshots(): Flow<Snapshot> = callbackFlow {
         client.addUpdateListener(onUpdate)
 
-        launch { loadMore() }
+        launch { loadMore(retry = true) }
         launch {
             version.map { snapshot() }.collect { send(it) }
         }
@@ -110,32 +118,40 @@ class ProfilePage(
     /**
      * Ask TDLib for the next page. Does nothing while a request is running or once all is loaded.
      */
-    suspend fun loadMore() {
+    suspend fun loadMore(retry: Boolean = false) {
         synchronized(lock) {
-            if (isLoading || isComplete) {
+            if (isLoading || isComplete || (giftLoadFailed && !retry)) {
                 return
             }
             isLoading = true
-        }
-
-        val (page, isLast) = fetch()
-
-        synchronized(lock) {
-            val added = page.count { (key, entry) -> entries.put(key, entry) == null }
-            // Nothing new: paging went round, stop rather than ask again
-            isComplete = isLast || added == 0
-            isLoaded = true
-            isLoading = false
+            giftLoadFailed = false
         }
         version.update { it + 1 }
+
+        try {
+            val result = fetch()
+            synchronized(lock) {
+                if (result == null) {
+                    giftLoadFailed = true
+                } else {
+                    val (page, isLast) = result
+                    val added = page.count { (key, entry) -> entries.put(key, entry) == null }
+                    isComplete = isLast || (kind != Kind.GIFTS && added == 0)
+                    isLoaded = true
+                }
+            }
+        } finally {
+            synchronized(lock) { isLoading = false }
+            version.update { it + 1 }
+        }
     }
 
     /**
      * The next page as keyed entries, and whether it's the last one.
      */
-    private suspend fun fetch(): Pair<List<Pair<String, TdApi.Object>>, Boolean> {
+    private suspend fun fetch(): Pair<List<Pair<String, TdApi.Object>>, Boolean>? {
         val chat = (client.send(TdApi.GetChat(chatId)) as? Result.Success)?.data
-            ?: return listOf<Pair<String, TdApi.Object>>() to true
+            ?: return if (kind == Kind.GIFTS) null else emptyList<Pair<String, TdApi.Object>>() to true
 
         return when (kind) {
             Kind.POSTS -> client.send(
@@ -156,20 +172,8 @@ class ProfilePage(
             }
 
             Kind.GIFTS -> {
-                val owner = when (val type = chat.type) {
-                    is TdApi.ChatTypePrivate -> TdApi.MessageSenderUser(type.userId)
-                    else -> TdApi.MessageSenderChat(chatId)
-                }
-                client.send(
-                    TdApi.GetReceivedGifts(
-                        "", owner, 0,
-                        false, false, false, false, false, false, false, false, false,
-                        nextOffset, PAGE_SIZE,
-                    )
-                ).page { gifts ->
-                    nextOffset = gifts.nextOffset
-                    gifts.gifts.map { it.receivedGiftId to it } to nextOffset.isEmpty()
-                }
+                val owner = chat.giftOwner() ?: return emptyList<Pair<String, TdApi.Object>>() to true
+                fetchGifts(owner)
             }
 
             Kind.GROUPS -> {
@@ -211,6 +215,35 @@ class ProfilePage(
         }
     }
 
+    private suspend fun fetchGifts(owner: TdApi.MessageSender): Pair<List<Pair<String, TdApi.Object>>, Boolean>? {
+        while (true) {
+            val offset = nextOffset
+            val response = client.send(TdApi.GetReceivedGifts().apply {
+                businessConnectionId = ""
+                ownerId = owner
+                collectionId = giftCollectionId
+                this.offset = offset
+                limit = PAGE_SIZE
+            })
+            val gifts = (response as? Result.Success)?.data ?: return null
+            val page = gifts.gifts.mapIndexed { index, gift ->
+                val upgraded = gift.gift as? TdApi.SentGiftUpgraded
+                // Another user's receivedGiftId can be empty, including for identical regular gifts.
+                val key = gift.receivedGiftId.takeIf { it.isNotEmpty() }?.let { "received:$it" }
+                    ?: upgraded?.gift?.id?.let { "upgraded:$it" }
+                    ?: "gift:$offset:$index"
+                key to gift
+            }
+            synchronized(lock) {
+                loadedGiftOffsets.add(offset)
+                nextOffset = gifts.nextOffset
+                val isLast = nextOffset.isEmpty() || nextOffset in loadedGiftOffsets
+                // Empty or overlapping pages may still have a cursor to more gifts.
+                if (isLast || page.any { (key) -> key !in entries }) return page to isLast
+            }
+        }
+    }
+
     private inline fun <T : TdApi.Object> Result<T, TdApi.Error>.page(
         block: (T) -> Pair<List<Pair<String, TdApi.Object>>, Boolean>,
     ) = when (this) {
@@ -227,13 +260,15 @@ class ProfilePage(
     private fun snapshot(): Snapshot {
         val entries: List<Pair<String, TdApi.Object>>
         val isLoaded: Boolean
+        val giftLoadFailed: Boolean
         synchronized(lock) {
             entries = this.entries.map { it.key to it.value }
             isLoaded = this.isLoaded
+            giftLoadFailed = this.giftLoadFailed
         }
 
         // Senders take the chats store lock, never hold ours meanwhile
-        return Snapshot(entries.mapNotNull { (key, entry) -> entry.toItem(key) }, isLoaded)
+        return Snapshot(entries.mapNotNull { (key, entry) -> entry.toItem(key) }, isLoaded, giftLoadFailed)
     }
 
     private fun TdApi.Object.toItem(key: String): ProfileItem? = when (this) {
@@ -454,7 +489,14 @@ class ProfilePage(
             return current.local.path
         }
         if (latest == null && current.local.canBeDownloaded) {
-            client.send(TdApi.DownloadFile(current.id, DOWNLOAD_PRIORITY, 0, 0, false)) {}
+            val waitForGift = kind == Kind.GIFTS
+            client.send(TdApi.DownloadFile(current.id, DOWNLOAD_PRIORITY, 0, 0, waitForGift)) { result ->
+                if (waitForGift && result is TdApi.File && result.local.isDownloadingCompleted) {
+                    // The collection may be inactive by the time the sticker finishes downloading.
+                    synchronized(lock) { files[result.id] = result }
+                    version.update { it + 1 }
+                }
+            }
         }
         return null
     }
@@ -464,4 +506,11 @@ class ProfilePage(
         private const val CELL_PHOTO_SIZE = 320
         private const val DOWNLOAD_PRIORITY = 8
     }
+}
+
+internal fun TdApi.Chat.giftOwner(): TdApi.MessageSender? = when (val type = type) {
+    is TdApi.ChatTypePrivate -> TdApi.MessageSenderUser(type.userId)
+    is TdApi.ChatTypeSecret -> TdApi.MessageSenderUser(type.userId)
+    is TdApi.ChatTypeSupergroup -> if (type.isChannel) TdApi.MessageSenderChat(id) else null
+    else -> null
 }

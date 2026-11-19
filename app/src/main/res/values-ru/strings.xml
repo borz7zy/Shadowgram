@@ -41,6 +41,9 @@
     <string name="chat_message_hint">Сообщение</string>
     <string name="chat_send">Отправить</string>
     <string name="chat_bot">бот</string>
+    <string name="profile_tab_gifts">Подарки</string>
+    <string name="profile_gifts_all">Все подарки</string>
+    <string name="profile_gifts_retry">Повторить загрузку подарков</string>
     <string name="message_sending">Отправка…</string>
     <string name="attach_camera">Камера</string>
     <string name="attach_files">Файлы</string>

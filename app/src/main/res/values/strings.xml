@@ -189,6 +189,8 @@
     <string name="profile_tab_posts">Posts</string>
     <string name="profile_tab_saved">Saved</string>
     <string name="profile_tab_gifts">Gifts</string>
+    <string name="profile_gifts_all">All gifts</string>
+    <string name="profile_gifts_retry">Retry loading gifts</string>
     <string name="profile_tab_media">Media</string>
     <string name="profile_tab_files">Files</string>
     <string name="profile_tab_links">Links</string>

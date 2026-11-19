@@ -6,11 +6,14 @@
 package com.github.borz7zy.shadowgram.ui.views
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.text.format.DateUtils
 import android.util.AttributeSet
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.annotation.ColorInt
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.isVisible
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ext.setPlaying
@@ -67,7 +70,20 @@ class VoiceNoteView @JvmOverloads constructor(
         })
     }
 
-    fun bind(track: MessagePlayer.Track) {
+    fun bind(track: MessagePlayer.Track, @ColorInt background: Int, @ColorInt foreground: Int) {
+        val contentTint = ColorStateList.valueOf(foreground)
+        titleTextView.setTextColor(foreground)
+        timeTextView.setTextColor(foreground)
+        seekSlider.thumbTintList = contentTint
+        seekSlider.trackActiveTintList = contentTint
+        seekSlider.trackInactiveTintList = ColorStateList.valueOf(
+            ColorUtils.blendARGB(background, foreground, 0.55f)
+        )
+        seekSlider.tickInactiveTintList = ColorStateList.valueOf(background)
+        seekSlider.haloTintList = ColorStateList.valueOf(ColorUtils.setAlphaComponent(foreground, 0x33))
+        // Material updates the stop indicator from the tick tint on a state refresh.
+        seekSlider.refreshDrawableState()
+
         this.track = track
         isCurrent = false
         titleTextView.isVisible = track.isMusic

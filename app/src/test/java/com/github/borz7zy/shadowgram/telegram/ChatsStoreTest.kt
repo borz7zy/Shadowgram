@@ -6,6 +6,7 @@
 package com.github.borz7zy.shadowgram.telegram
 
 import com.github.borz7zy.shadowgram.models.ChatFolder
+import com.github.borz7zy.shadowgram.models.ChatHeader
 import com.github.borz7zy.shadowgram.models.ChatItem
 import com.github.borz7zy.shadowgram.models.ChatListKey
 import kotlinx.coroutines.flow.first
@@ -69,6 +70,75 @@ class ChatsStoreTest {
         TdApi.ChatPosition(list, order, isPinned, null)
 
     private fun items(key: ChatListKey) = runBlocking { store.chatList(key).first().items }
+
+    @Test
+    fun collectibleStatusSuppliesTheProfileBackdropAndPattern() = runBlocking {
+        store.onUpdate(TdApi.UpdateNewChat(chat(1, "Alice")))
+        store.onUpdate(TdApi.UpdateUser(TdApi.User().apply {
+            id = 1
+            type = TdApi.UserTypeRegular()
+            status = TdApi.UserStatusRecently()
+            profileAccentColorId = 10
+            profileBackgroundCustomEmojiId = 99L
+            emojiStatus = TdApi.EmojiStatus(
+                TdApi.EmojiStatusTypeUpgradedGift(
+                    5L, "Gift", "Gift-42", 17L, 18L,
+                    TdApi.UpgradedGiftBackdropColors(0x445566, 0x223344, 0x99AABB, 0xFFFFFF),
+                ),
+                0,
+            )
+        }))
+
+        val header = requireNotNull(store.header(1, 0).first())
+        val backdrop = listOf(0xFF223344.toInt(), 0xFF445566.toInt())
+        assertEquals(ChatHeader.ProfileColors(backdrop, backdrop), header.profileColors)
+        assertEquals(0xFF99AABB.toInt(), header.profilePatternColor)
+        assertEquals(18L, header.profileEmojiId)
+        assertEquals(17L, header.emojiStatusId)
+    }
+
+    @Test
+    fun profilePatternFollowsChatAccentUpdatesWithACachedUser() = runBlocking {
+        store.onUpdate(TdApi.UpdateNewChat(chat(1, "Alice")))
+        store.onUpdate(TdApi.UpdateUser(TdApi.User().apply {
+            id = 1
+            type = TdApi.UserTypeRegular()
+            status = TdApi.UserStatusRecently()
+            profileBackgroundCustomEmojiId = 11L
+            emojiStatus = TdApi.EmojiStatus(TdApi.EmojiStatusTypeCustomEmoji(22L), 0)
+        }))
+
+        store.onUpdate(TdApi.UpdateChatAccentColors(1, 0, 88L, null, 10, 33L))
+        val header = requireNotNull(store.header(1, 0).first())
+        assertEquals(33L, header.profileEmojiId)
+        assertEquals(22L, header.emojiStatusId)
+
+        store.onUpdate(TdApi.UpdateChatAccentColors(1, 0, 88L, null, 10, 0L))
+        assertEquals(0L, store.header(1, 0).first()?.profileEmojiId)
+    }
+
+    @Test
+    fun clearingAUserStatusDoesNotRestoreAnOldCollectiblePatternFromTheChat() = runBlocking {
+        val oldStatus = TdApi.EmojiStatus(
+            TdApi.EmojiStatusTypeUpgradedGift(
+                5L, "Gift", "Gift-42", 17L, 18L,
+                TdApi.UpgradedGiftBackdropColors(0x445566, 0x223344, 0x99AABB, 0xFFFFFF),
+            ),
+            0,
+        )
+        store.onUpdate(TdApi.UpdateNewChat(chat(1, "Alice").apply { emojiStatus = oldStatus }))
+        store.onUpdate(TdApi.UpdateUser(TdApi.User().apply {
+            id = 1
+            type = TdApi.UserTypeRegular()
+            status = TdApi.UserStatusRecently()
+            profileBackgroundCustomEmojiId = 33L
+        }))
+
+        val header = requireNotNull(store.header(1, 0).first())
+        assertEquals(33L, header.profileEmojiId)
+        assertEquals(0L, header.emojiStatusId)
+        assertNull(header.profilePatternColor)
+    }
 
     @Test
     fun onlineIndicatorFollowsUserStatusUpdates() {

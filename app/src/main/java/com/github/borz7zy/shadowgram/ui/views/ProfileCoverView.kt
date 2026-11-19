@@ -18,22 +18,25 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.util.AttributeSet
 import android.view.View
+import androidx.core.graphics.ColorUtils
 import com.github.borz7zy.shadowgram.models.ChatHeader
+import com.google.android.material.color.MaterialColors
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
 
 /**
  * The background of a profile's header chosen in Telegram: its colors spread out from the avatar,
- * its emoji patterned around it in rings that fade towards the edges. Draws nothing without colors.
+ * its emoji patterned around it in rings that fade towards the edges.
  */
 class ProfileCoverView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : View(context, attrs) {
     private val gradientPaint = Paint()
+    private val defaultPatternColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface)
     private val emojiPaint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
-        colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
+        colorFilter = PorterDuffColorFilter(defaultPatternColor, PorterDuff.Mode.SRC_IN)
     }
     private val rect = RectF()
 
@@ -47,6 +50,7 @@ class ProfileCoverView @JvmOverloads constructor(
 
     private var colors: List<Int>? = null
     private var emoji: Bitmap? = null
+    private var patternColor: Int? = null
 
     /** The avatar's center and radius, in this view. */
     private var centerX = 0f
@@ -58,12 +62,18 @@ class ProfileCoverView @JvmOverloads constructor(
 
     val hasColors get() = colors != null
 
-    fun setColors(colors: ChatHeader.ProfileColors?) {
+    fun setColors(colors: ChatHeader.ProfileColors?, patternColor: Int?) {
         val isDark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
                 Configuration.UI_MODE_NIGHT_YES
-        val shown = colors?.let { if (isDark) it.dark else it.light }?.takeIf { it.isNotEmpty() }
-        if (this.colors != shown) {
+        val shown = colors?.let { if (isDark) it.dark.ifEmpty { it.light } else it.light }
+            ?.takeIf { it.isNotEmpty() }
+        if (this.colors != shown || this.patternColor != patternColor) {
             this.colors = shown
+            this.patternColor = patternColor
+            val tint = patternColor ?: shown?.firstOrNull()?.let {
+                ColorUtils.blendARGB(it, Color.BLACK, PATTERN_DARKENING)
+            } ?: defaultPatternColor
+            emojiPaint.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
             updateShader()
             invalidate()
         }
@@ -121,10 +131,12 @@ class ProfileCoverView @JvmOverloads constructor(
     }
 
     override fun onDraw(canvas: Canvas) {
-        colors ?: return
+        if (!hasColors && emoji == null) return
         val layer = canvas.saveLayer(null, null)
         canvas.clipPath(shape)
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), gradientPaint)
+        if (hasColors) {
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), gradientPaint)
+        }
         drawPattern(canvas)
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fadePaint)
         canvas.restoreToCount(layer)
@@ -136,7 +148,7 @@ class ProfileCoverView @JvmOverloads constructor(
         RINGS.forEach { ring ->
             val distance = avatarRadius * ring.distance
             val half = ring.sizeDp * density / 2
-            emojiPaint.alpha = (ring.alpha * 255).toInt()
+            emojiPaint.alpha = (ring.alpha * if (hasColors) 255 else 100).toInt()
             repeat(ring.count) { i ->
                 val angle = Math.toRadians(ring.offsetDegrees + 360.0 * i / ring.count)
                 val x = centerX + (cos(angle) * distance).toFloat()
@@ -168,6 +180,8 @@ class ProfileCoverView @JvmOverloads constructor(
             Ring(8, 1.9f, 18, 0.26f, 22.5),
             Ring(12, 2.5f, 14, 0.14f, 7.5),
         )
+
+        const val PATTERN_DARKENING = 0.35f
 
         /** How far up from the bottom it fades out, behind the buttons under the name. */
         const val FADE_DP = 120
