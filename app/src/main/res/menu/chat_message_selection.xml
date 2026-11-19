@@ -1,0 +1,7 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:id="@+id/selection_forward" android:title="@string/selection_forward" android:icon="@drawable/ic_forward" app:showAsAction="always" />
+    <item android:id="@+id/selection_delete" android:title="@string/selection_delete" app:showAsAction="never" />
+    <item android:id="@+id/selection_copy" android:title="@string/selection_copy" app:showAsAction="never" />
+    <item android:id="@+id/selection_forward_more" android:title="@string/selection_forward" app:showAsAction="never" />
+    <item android:id="@+id/selection_favorite" android:title="@string/selection_favorite_sticker" app:showAsAction="never" />
+</menu>

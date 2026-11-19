@@ -47,6 +47,12 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.models.ChatListKey
+import com.github.borz7zy.shadowgram.ext.toPx
+import com.github.borz7zy.shadowgram.models.ChatBulkAction
+import com.github.borz7zy.shadowgram.models.ChatSelection
+import com.github.borz7zy.shadowgram.models.chatHistoryClearAction
+import com.github.borz7zy.shadowgram.models.ChatHistoryClearAction
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.github.borz7zy.shadowgram.MainActivity
 import com.github.borz7zy.shadowgram.SettingsActivity
 import com.github.borz7zy.shadowgram.ext.getViewProperty
@@ -233,8 +239,9 @@ class MainFragment : Fragment(R.layout.fragment_main) {
             insets
         }
 
-        toolbar.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+        toolbar.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
             updateToolbarActions()
+            if (right - left != oldRight - oldLeft && chatsViewModel.chatSelection.value != null) renderChatSelection()
         }
 
         view.findViewById<MaterialButton>(R.id.hideNavigationRailButton)?.setOnClickListener {
@@ -370,6 +377,21 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         )
 
         toolbar.setupWithNavController(findNavController())
+        toolbar.setOnMenuItemClickListener { item ->
+            val selection = chatsViewModel.chatSelection.value ?: return@setOnMenuItemClickListener false
+            if (selection.busy) return@setOnMenuItemClickListener true
+            when (item.itemId) {
+                R.id.chats_archive -> selection.perform(ChatBulkAction.ARCHIVE)
+                R.id.chats_mute -> selection.perform(ChatBulkAction.MUTE)
+                R.id.chats_delete -> confirmChatAction(selection, ChatBulkAction.DELETE)
+                R.id.chats_pin -> selection.perform(ChatBulkAction.PIN)
+                R.id.chats_unread -> selection.perform(ChatBulkAction.UNREAD)
+                R.id.chats_clear -> confirmChatAction(selection, ChatBulkAction.CLEAR)
+                R.id.chats_folder -> if (selection.key is ChatListKey.Folder) selection.perform(ChatBulkAction.REMOVE_FOLDER) else chooseFolder(selection)
+                else -> return@setOnMenuItemClickListener false
+            }
+            true
+        }
 
         providerMaterialButton.setOnClickListener {
             findNavController().navigateSafe(
@@ -479,6 +501,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
                 launch {
                     chatsViewModel.selectedFolderId.collectLatest { renderFolderRail() }
                 }
+                launch { chatsViewModel.chatSelection.collectLatest { renderChatSelection() } }
 
                 launch {
                     viewModel.navigationProvider.collectLatest {
@@ -553,6 +576,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         }
         (activity as? MainActivity)?.onMainSectionSelected(page == Page.ACTIVITY)
         setForumHeader(chatsViewModel.forumHeader.value.takeIf { page == Page.ACTIVITY })
+        renderChatSelection()
         ViewCompat.requestApplyInsets(mainSectionContainer)
         return true
     }
@@ -574,6 +598,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
      * instead of the app title and buttons.
      */
     private fun setForumHeader(header: ChatHeader?) {
+        if (selectedPage == Page.ACTIVITY && chatsViewModel.chatSelection.value != null) return
         val isOpen = header != null
         header?.let(forumHeaderView::setHeader)
 
@@ -605,7 +630,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
 
     private fun updateToolbarActions() {
         // The list pane can be much narrower than the window on an unfolded phone.
-        providerMaterialButton.isVisible = !forumHeaderView.isVisible &&
+        providerMaterialButton.isVisible = chatsViewModel.chatSelection.value == null && !forumHeaderView.isVisible &&
             toolbar.width >= (360 * resources.displayMetrics.density).toInt()
     }
 
@@ -613,8 +638,9 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         val content = requireView().findViewById<View>(R.id.contentCoordinatorLayout)
         val compact = (activity as? MainActivity)?.isAvatarChatPane == true
         val hidden = compact && (activity as? MainActivity)?.isNavigationRailHidden == true
-        requireView().findViewById<View>(R.id.appBarLayout).isVisible = !compact
-        fabMenuFloatingActionButton.isVisible = !compact
+        val selecting = selectedPage == Page.ACTIVITY && chatsViewModel.chatSelection.value != null
+        requireView().findViewById<View>(R.id.appBarLayout).isVisible = !compact || selecting
+        fabMenuFloatingActionButton.isVisible = !compact && !selecting
         if (compact && isFabMenuOpen) setFabMenuOpen(false)
         val rail = requireView().findViewById<View>(R.id.navigationRailContainer)
         val header = requireView().findViewById<View>(R.id.compactNavigationHeader)
@@ -647,6 +673,77 @@ class MainFragment : Fragment(R.layout.fragment_main) {
             WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
         )?.top ?: 0 else 0
         content.setPadding(content.paddingLeft, top, content.paddingRight, content.paddingBottom)
+    }
+
+    private fun renderChatSelection() {
+        val selection = chatsViewModel.chatSelection.value.takeIf { selectedPage == Page.ACTIVITY }
+        if (selection == null) {
+            toolbar.menu.clear()
+            val header = chatsViewModel.forumHeader.value.takeIf { selectedPage == Page.ACTIVITY }
+            forumHeaderView.isVisible = header != null
+            header?.let(forumHeaderView::setHeader)
+            toolbar.title = if (header == null) findNavController().currentDestination?.label else null
+            if (header == null) toolbar.navigationIcon = null else toolbar.setNavigationIcon(R.drawable.ic_arrow_back)
+            toolbar.setNavigationContentDescription(R.string.chat_back)
+            toolbar.setNavigationOnClickListener { if (header != null) chatsViewModel.closeForum() else findNavController().navigateUp() }
+            settingsMaterialButton.isVisible = header == null
+            updateToolbarActions()
+            updateCompactPane()
+            return
+        }
+        if (isFabMenuOpen) setFabMenuOpen(false)
+        forumHeaderView.isVisible = false
+        providerMaterialButton.isVisible = false
+        settingsMaterialButton.isVisible = false
+        toolbar.title = getString(R.string.selection_count, selection.chats.size)
+        toolbar.setNavigationIcon(R.drawable.ic_close)
+        toolbar.setNavigationContentDescription(R.string.selection_cancel)
+        toolbar.setNavigationOnClickListener { selection.cancel() }
+        if (toolbar.menu.findItem(R.id.chats_archive) == null) toolbar.inflateMenu(R.menu.chat_list_selection)
+        toolbar.menu.findItem(R.id.chats_archive).setTitle(if (selection.key == ChatListKey.Archive) R.string.chats_unarchive else R.string.chats_archive)
+        val muted = selection.chats.all { it.isMuted }
+        toolbar.menu.findItem(R.id.chats_mute).apply {
+            setTitle(if (muted) R.string.chat_unmute else R.string.chat_mute)
+            setIcon(if (muted) R.drawable.ic_notifications else R.drawable.ic_notifications_off)
+        }
+        toolbar.menu.findItem(R.id.chats_pin).setTitle(if (selection.chats.all { it.isPinned }) R.string.chats_unpin else R.string.chats_pin)
+        toolbar.menu.findItem(R.id.chats_folder).setTitle(if (selection.key is ChatListKey.Folder) R.string.chats_remove_folder else R.string.chats_add_folder)
+        toolbar.menu.findItem(R.id.chats_clear).apply {
+            val clear = chatHistoryClearAction(selection.chats)
+            isVisible = clear != null
+            setTitle(if (clear == ChatHistoryClearAction.CACHE) R.string.chats_clear_cache else R.string.chats_clear_history)
+        }
+        for (i in 0 until toolbar.menu.size()) toolbar.menu.getItem(i).apply {
+            isEnabled = !selection.busy
+            iconTintList = android.content.res.ColorStateList.valueOf(MaterialColors.getColor(toolbar, com.google.android.material.R.attr.colorOnSurface))
+            val primary = itemId == R.id.chats_archive || itemId == R.id.chats_mute || itemId == R.id.chats_delete
+            val room = toolbar.width >= toolbar.toPx(360) * resources.configuration.fontScale.coerceAtLeast(1f)
+            setShowAsAction(if (primary && room) android.view.MenuItem.SHOW_AS_ACTION_ALWAYS else android.view.MenuItem.SHOW_AS_ACTION_NEVER)
+        }
+        updateCompactPane()
+    }
+
+    private fun confirmChatAction(selection: ChatSelection, action: ChatBulkAction) {
+        val cache = action == ChatBulkAction.CLEAR && selection.chats.all { it.clearsCacheOnly }
+        val title = if (action == ChatBulkAction.DELETE) R.string.selection_delete else if (cache) R.string.chats_clear_cache else R.string.chats_clear_history
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(title)
+            .setMessage(getString(if (action == ChatBulkAction.DELETE) R.string.chats_delete_confirm else if (cache) R.string.chats_cache_confirm else R.string.chats_clear_confirm, selection.chats.size))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(title) { _, _ -> selection.perform(action) }
+            .show()
+    }
+
+    private fun chooseFolder(selection: ChatSelection) {
+        val folders = chatsViewModel.folders.value.filter { it.key is ChatListKey.Folder }
+        if (folders.isEmpty()) {
+            android.widget.Toast.makeText(context, R.string.chats_no_folders, android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        MaterialAlertDialogBuilder(requireContext()).setTitle(R.string.chats_add_folder)
+            .setItems(folders.map { it.title.orEmpty() }.toTypedArray()) { _, index ->
+                selection.addToFolder((folders[index].key as ChatListKey.Folder).id)
+            }.show()
     }
 
     private fun renderFolderRail() {

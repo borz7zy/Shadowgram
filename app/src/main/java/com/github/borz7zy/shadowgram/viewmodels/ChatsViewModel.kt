@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.stateIn
  * the main top bar, the folders and every chat list share it.
  */
 class ChatsViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application) {
+    val chatSelection = MutableStateFlow<com.github.borz7zy.shadowgram.models.ChatSelection?>(null)
     // Until a folder is chosen, the UI follows the first item in the server's folder order.
     // In particular, the initial Main-only snapshot must not pin the selection to All chats.
     val selectedFolderId = savedState.getStateFlow<Long?>("selected_chat_folder", null)

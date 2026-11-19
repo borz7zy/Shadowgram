@@ -50,6 +50,8 @@ class AttachPanelView @JvmOverloads constructor(
                 context, null, com.google.android.material.R.attr.materialIconButtonFilledTonalStyle
             ).apply {
                 setIconResource(action.icon)
+                textAlignment = TEXT_ALIGNMENT_CENTER
+                iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
                 iconSize = dp(28)
                 insetTop = 0
                 insetBottom = 0

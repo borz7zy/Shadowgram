@@ -36,6 +36,7 @@ import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.slider.Slider
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import me.bogerchan.niervisualizer.NierVisualizerManager
 import com.github.borz7zy.shadowgram.R
@@ -351,7 +352,9 @@ class NowPlayingFragment : Fragment(R.layout.fragment_now_playing) {
                 }
 
                 launch {
-                    viewModel.mediaMetadata.collectLatest { mediaMetadata ->
+                    combine(
+                        viewModel.mediaMetadata, viewModel.sourceChatTitle, ::Pair,
+                    ).collectLatest { (mediaMetadata, chatTitle) ->
                         val audioTitle = mediaMetadata.displayTitle
                             ?: mediaMetadata.title
                             ?: getString(R.string.unknown)
@@ -365,7 +368,8 @@ class NowPlayingFragment : Fragment(R.layout.fragment_now_playing) {
                             artistNameTextView.text = artistName
                         }
 
-                        val albumTitle = mediaMetadata.albumTitle
+                        val albumTitle = chatTitle?.let { getString(R.string.playback_chat_album, it) }
+                            ?: mediaMetadata.albumTitle
                             ?: getString(R.string.album_unknown)
                         if (albumTitleTextView.text != albumTitle) {
                             albumTitleTextView.text = albumTitle

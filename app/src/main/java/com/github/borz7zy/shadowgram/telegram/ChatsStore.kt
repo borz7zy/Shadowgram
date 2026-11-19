@@ -61,6 +61,7 @@ class ChatsStore(
     private val supergroups = HashMap<Long, TdApi.Supergroup>()
     private val basicGroups = HashMap<Long, TdApi.BasicGroup>()
     private val supergroupMemberCounts = HashMap<Long, Int>()
+    private val scopeMuteFor = HashMap<Int, Int>()
 
     /** Chat actions by chat then sender, with the forum topic they happen in (0 for none). */
     private val chatActions = HashMap<Long, LinkedHashMap<Long, Pair<Int, TdApi.ChatAction>>>()
@@ -281,6 +282,8 @@ class ChatsStore(
             is TdApi.UpdateChatNotificationSettings -> chat(update.chatId) {
                 notificationSettings = update.notificationSettings
             }
+            is TdApi.UpdateScopeNotificationSettings -> scopeMuteFor[update.scope.constructor] = update.notificationSettings.muteFor
+            is TdApi.UpdateChatPermissions -> chat(update.chatId) { permissions = update.permissions }
 
             is TdApi.UpdateMessageContent -> chat(update.chatId) {
                 lastMessage?.takeIf { it.id == update.messageId }?.content = update.newContent
@@ -682,9 +685,14 @@ class ChatsStore(
         unreadCount = unreadCount,
         unreadMentionCount = unreadMentionCount,
         isMarkedAsUnread = isMarkedAsUnread,
-        // ponytail: chats using the default scope settings are shown as unmuted, handle
-        // UpdateScopeNotificationSettings when settings get a notifications page
-        isMuted = !notificationSettings.useDefaultMuteFor && notificationSettings.muteFor > 0,
+        isMuted = if (!notificationSettings.useDefaultMuteFor) notificationSettings.muteFor > 0 else {
+            val scope = when (val kind = type) {
+                is TdApi.ChatTypePrivate, is TdApi.ChatTypeSecret -> TdApi.NotificationSettingsScopePrivateChats.CONSTRUCTOR
+                is TdApi.ChatTypeSupergroup -> if (kind.isChannel) TdApi.NotificationSettingsScopeChannelChats.CONSTRUCTOR else TdApi.NotificationSettingsScopeGroupChats.CONSTRUCTOR
+                else -> TdApi.NotificationSettingsScopeGroupChats.CONSTRUCTOR
+            }
+            (scopeMuteFor[scope] ?: 0) > 0
+        },
         isForum = viewAsTopics,
         hasProtectedContent = hasProtectedContent,
         hasScheduledMessages = hasScheduledMessages,
@@ -694,6 +702,18 @@ class ChatsStore(
         isPremium = privateUser()?.isPremium == true,
         isOnline = privateUser()?.let {
             it.type is TdApi.UserTypeRegular && it.status is TdApi.UserStatusOnline
+        } == true,
+        isChannel = (type as? TdApi.ChatTypeSupergroup)?.isChannel == true,
+        canPostMessages = when (val kind = type) {
+            is TdApi.ChatTypeSupergroup -> if (!kind.isChannel) true else when (val status = supergroups[kind.supergroupId]?.status) {
+                is TdApi.ChatMemberStatusCreator -> true
+                is TdApi.ChatMemberStatusAdministrator -> status.rights.canPostMessages
+                else -> false
+            }
+            else -> true
+        },
+        clearsCacheOnly = (type as? TdApi.ChatTypeSupergroup)?.let { kind ->
+            kind.isChannel || supergroups[kind.supergroupId]?.usernames?.activeUsernames?.isNotEmpty() == true
         } == true,
     )
 

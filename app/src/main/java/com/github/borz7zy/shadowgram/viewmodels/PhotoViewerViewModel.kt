@@ -104,7 +104,7 @@ class PhotoViewerViewModel(
     private val messageIds = savedStateHandle.get<LongArray>(ARG_MESSAGE_IDS) ?: longArrayOf(messageId)
 
     /** The chat's profile photos rather than messages'. */
-    private val isProfile = savedStateHandle.get<Boolean>(ARG_PROFILE) ?: false
+    val isProfile = savedStateHandle.get<Boolean>(ARG_PROFILE) ?: false
 
     init {
         viewModelScope.launch {

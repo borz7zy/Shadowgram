@@ -45,6 +45,7 @@ import androidx.core.graphics.withTranslation
 import androidx.core.location.LocationManagerCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.children
 import androidx.core.view.descendants
 import androidx.core.view.doOnNextLayout
@@ -65,6 +66,8 @@ import androidx.navigation.fragment.FragmentNavigatorExtras
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.borz7zy.shadowgram.R
+import com.github.borz7zy.shadowgram.models.MessageSelectionActions
+import com.github.borz7zy.shadowgram.models.selectedMessagesText
 import com.github.borz7zy.shadowgram.emoji.Emoji
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.navigateSafe
@@ -138,6 +141,11 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     // Views
     private val chatHeaderView by getViewProperty<ChatHeaderView>(R.id.chatHeaderView)
     private val composerLinearLayout by getViewProperty<LinearLayout>(R.id.composerLinearLayout)
+    private val selectionActionsLayout by getViewProperty<View>(R.id.selectionActionsLayout)
+    private val selectionForwardButton by getViewProperty<MaterialButton>(R.id.selectionForwardButton)
+    private val selectionReplyButton by getViewProperty<MaterialButton>(R.id.selectionReplyButton)
+    private val channelMuteButton by getViewProperty<MaterialButton>(R.id.channelMuteButton)
+    private val channelMuteContainer by getViewProperty<View>(R.id.channelMuteContainer)
     private val replyLinearLayout by getViewProperty<LinearLayout>(R.id.replyLinearLayout)
     private val replyTitleTextView by getViewProperty<TextView>(R.id.replyTitleTextView)
     private val replyTextTextView by getViewProperty<TextView>(R.id.replyTextTextView)
@@ -247,13 +255,25 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             )
         },
         callbacks = object : MessageListAdapter.Callbacks {
-            override fun onMessageClick(message: MessageItem, bubble: View) = openMenu(message, bubble)
+            override fun onMessageClick(message: MessageItem, bubble: View) {
+                if (viewModel.selectedMessages.value.isNotEmpty()) viewModel.toggleMessageSelection(message)
+                else openMenu(message, bubble)
+            }
+
+            override fun onMessageLongClick(message: MessageItem) {
+                this@ChatFragment.view?.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                viewModel.toggleMessageSelection(message)
+            }
 
             override fun onSenderClick(senderId: Long) = openProfile(senderId)
 
-            override fun onMediaClick(message: MessageItem, view: ImageView) = openViewer(message, view)
+            override fun onMediaClick(message: MessageItem, view: ImageView) {
+                if (viewModel.selectedMessages.value.isNotEmpty()) viewModel.toggleMessageSelection(message)
+                else openViewer(message, view)
+            }
 
             override fun onDocumentClick(message: MessageItem) {
+                if (viewModel.selectedMessages.value.isNotEmpty()) { viewModel.toggleMessageSelection(message); return }
                 val document = message.document ?: return
                 Downloads.onTap(requireContext(), document) { viewModel.toggleDownload(document) }
             }
@@ -269,11 +289,13 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             }
 
             override fun onReplyClick(message: MessageItem) {
+                if (viewModel.selectedMessages.value.isNotEmpty()) { viewModel.toggleMessageSelection(message); return }
                 val reply = message.reply ?: return
                 jumpTo(reply.messageId, reply.quote, reply.quotePosition)
             }
 
             override fun onReactionClick(message: MessageItem, reaction: MessageItem.Reaction) {
+                if (viewModel.selectedMessages.value.isNotEmpty()) { viewModel.toggleMessageSelection(message); return }
                 if (!reaction.isPaid) {
                     viewModel.toggleReaction(message.id, reaction.emoji, reaction.customEmojiId)
                 }
@@ -298,6 +320,9 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
 
     /** The message whose menu is open. */
     private var menuMessage: MessageItem? = null
+    private val selectionBackCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() = viewModel.clearMessageSelection()
+    }
 
     private lateinit var avatarDecoration: SenderAvatarDecoration
 
@@ -385,6 +410,13 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             ::onPanelChanged,
         )
         setUpComposer()
+        listOf(selectionActionsLayout, channelMuteContainer).forEach { footer ->
+            val bottom = footer.paddingBottom
+            ViewCompat.setOnApplyWindowInsetsListener(footer) { target, insets ->
+                target.updatePadding(bottom = bottom + insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom)
+                insets
+            }
+        }
         // Scheduled messages are only looked at here, they're written in the chat
         if (viewModel.isScheduled) {
             composerLinearLayout.isVisible = false
@@ -399,8 +431,28 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         }
 
         toolbar.setNavigationOnClickListener {
-            requireActivity().onBackPressedDispatcher.onBackPressed()
+            if (viewModel.selectedMessages.value.isNotEmpty()) viewModel.clearMessageSelection()
+            else requireActivity().onBackPressedDispatcher.onBackPressed()
         }
+        toolbar.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                R.id.selection_forward, R.id.selection_forward_more -> forwardSelection()
+                R.id.selection_copy -> copySelection()
+                R.id.selection_delete -> deleteSelection()
+                R.id.selection_favorite -> viewModel.favoriteSelectedSticker()
+                else -> return@setOnMenuItemClickListener false
+            }
+            true
+        }
+        selectionForwardButton.setOnClickListener { forwardSelection() }
+        selectionReplyButton.setOnClickListener {
+            viewModel.selectedMessages.value.values.singleOrNull()?.let { message ->
+                viewModel.clearMessageSelection()
+                replyTo(message, null, 0)
+            }
+        }
+        channelMuteButton.setOnClickListener { viewModel.toggleMute() }
+        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, selectionBackCallback)
 
         // Keep the profile in this NavHost, so the list and navigation on the left remain.
         chatHeaderView.setOnClickListener {
@@ -527,6 +579,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                     viewModel.header.collectLatest {
                         it ?: return@collectLatest
                         chatHeaderView.setHeader(it)
+                        renderMessageSelection()
                         scheduledMaterialButton.isVisible = it.chat.hasScheduledMessages
                         bindJumpButtons(it.chat)
                         // A protected chat: no screenshots, no screen recording
@@ -540,6 +593,17 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 launch {
                     viewModel.rows.collectLatest(::setRows)
                 }
+                launch { viewModel.selectedMessages.collectLatest {
+                    adapter.setSelection(it.keys)
+                    if (it.isNotEmpty()) {
+                        panels?.hide()
+                        WindowCompat.getInsetsController(requireActivity().window, view).hide(WindowInsetsCompat.Type.ime())
+                    }
+                    renderMessageSelection()
+                } }
+                launch { viewModel.selectionProperties.collectLatest { renderMessageSelection() } }
+                launch { viewModel.selectionBusy.collectLatest { renderMessageSelection() } }
+                launch { viewModel.actionErrors.collectLatest { Toast.makeText(context, it, Toast.LENGTH_LONG).show() } }
 
                 launch {
                     viewModel.pinned.collectLatest { updatePinnedBar() }
@@ -798,6 +862,84 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             R.id.action_chatFragment_to_profileFragment,
             ProfileFragment.createBundle(senderId),
         )
+    }
+
+    /** Selection replaces the normal header and composer without discarding the draft. */
+    private fun renderMessageSelection() {
+        val selected = viewModel.selectedMessages.value
+        val selecting = selected.isNotEmpty()
+        val chat = viewModel.header.value?.chat
+        val readOnlyChannel = chat?.isChannel == true && !chat.canPostMessages
+        selectionBackCallback.isEnabled = selecting
+        chatHeaderView.isVisible = !selecting
+        toolbar.title = if (selecting) getString(R.string.selection_count, selected.size) else null
+        toolbar.setNavigationIcon(if (selecting) R.drawable.ic_close else R.drawable.ic_arrow_back)
+        toolbar.setNavigationContentDescription(if (selecting) R.string.selection_cancel else R.string.chat_back)
+        composerLinearLayout.isVisible = !selecting && !viewModel.isScheduled && !readOnlyChannel
+        selectionActionsLayout.isVisible = selecting
+        channelMuteContainer.isVisible = !selecting && !viewModel.isScheduled && readOnlyChannel
+        channelMuteButton.setText(if (chat?.isMuted == true) R.string.chat_unmute else R.string.chat_mute)
+        messageEditText.setHint(if (chat?.isChannel == true && chat.canPostMessages) R.string.chat_publication else R.string.chat_message_hint)
+        if (!selecting) {
+            toolbar.menu.clear()
+            return
+        }
+        if (toolbar.menu.findItem(R.id.selection_forward) == null) toolbar.inflateMenu(R.menu.chat_message_selection)
+        val actions = MessageSelectionActions.of(selected.values, viewModel.selectionProperties.value,
+            chat?.hasProtectedContent == true, !readOnlyChannel && !viewModel.isScheduled)
+        toolbar.menu.findItem(R.id.selection_forward).isVisible = actions.forward
+        toolbar.menu.findItem(R.id.selection_forward_more).isVisible = actions.forward
+        toolbar.menu.findItem(R.id.selection_copy).isVisible = actions.copy
+        toolbar.menu.findItem(R.id.selection_delete).isVisible = actions.deleteSelf || actions.deleteEveryone
+        toolbar.menu.findItem(R.id.selection_favorite).isVisible = actions.favoriteSticker
+        selectionForwardButton.isEnabled = actions.forward && !viewModel.selectionBusy.value
+        selectionReplyButton.isEnabled = !viewModel.selectionBusy.value
+        toolbar.menu.setGroupEnabled(0, !viewModel.selectionBusy.value)
+        toolbar.menu.findItem(R.id.selection_forward).iconTintList = android.content.res.ColorStateList.valueOf(
+            com.google.android.material.color.MaterialColors.getColor(toolbar, com.google.android.material.R.attr.colorOnSurface)
+        )
+        selectionReplyButton.isVisible = actions.reply
+    }
+
+    private fun forwardSelection() {
+        if (viewModel.selectionBusy.value) return
+        val ids = viewModel.selectedMessages.value.keys.sorted().toLongArray()
+        if (viewModel.header.value?.chat?.hasProtectedContent == true || ids.isEmpty() || ids.any { viewModel.selectionProperties.value[it]?.canBeForwarded != true }) return
+        findNavController().navigateSafe(R.id.fragment_chat_picker, ChatPickerFragment.createForwardBundle(
+            requireArguments().getLong(ChatViewModel.ARG_CHAT_ID), ids,
+        ))
+        viewModel.clearMessageSelection()
+    }
+
+    private fun copySelection() {
+        if (viewModel.selectionBusy.value) return
+        val messages = viewModel.selectedMessages.value.values.sortedWith(compareBy({ it.date }, { it.id }))
+        if (viewModel.header.value?.chat?.hasProtectedContent == true || messages.isEmpty() || messages.any { viewModel.selectionProperties.value[it.id]?.canBeCopied != true }) return
+        val date = DateFormat.getDateFormat(requireContext())
+        val time = DateFormat.getTimeFormat(requireContext())
+        val text = selectedMessagesText(messages, { message ->
+            message.senderName ?: if (message.isOutgoing) getString(R.string.playback_you) else viewModel.header.value?.chat?.title.orEmpty()
+        }, { seconds -> "${date.format(seconds * 1000L)} ${time.format(seconds * 1000L)}" })
+        requireContext().getSystemService(android.content.ClipboardManager::class.java)
+            .setPrimaryClip(android.content.ClipData.newPlainText(getString(R.string.selection_copy), text))
+    }
+
+    private fun deleteSelection() {
+        if (viewModel.selectionBusy.value) return
+        val messages = viewModel.selectedMessages.value
+        if (messages.isEmpty()) return
+        val properties = viewModel.selectionProperties.value
+        val canSelf = messages.keys.all { properties[it]?.canBeDeletedOnlyForSelf == true }
+        val canAll = messages.keys.all { properties[it]?.canBeDeletedForAllUsers == true }
+        if (!canSelf && !canAll) return
+        var revoke = !canSelf
+        val dialog = MaterialAlertDialogBuilder(requireContext())
+            .setTitle(if (canSelf) R.string.selection_delete else R.string.selection_delete_everyone)
+            .setMessage(getString(R.string.selection_delete_confirm, messages.size))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.selection_delete) { _, _ -> viewModel.deleteSelectedMessages(revoke) }
+        if (canAll && canSelf) dialog.setMultiChoiceItems(arrayOf(getString(R.string.selection_delete_everyone)), booleanArrayOf(false)) { _, _, checked -> revoke = checked }
+        dialog.show()
     }
 
     /** Lift [bubble] over the blurred chat, with the reactions and the actions of [message]. */
@@ -1534,12 +1676,14 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private fun isAtNewest(): Boolean {
         val rows = (viewModel.rows.value as? FlowResult.Success)?.data ?: return true
         val layoutManager = recyclerView.layoutManager as LinearLayoutManager
-        return rows.isNewestLoaded && layoutManager.findFirstVisibleItemPosition() <= 0
+        val first = layoutManager.findFirstVisibleItemPosition()
+        if (first == RecyclerView.NO_POSITION) return !isScrollDownShown
+        return rows.isNewestLoaded && first == 0
     }
 
     private fun setScrollDownShown(isShown: Boolean) {
         val isShown = isShown && !viewModel.isScheduled
-        if (isScrollDownShown == isShown && scrollDownFrameLayout.isVisible == isShown) {
+        if (isScrollDownShown == isShown) {
             return
         }
         isScrollDownShown = isShown
@@ -1595,7 +1739,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         bind(mentionsFrameLayout, mentionsCountTextView, chat.unreadMentionCount)
         bind(reactionsFrameLayout, reactionsCountTextView, chat.unreadReactionCount)
         scrollDownCountTextView.isVisible = chat.unreadCount > 0
-        scrollDownCountTextView.text = chat.unreadCount.toString()
+        val count = chat.unreadCount.toString()
+        if (scrollDownCountTextView.text.toString() != count) scrollDownCountTextView.text = count
     }
 
     /**

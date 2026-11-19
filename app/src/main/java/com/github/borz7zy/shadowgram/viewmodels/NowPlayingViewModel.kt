@@ -16,15 +16,19 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
@@ -36,6 +40,7 @@ import me.bogerchan.niervisualizer.renderer.columnar.ColumnarType2Renderer
 import me.bogerchan.niervisualizer.renderer.columnar.ColumnarType3Renderer
 import me.bogerchan.niervisualizer.renderer.columnar.ColumnarType4Renderer
 import me.bogerchan.niervisualizer.renderer.line.LineRenderer
+import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.ext.applicationContext
 import com.github.borz7zy.shadowgram.ext.availableCommandsFlow
 import com.github.borz7zy.shadowgram.ext.isPlayingFlow
@@ -56,11 +61,13 @@ import com.github.borz7zy.shadowgram.models.FlowResult.Companion.getOrNull
 import com.github.borz7zy.shadowgram.models.PlaybackState
 import com.github.borz7zy.shadowgram.models.RepeatMode
 import com.github.borz7zy.shadowgram.models.Result
+import com.github.borz7zy.shadowgram.playback.MessagePlayer
 import com.github.borz7zy.shadowgram.services.PlaybackService
 import com.github.borz7zy.shadowgram.services.PlaybackService.CustomCommand.Companion.sendCustomCommand
 import com.github.borz7zy.shadowgram.utils.MimeUtils
 import com.github.borz7zy.shadowgram.utils.OutputConfigurationUtils
 import com.github.borz7zy.shadowgram.utils.OutputConfigurationUtils.toModel
+import org.drinkless.tdlib.TdApi
 
 open class NowPlayingViewModel(application: Application) : TwelveViewModel(application) {
     enum class VisualizerType(val factory: () -> Array<IRenderer>?) {
@@ -105,6 +112,24 @@ open class NowPlayingViewModel(application: Application) : TwelveViewModel(appli
             started = SharingStarted.WhileSubscribed(),
             initialValue = MediaMetadata.EMPTY
         )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val sourceChatTitle = callbackFlow {
+        val listener = MessagePlayer.Listener { trySend(it.track?.chatId) }
+        MessagePlayer.addListener(listener)
+        awaitClose { MessagePlayer.removeListener(listener) }
+    }
+        .flowOn(Dispatchers.Main.immediate)
+        .distinctUntilChanged()
+        .mapLatest { chatId ->
+            chatId ?: return@mapLatest null
+            val client = getApplication<ShadowgramApplication>().accountsRepository.activeClient()
+            val cachedTitle = client.chats.sender(TdApi.MessageSenderChat(chatId)).name
+            val title = cachedTitle?.takeIf { it.isNotBlank() }
+                ?: (client.send(TdApi.GetChat(chatId)) as? Result.Success)?.data?.title
+            title?.takeIf { it.isNotBlank() }
+        }
+        .onStart { emit(null) }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val mediaItem = mediaControllerFlow

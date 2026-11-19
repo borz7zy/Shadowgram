@@ -119,7 +119,8 @@
             <FrameLayout
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
-                android:layout_weight="1">
+                android:layout_weight="1"
+                android:clipChildren="false">
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/recyclerView"
@@ -161,7 +162,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="bottom|end"
-                    android:layout_margin="6dp"
+                    android:layout_marginEnd="8dp"
+                    android:layout_marginBottom="8dp"
                     android:clipChildren="false"
                     android:clipToPadding="false"
                     android:gravity="center_horizontal"
@@ -170,21 +172,22 @@
                     <FrameLayout
                         android:id="@+id/reactionsFrameLayout"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_height="56dp"
                         android:layout_marginTop="8dp"
                         android:clipChildren="false"
                         android:clipToPadding="false"
+                        android:minWidth="56dp"
                         android:visibility="gone"
                         tools:visibility="visible">
 
                         <com.google.android.material.floatingactionbutton.FloatingActionButton
                             android:id="@+id/reactionsFloatingActionButton"
+                            style="?attr/floatingActionButtonSmallStyle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_margin="6dp"
+                            android:layout_gravity="center"
                             android:contentDescription="@string/chat_unread_reactions"
                             android:tooltipText="@string/chat_unread_reactions"
-                            app:fabSize="mini"
                             app:srcCompat="@drawable/ic_favorite" />
 
                         <TextView
@@ -197,21 +200,22 @@
                     <FrameLayout
                         android:id="@+id/mentionsFrameLayout"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_height="56dp"
                         android:layout_marginTop="8dp"
                         android:clipChildren="false"
                         android:clipToPadding="false"
+                        android:minWidth="56dp"
                         android:visibility="gone"
                         tools:visibility="visible">
 
                         <com.google.android.material.floatingactionbutton.FloatingActionButton
                             android:id="@+id/mentionsFloatingActionButton"
+                            style="?attr/floatingActionButtonSmallStyle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_margin="6dp"
+                            android:layout_gravity="center"
                             android:contentDescription="@string/chat_unread_mentions"
                             android:tooltipText="@string/chat_unread_mentions"
-                            app:fabSize="mini"
                             app:srcCompat="@drawable/ic_alternate_email" />
 
                         <TextView
@@ -224,21 +228,22 @@
                     <FrameLayout
                         android:id="@+id/scrollDownFrameLayout"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_height="56dp"
                         android:layout_marginTop="8dp"
                         android:clipChildren="false"
                         android:clipToPadding="false"
+                        android:minWidth="56dp"
                         android:visibility="gone"
                         tools:visibility="visible">
 
                         <com.google.android.material.floatingactionbutton.FloatingActionButton
                             android:id="@+id/scrollDownFloatingActionButton"
+                            style="?attr/floatingActionButtonSmallStyle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_margin="6dp"
+                            android:layout_gravity="center"
                             android:contentDescription="@string/chat_scroll_down"
                             android:tooltipText="@string/chat_scroll_down"
-                            app:fabSize="mini"
                             app:srcCompat="@drawable/ic_keyboard_arrow_down" />
 
                         <TextView
@@ -286,6 +291,24 @@
                 </LinearLayout>
 
             </FrameLayout>
+
+            <LinearLayout android:id="@+id/selectionActionsLayout"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:padding="12dp" android:visibility="gone">
+                <com.google.android.material.button.MaterialButton android:id="@+id/selectionForwardButton"
+                    style="?attr/materialButtonTonalStyle" android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:text="@string/selection_forward" app:icon="@drawable/ic_forward" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/selectionReplyButton"
+                    style="?attr/materialButtonTonalStyle" android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:layout_marginStart="8dp" android:text="@string/selection_reply" app:icon="@drawable/ic_reply" />
+            </LinearLayout>
+            <LinearLayout android:id="@+id/channelMuteContainer"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:visibility="gone">
+                <com.google.android.material.button.MaterialButton android:id="@+id/channelMuteButton"
+                    style="?attr/materialButtonOutlinedStyle" android:layout_width="match_parent" android:layout_height="64dp"
+                    android:text="@string/chat_mute" />
+            </LinearLayout>
 
             <!-- The composer and the panel under it that takes the keyboard's place -->
             <LinearLayout
@@ -466,9 +489,11 @@
                         android:enabled="false"
                         android:insetTop="0dp"
                         android:insetBottom="0dp"
+                        android:textAlignment="center"
                         android:tooltipText="@string/chat_send"
                         android:visibility="gone"
-                        app:icon="@drawable/ic_send" />
+                        app:icon="@drawable/ic_send"
+                        app:iconGravity="textStart" />
 
                     <!-- Takes the send button's place while there is nothing to send -->
                     <com.google.android.material.button.MaterialButton
@@ -480,8 +505,10 @@
                         android:contentDescription="@string/chat_video_note"
                         android:insetTop="0dp"
                         android:insetBottom="0dp"
+                        android:textAlignment="center"
                         android:tooltipText="@string/chat_video_note"
-                        app:icon="@drawable/ic_videocam" />
+                        app:icon="@drawable/ic_videocam"
+                        app:iconGravity="textStart" />
 
                 </LinearLayout>
 

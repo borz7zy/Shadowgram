@@ -34,6 +34,7 @@ import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.setProgressCompat
 import com.github.borz7zy.shadowgram.ext.updatePadding
 import com.github.borz7zy.shadowgram.models.ChatListKey
+import com.github.borz7zy.shadowgram.models.ChatSelection
 import com.github.borz7zy.shadowgram.models.ChatRow
 import com.github.borz7zy.shadowgram.models.FlowResult
 import com.github.borz7zy.shadowgram.ui.recyclerview.ChatListAdapter
@@ -255,6 +256,11 @@ class ChatListFragment : Fragment(R.layout.fragment_chat_list) {
                         onBackPressedCallback.isEnabled = it
                     }
                 }
+                launch { viewModel.selectedChats.collectLatest { publishSelection() } }
+                launch { viewModel.selectionBusy.collectLatest { publishSelection() } }
+                launch { viewModel.errors.collectLatest {
+                    android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show()
+                } }
 
                 launch {
                     chatsViewModel.openForum.collectLatest {
@@ -286,6 +292,7 @@ class ChatListFragment : Fragment(R.layout.fragment_chat_list) {
 
     override fun onResume() {
         super.onResume()
+        publishSelection()
 
         // Only the visible chat list handles back, the others are paused by the view pager
         requireActivity().onBackPressedDispatcher.addCallback(onBackPressedCallback)
@@ -293,10 +300,21 @@ class ChatListFragment : Fragment(R.layout.fragment_chat_list) {
     }
 
     override fun onPause() {
+        if (chatsViewModel.chatSelection.value?.key == chatListKey) chatsViewModel.chatSelection.value = null
+        if (activity?.isChangingConfigurations != true) viewModel.clearSelection()
         forumOnBackPressedCallback.remove()
         onBackPressedCallback.remove()
 
         super.onPause()
+    }
+
+    private fun publishSelection() {
+        if (!isResumed) return
+        val chats = viewModel.selectedChats.value
+        chatsViewModel.chatSelection.value = if (chats.isEmpty()) null else ChatSelection(
+            chatListKey, chats, viewModel.selectionBusy.value, viewModel::clearSelection,
+            viewModel::performSelection, viewModel::addSelectionToFolder,
+        )
     }
 
     override fun onDestroyView() {

@@ -162,6 +162,12 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         }
 
         avatarView.setOnClickListener { openPhotos() }
+        parentFragmentManager.setFragmentResultListener(
+            PhotoViewerDialogFragment.REQUEST_KEY_PROFILE_SHOWN, viewLifecycleOwner,
+        ) { _, _ -> avatarView.alpha = 0f }
+        parentFragmentManager.setFragmentResultListener(
+            PhotoViewerDialogFragment.REQUEST_KEY_PROFILE_CLOSED, viewLifecycleOwner,
+        ) { _, _ -> avatarView.alpha = 1f }
 
         messageMaterialButton.setOnClickListener {
             when (requireArguments().getBoolean(ARG_IS_FROM_CHAT)) {
@@ -287,21 +293,32 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         if (!viewModel.hasPhoto) {
             return
         }
-        val photoId = PhotoViewerViewModel.CURRENT_PROFILE_PHOTO_ID
-        val drawable = avatarView.photoDrawable ?: return
-        fun frame() = avatarView.let {
-            val location = IntArray(2).also(it::getLocationOnScreen)
-            PhotoViewerViewModel.Frame(
-                Rect(location[0], location[1], location[0] + it.width, location[1] + it.height),
-                FloatArray(4) { _ -> it.width / 2f },
+        val navController = findNavController()
+        val action = R.id.action_profileFragment_to_photoViewerDialogFragment
+        if (navController.currentDestination?.getAction(action) == null) return
+
+        val avatar = avatarView
+        val drawable = avatar.photoDrawable ?: return
+        fun frame(): PhotoViewerViewModel.Frame {
+            val location = IntArray(2).also(avatar::getLocationOnScreen)
+            return PhotoViewerViewModel.Frame(
+                Rect(location[0], location[1], location[0] + avatar.width, location[1] + avatar.height),
+                FloatArray(4) { avatar.radius },
             )
         }
         viewerAnchor.drawable = drawable.constantState?.newDrawable(resources) ?: drawable
         viewerAnchor.frame = frame()
-        viewerAnchor.restore = { avatarView }
-        viewerAnchor.locate = { id -> if (id == photoId && avatarView.isAttachedToWindow) frame() else null }
-        findNavController().navigateSafe(
-            R.id.action_profileFragment_to_photoViewerDialogFragment,
+        viewerAnchor.restore = {
+            avatar.alpha = 1f
+            avatar
+        }
+        viewerAnchor.locate = { id ->
+            if (id == PhotoViewerViewModel.CURRENT_PROFILE_PHOTO_ID && avatar.isAttachedToWindow
+                && avatar.getGlobalVisibleRect(Rect())
+            ) frame() else null
+        }
+        navController.navigate(
+            action,
             PhotoViewerDialogFragment.createProfileBundle(viewModel.chatId),
         )
     }

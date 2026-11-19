@@ -11,6 +11,8 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import com.github.borz7zy.shadowgram.R
+import com.github.borz7zy.shadowgram.telegram.TelegramErrorText
 import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.models.ChatHeader
 import com.github.borz7zy.shadowgram.models.FlowResult
@@ -118,6 +120,91 @@ class ChatViewModel(
         }
     }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val selectedMessages = MutableStateFlow<Map<Long, MessageItem>>(emptyMap())
+    val selectionProperties = MutableStateFlow<Map<Long, TdApi.MessageProperties>>(emptyMap())
+    val selectionBusy = MutableStateFlow(false)
+    private val actionErrorsChannel = Channel<String>(Channel.BUFFERED)
+    val actionErrors = actionErrorsChannel.receiveAsFlow()
+
+    fun toggleMessageSelection(message: MessageItem) {
+        if (message.state == MessageItem.State.PENDING || message.state == MessageItem.State.FAILED) return
+        if (message.id in selectedMessages.value) {
+            selectedMessages.value = selectedMessages.value - message.id
+            selectionProperties.value = selectionProperties.value - message.id
+            return
+        }
+        if (selectedMessages.value.size >= 100) {
+            actionErrorsChannel.trySend(getApplication<Application>().getString(R.string.selection_limit))
+            return
+        }
+        selectedMessages.value = selectedMessages.value + (message.id to message)
+        viewModelScope.launch {
+            when (val result = client.await().send(TdApi.GetMessageProperties(chatId, message.id))) {
+                is Result.Success -> if (message.id in selectedMessages.value) {
+                    selectionProperties.value = selectionProperties.value + (message.id to result.data)
+                }
+                is Result.Failure -> actionErrorsChannel.send(TelegramErrorText.message(getApplication(), result.error))
+            }
+        }
+    }
+
+    fun clearMessageSelection() {
+        selectedMessages.value = emptyMap()
+        selectionProperties.value = emptyMap()
+    }
+
+    fun deleteSelectedMessages(revoke: Boolean) {
+        val ids = selectedMessages.value.keys.toLongArray()
+        if (ids.isEmpty() || selectionBusy.value) return
+        selectionBusy.value = true
+        viewModelScope.launch {
+            try {
+                val properties = ids.map { (client.await().send(TdApi.GetMessageProperties(chatId, it)) as? Result.Success)?.data }
+                if (properties.any { it == null || if (revoke) !it.canBeDeletedForAllUsers else !it.canBeDeletedOnlyForSelf }) {
+                    actionErrorsChannel.send(getApplication<Application>().getString(R.string.selection_error_unavailable))
+                    return@launch
+                }
+                when (val result = client.await().send(TdApi.DeleteMessages(chatId, ids, revoke))) {
+                    is Result.Success -> {
+                        selectedMessages.value = selectedMessages.value - ids.toSet()
+                        selectionProperties.value = selectionProperties.value - ids.toSet()
+                    }
+                    is Result.Failure -> actionErrorsChannel.send(TelegramErrorText.message(getApplication(), result.error))
+                }
+            } finally { selectionBusy.value = false }
+        }
+    }
+
+    fun favoriteSelectedSticker() {
+        val id = selectedMessages.value.keys.singleOrNull() ?: return
+        if (selectionBusy.value) return
+        selectionBusy.value = true
+        viewModelScope.launch {
+            try {
+                val message = (client.await().send(TdApi.GetMessage(chatId, id)) as? Result.Success)?.data ?: return@launch
+                val sticker = (message.content as? TdApi.MessageSticker)?.sticker ?: return@launch
+                when (val result = client.await().send(TdApi.AddFavoriteSticker(TdApi.InputFileId(sticker.sticker.id)))) {
+                    is Result.Success -> actionErrorsChannel.send(getApplication<Application>().getString(R.string.selection_sticker_added))
+                    is Result.Failure -> actionErrorsChannel.send(TelegramErrorText.message(getApplication(), result.error))
+                }
+            } finally { selectionBusy.value = false }
+        }
+    }
+
+
+    fun toggleMute() {
+        viewModelScope.launch {
+            val current = client.await()
+            val chat = (current.send(TdApi.GetChat(chatId)) as? Result.Success)?.data ?: return@launch
+            val settings = chat.notificationSettings.apply {
+                useDefaultMuteFor = false
+                muteFor = if (header.value?.chat?.isMuted == true) 0 else Int.MAX_VALUE
+            }
+            val result = current.send(TdApi.SetChatNotificationSettings(chatId, settings))
+            if (result is Result.Failure) actionErrorsChannel.send(TelegramErrorText.message(getApplication(), result.error))
+        }
+    }
 
     init {
         if (topicId != 0) {

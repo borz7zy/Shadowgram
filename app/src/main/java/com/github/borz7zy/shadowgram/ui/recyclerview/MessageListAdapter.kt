@@ -52,6 +52,7 @@ import com.github.borz7zy.shadowgram.ui.views.AvatarView
 import com.github.borz7zy.shadowgram.playback.MessagePlayer
 import com.github.borz7zy.shadowgram.playback.TdFileDataSource
 import com.github.borz7zy.shadowgram.ui.album.AlbumView
+import com.github.borz7zy.shadowgram.ui.views.MaxWidthLinearLayout
 import com.github.borz7zy.shadowgram.ui.views.CustomEmojiView
 import com.github.borz7zy.shadowgram.ui.views.DocumentView
 import com.github.borz7zy.shadowgram.ui.views.StickerView
@@ -82,6 +83,13 @@ class MessageListAdapter(
 
     /** Keep the viewer's source hidden even when a download causes its row to rebind. */
     var hiddenMediaMessageId = 0L
+    private var selectedIds: Set<Long> = emptySet()
+
+    fun setSelection(ids: Set<Long>) {
+        if (selectedIds == ids) return
+        selectedIds = ids.toSet()
+        notifyItemRangeChanged(0, itemCount, "selection")
+    }
 
     /**
      * A message to flash once it's bound: a reply's original shown in the chat.
@@ -119,6 +127,7 @@ class MessageListAdapter(
     interface Callbacks {
         /** Tapped: the message menu, from where [bubble] is. */
         fun onMessageClick(message: MessageItem, bubble: View)
+        fun onMessageLongClick(message: MessageItem)
 
         /** The sender's name was tapped. */
         fun onSenderClick(senderId: Long)
@@ -153,6 +162,7 @@ class MessageListAdapter(
                 callbacks,
                 { hiddenMessageId },
                 { hiddenMediaMessageId },
+                { selectedIds },
                 ::takeHighlight,
             )
 
@@ -174,6 +184,7 @@ class MessageListAdapter(
         super.onViewAttachedToWindow(holder)
         val row = currentList.getOrNull(holder.bindingAdapterPosition) as? MessageRow.Bubble ?: return
         (holder as? BubbleViewHolder)?.bindSourceVisibility(row)
+        (holder as? BubbleViewHolder)?.bindStickerLayout(row.message)
     }
 
     override fun onBindViewHolder(
@@ -184,6 +195,8 @@ class MessageListAdapter(
         // Only the upload progress changed: leave the picture alone, no crossfade
         val row = getItem(position)
         when {
+            payloads.isNotEmpty() && payloads.all { it == "selection" } && row is MessageRow.Bubble ->
+                (holder as BubbleViewHolder).bindSelection(row)
             payloads.isNotEmpty() && payloads.all { it == PAYLOAD_UPLOAD } && row is MessageRow.Bubble ->
                 (holder as BubbleViewHolder).bindUpload(row.message)
 
@@ -250,6 +263,7 @@ class MessageListAdapter(
         private val callbacks: Callbacks,
         private val hiddenMessageId: () -> Long,
         private val hiddenMediaMessageId: () -> Long,
+        private val selectedIds: () -> Set<Long>,
         private val takeHighlight: (MessageRow.Bubble) -> Highlight?,
     ) : RecyclerView.ViewHolder(view) {
         private val forwardLinearLayout = view.findViewById<LinearLayout>(R.id.forwardLinearLayout)
@@ -286,6 +300,11 @@ class MessageListAdapter(
         private val metaTextView = view.findViewById<TextView>(R.id.metaTextView)
         private val senderTextView = view.findViewById<TextView>(R.id.senderTextView)
         private val stickerView = view.findViewById<StickerView>(R.id.stickerView)
+        private val messageContentLayout = view.findViewById<LinearLayout>(R.id.messageContentLayout)
+        private val messageBubbleBodyLayout = view.findViewById<LinearLayout>(R.id.messageBubbleBodyLayout)
+        private val stickerInfoLayout = view.findViewById<MaxWidthLinearLayout>(R.id.stickerInfoLayout)
+        private val infoPositions = listOf(forwardLinearLayout, replyPlateLinearLayout, reactionsChipGroup, metaTextView)
+            .map { it to messageContentLayout.indexOfChild(it) }
         private val uploadLinearLayout = view.findViewById<LinearLayout>(R.id.uploadLinearLayout)
         private val uploadProgressIndicator =
             view.findViewById<CircularProgressIndicator>(R.id.uploadProgressIndicator)
@@ -345,6 +364,17 @@ class MessageListAdapter(
             bubbleCardView.setOnClickListener {
                 message?.let { callbacks.onMessageClick(it, bubbleCardView) }
             }
+            val select = View.OnLongClickListener {
+                message?.let(callbacks::onMessageLongClick)
+                true
+            }
+            listOf(view, bubbleCardView, mediaImageView, stickerView, animationView,
+                messageTextView, metaTextView, forwardLinearLayout, replyPlateLinearLayout,
+                senderLinearLayout).forEach { it.setOnLongClickListener(select) }
+            stickerView.setOnClickListener { bubbleCardView.performClick() }
+            animationView.setOnClickListener { mediaImageView.performClick() }
+            metaTextView.setOnClickListener { bubbleCardView.performClick() }
+            albumView.onItemLongClick = { item -> callbacks.onMessageLongClick(item) }
             // The empty sides of the row are the message too
             view.setOnClickListener { bubbleCardView.performClick() }
             // A photo opens the viewer, the rest of the bubble the menu
@@ -364,10 +394,12 @@ class MessageListAdapter(
                 }
             }
             senderLinearLayout.setOnClickListener {
-                message?.let { callbacks.onSenderClick(it.senderId) }
+                if (selectedIds().isNotEmpty()) bubbleCardView.performClick()
+                else message?.let { callbacks.onSenderClick(it.senderId) }
             }
             // Their profile, unless they hid it: then it's the message like the rest
             forwardLinearLayout.setOnClickListener {
+                if (selectedIds().isNotEmpty()) { bubbleCardView.performClick(); return@setOnClickListener }
                 val originId = message?.forward?.originId ?: 0L
                 when (originId) {
                     0L -> bubbleCardView.performClick()
@@ -393,7 +425,7 @@ class MessageListAdapter(
                 false
             }
             messageTextView.setOnClickListener {
-                if (!isOnLink()) {
+                if (selectedIds().isNotEmpty() || !isOnLink()) {
                     bubbleCardView.performClick()
                 }
             }
@@ -467,6 +499,7 @@ class MessageListAdapter(
 
             (view as LinearLayout).gravity = if (isOutgoing) Gravity.END else Gravity.START
             view.updatePaddingRelative(start = if (row.hasAvatar) avatarSpace else 0)
+            bindStickerLayout(message)
             view.updateLayoutParams<RecyclerView.LayoutParams> {
                 topMargin = view.toPx(if (row.isGroupStart) 8 else 2)
             }
@@ -492,7 +525,8 @@ class MessageListAdapter(
             // The card only clips to its shape when all the corners match, a photo would poke
             // out of the tight ones. ponytail: path outlines clip since Android 13, older ones
             // keep square photo corners in runs; clip in dispatchDraw if that matters
-            bubbleCardView.clipToOutline = true
+            bubbleCardView.clipToOutline = !isSticker
+            if (isSticker) bubbleCardView.shapeAppearanceModel = ShapeAppearanceModel.builder().setAllCornerSizes(0f).build()
 
             // Sender, inside the first bubble of a run, with their emoji status
             senderLinearLayout.isVisible = row.showSender && message.senderName != null && !isSticker
@@ -575,8 +609,8 @@ class MessageListAdapter(
             messageTextView.text = spanned
             messageTextView.attachCustomEmoji()
             messageTextView.isVisible = text.isNotEmpty()
-            bindForward(message.forward.takeUnless { isSticker }, foreground)
-            bindReply(message.reply.takeUnless { isSticker }, foreground)
+            bindForward(message.forward, foreground)
+            bindReply(message.reply, foreground)
             val hasHeader = senderLinearLayout.isVisible || forwardLinearLayout.isVisible
                     || replyPlateLinearLayout.isVisible
             messageTextView.updatePaddingRelative(top = view.toPx(if (hasHeader) 4 else 8))
@@ -586,6 +620,22 @@ class MessageListAdapter(
             bindMeta(message, textColor)
 
             bindHighlight(row)
+            bindSelection(row)
+        }
+
+        fun bindSelection(row: MessageRow.Bubble) {
+            val ids = selectedIds()
+            messageTextView.movementMethod = if (ids.isEmpty()) android.text.method.LinkMovementMethod.getInstance() else null
+            val selected = row.message.id in ids || row.album.any { it.id in ids }
+            view.isSelected = selected
+            val selectionColor = ColorUtils.setAlphaComponent(
+                MaterialColors.getColor(view, com.google.android.material.R.attr.colorPrimaryContainer), 36
+            )
+            view.setBackgroundColor(if (selected) selectionColor else Color.TRANSPARENT)
+            row.album.forEach { item ->
+                (albumView.imageOf(item.id)?.parent as? View)?.foreground = if (item.id in ids)
+                    android.graphics.drawable.ColorDrawable(selectionColor) else null
+            }
         }
 
         fun bindSourceVisibility(row: MessageRow.Bubble) {
@@ -594,6 +644,33 @@ class MessageListAdapter(
             mediaFrameLayout.alpha = if (!albumView.isVisible && row.message.id == hiddenMedia) 0f else 1f
             row.album.forEach { item ->
                 (albumView.imageOf(item.id)?.parent as? View)?.alpha = if (item.id == hiddenMedia) 0f else 1f
+            }
+        }
+
+        fun bindStickerLayout(message: MessageItem) {
+            val sticker = message.media?.type == MessageItem.Media.Type.STICKER || message.media?.type == MessageItem.Media.Type.ANIMATED_STICKER
+            stickerInfoLayout.isVisible = sticker
+            if (sticker) {
+                val available = (view.parent as? View)?.width?.takeIf { it > 0 } ?: view.resources.displayMetrics.widthPixels
+                stickerInfoLayout.maxWidth = (available - stickerSize - view.paddingStart - view.paddingEnd - view.toPx(24))
+                    .coerceIn(view.toPx(56), view.toPx(140))
+            }
+            // The sticker stays at the chat edge; its information goes on the inward side.
+            val infoIndex = if (sticker && message.isOutgoing) 0 else 1
+            if (messageBubbleBodyLayout.indexOfChild(stickerInfoLayout) != infoIndex) {
+                messageBubbleBodyLayout.removeView(stickerInfoLayout)
+                messageBubbleBodyLayout.addView(stickerInfoLayout, infoIndex)
+            }
+            stickerInfoLayout.gravity = if (message.isOutgoing) Gravity.END else Gravity.START
+            metaTextView.updateLayoutParams<LinearLayout.LayoutParams> {
+                gravity = if (!sticker || message.isOutgoing) Gravity.END else Gravity.START
+            }
+            infoPositions.forEach { (info, position) ->
+                val parent = if (sticker) stickerInfoLayout else messageContentLayout
+                if (info.parent !== parent) {
+                    (info.parent as ViewGroup).removeView(info)
+                    parent.addView(info, if (sticker) parent.childCount else position.coerceAtMost(parent.childCount))
+                }
             }
         }
 

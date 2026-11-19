@@ -18,6 +18,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatsStoreTest {
+    @Test fun channelComposerFollowsPostingRights() {
+        val channel = chat(-10, "Channel").apply { type = TdApi.ChatTypeSupergroup(10, true) }
+        store.onUpdate(TdApi.UpdateNewChat(channel))
+        store.onUpdate(TdApi.UpdateChatPosition(-10, position(TdApi.ChatListMain(), 10)))
+        assertTrue(items(ChatListKey.Main).single().isChannel)
+        assertFalse(items(ChatListKey.Main).single().canPostMessages)
+        val group = TdApi.Supergroup().apply {
+            id = 10; isChannel = true
+            status = TdApi.ChatMemberStatusAdministrator(false, TdApi.ChatAdministratorRights().apply { canPostMessages = true })
+        }
+        store.onUpdate(TdApi.UpdateSupergroup(group))
+        assertTrue(items(ChatListKey.Main).single().canPostMessages)
+        group.status = TdApi.ChatMemberStatusMember()
+        store.onUpdate(TdApi.UpdateSupergroup(group))
+        assertFalse(items(ChatListKey.Main).single().canPostMessages)
+    }
+
+    @Test fun inheritedMuteSettingsAreReflectedInChatActions() {
+        val privateChat = chat(1, "Alice").apply { notificationSettings.useDefaultMuteFor = true }
+        store.onUpdate(TdApi.UpdateNewChat(privateChat))
+        store.onUpdate(TdApi.UpdateChatPosition(1, position(TdApi.ChatListMain(), 10)))
+        store.onUpdate(TdApi.UpdateScopeNotificationSettings(TdApi.NotificationSettingsScopePrivateChats(), TdApi.ScopeNotificationSettings().apply { muteFor = Int.MAX_VALUE }))
+        assertTrue(items(ChatListKey.Main).single().isMuted)
+        store.onUpdate(TdApi.UpdateChatNotificationSettings(1, TdApi.ChatNotificationSettings().apply { useDefaultMuteFor = false; muteFor = 0 }))
+        assertFalse(items(ChatListKey.Main).single().isMuted)
+    }
+
     private val requests = mutableListOf<TdApi.Function<*>>()
     private var acceptPinnedChats = true
     private val store = ChatsStore { function, handler ->

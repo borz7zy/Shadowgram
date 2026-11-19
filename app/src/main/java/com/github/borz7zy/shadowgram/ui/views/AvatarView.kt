@@ -57,6 +57,7 @@ class AvatarView @JvmOverloads constructor(
     private var animationView: AnimationView? = null
 
     private var chat: ChatItem? = null
+    private var hasAnimatedBounds = false
 
     init {
         strokeWidth = 0
@@ -70,6 +71,17 @@ class AvatarView @JvmOverloads constructor(
         radius = minOf(w, h) / 2f
         // Grows with the avatar, the profile one and while it's shared with it
         initialsTextView.setTextSize(TypedValue.COMPLEX_UNIT_PX, minOf(w, h) * INITIALS_SCALE)
+
+        // ChangeBounds resizes the card without a layout pass for its children.
+        val hasUnmeasuredBounds = w != measuredWidth || h != measuredHeight
+        if (hasUnmeasuredBounds || hasAnimatedBounds) {
+            hasAnimatedBounds = hasUnmeasuredBounds
+            measureChildren(
+                MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY),
+            )
+            super.onLayout(true, 0, 0, w, h)
+        }
     }
 
     /**

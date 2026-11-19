@@ -213,21 +213,25 @@
         <item name="cornerSize">50%</item>
     </style>
 
+    <!-- Android 10 supports short-edge cutouts. The always mode starts at API 30. -->
+    <style name="BaseTheme.Shadowgram.FullscreenDialog" parent="Theme.Shadowgram">
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+
     <!-- Photo viewer: full screen over the chat, it draws its own black -->
-    <style name="Theme.Shadowgram.PhotoViewer" parent="Theme.Shadowgram">
+    <style name="Theme.Shadowgram.PhotoViewer" parent="BaseTheme.Shadowgram.FullscreenDialog">
         <item name="android:windowIsFloating">false</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:backgroundDimEnabled">false</item>
         <item name="android:windowAnimationStyle">@null</item>
-        <item name="android:windowLayoutInDisplayCutoutMode">always</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 
     <!-- Message menu: full screen over the chat, blurred where the device can -->
-    <style name="Theme.Shadowgram.MessageMenu" parent="Theme.Shadowgram">
+    <style name="Theme.Shadowgram.MessageMenu" parent="BaseTheme.Shadowgram.FullscreenDialog">
         <item name="android:windowIsFloating">false</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowIsTranslucent">true</item>
@@ -235,7 +239,6 @@
         <item name="android:backgroundDimEnabled">true</item>
         <item name="android:backgroundDimAmount">0</item>
         <item name="android:windowAnimationStyle">@null</item>
-        <item name="android:windowLayoutInDisplayCutoutMode">always</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
     </style>
 

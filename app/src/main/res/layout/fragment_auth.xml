@@ -26,6 +26,7 @@
 
             <TextView
                 android:id="@+id/descriptionTextView"
+                android:autoLink="web|email"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textAppearance="?attr/textAppearanceBodyLarge"
@@ -107,6 +108,52 @@
                     android:inputType="textPassword" />
 
             </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/firstNameTextInputLayout"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="16dp" android:hint="@string/auth_first_name" android:visibility="gone">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:inputType="textPersonName" android:imeOptions="actionNext" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/lastNameTextInputLayout"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="16dp" android:hint="@string/auth_last_name" android:visibility="gone">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:inputType="textPersonName" android:imeOptions="actionNext" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/emailTextInputLayout"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="16dp" android:hint="@string/auth_email" android:visibility="gone">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:inputType="textEmailAddress" android:imeOptions="actionNext" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView android:id="@+id/termsTextView"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="16dp" android:autoLink="web"
+                android:textAppearance="?attr/textAppearanceBodyMedium" android:visibility="gone" />
+            <com.google.android.material.checkbox.MaterialCheckBox android:id="@+id/termsCheckBox"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" />
+            <Button android:id="@+id/resendCodeButton" style="?attr/borderlessButtonStyle"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/auth_resend" android:visibility="gone" />
+            <Button android:id="@+id/recoverPasswordButton" style="?attr/borderlessButtonStyle"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/auth_forgot_password" android:visibility="gone" />
+            <Button android:id="@+id/cancelRecoveryButton" style="?attr/borderlessButtonStyle"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/auth_back_password" android:visibility="gone" />
 
             <!-- Always left to right, like any dialpad -->
             <androidx.constraintlayout.widget.ConstraintLayout

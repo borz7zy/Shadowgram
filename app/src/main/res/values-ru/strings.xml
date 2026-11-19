@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_activity_settings">Настройки</string>
+    <string name="main_fragment_section_chats">Чаты</string>
+    <string name="main_fragment_section_contacts">Контакты</string>
+    <string name="main_fragment_section_profile">Профиль</string>
+    <string name="create_new_chat">Создать новый чат</string>
+    <string name="stories_material_button_appbar">Истории</string>
+    <string name="accounts_header">Аккаунты</string>
+    <string name="add_account">Добавить аккаунты</string>
+    <string name="sign_in">Вход</string>
+    <string name="auth_phone_number_hint">Номер телефона</string>
+    <string name="auth_code_hint">Код</string>
+    <string name="auth_password_hint">Облачный пароль</string>
+    <string name="auth_next">Дальше</string>
+    <string name="auth_change_phone_number">Неверный номер?</string>
+    <string name="auth_qr_sign_in">Вход по QR коду</string>
+    <string name="all_chats">Все чаты</string>
+    <string name="message_photo">Фото</string>
+    <string name="message_video">Видео</string>
+    <string name="message_video_note">Видеосообщение</string>
+    <string name="message_voice_note">Голосовое сообщение</string>
+    <string name="message_audio">Аудио</string>
+    <string name="message_document">Файл</string>
+    <string name="message_sticker">Стикер</string>
+    <string name="message_poll">Голосование</string>
+    <string name="message_location">Местоположение</string>
+    <string name="message_contact">Контакт</string>
+    <string name="message_other">Сообщение</string>
+    <string name="typing">Печатает…</string>
+    <string name="new_chat_add_contact">Добавить контакт</string>
+    <string name="new_chat_create_group">Создать группу</string>
+    <string name="new_chat_create_channel">Создать канал</string>
+    <string name="new_chat_add_story">Добавить историю</string>
+    <string name="new_chat_new_dialog">Новый диалог</string>
+    <string name="new_chat_phone_number_hint">Номер телефона</string>
+    <string name="new_chat_group_name_hint">Название группы</string>
+    <string name="new_chat_channel_name_hint">Название канала</string>
+    <string name="new_chat_add">Добавить</string>
+    <string name="new_chat_create">Создать</string>
+    <string name="chat_message_hint">Сообщение</string>
+    <string name="chat_send">Отправить</string>
+    <string name="chat_bot">бот</string>
+    <string name="message_sending">Отправка…</string>
+    <string name="attach_camera">Камера</string>
+    <string name="attach_files">Файлы</string>
+    <string name="attach_location">Местоположение</string>
+    <string name="attach_contact">Контакт</string>
+
+</resources>

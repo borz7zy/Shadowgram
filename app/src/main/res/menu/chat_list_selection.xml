@@ -1,0 +1,9 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:id="@+id/chats_archive" android:title="@string/chats_archive" android:icon="@drawable/ic_archive" app:showAsAction="always" />
+    <item android:id="@+id/chats_mute" android:title="@string/chat_mute" android:icon="@drawable/ic_notifications_off" app:showAsAction="always" />
+    <item android:id="@+id/chats_delete" android:title="@string/selection_delete" android:icon="@drawable/ic_delete" app:showAsAction="always" />
+    <item android:id="@+id/chats_pin" android:title="@string/chats_pin" app:showAsAction="never" />
+    <item android:id="@+id/chats_folder" android:title="@string/chats_add_folder" app:showAsAction="never" />
+    <item android:id="@+id/chats_unread" android:title="@string/chats_mark_unread" app:showAsAction="never" />
+    <item android:id="@+id/chats_clear" android:title="@string/chats_clear_history" app:showAsAction="never" />
+</menu>

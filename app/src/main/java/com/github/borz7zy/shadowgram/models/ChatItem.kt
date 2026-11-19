@@ -57,6 +57,10 @@ data class ChatItem(
     val isPremium: Boolean = false,
     /** A private/secret chat with a regular user currently reported online by TDLib. */
     val isOnline: Boolean = false,
+    val isChannel: Boolean = false,
+    val canPostMessages: Boolean = true,
+    /** Broadcast channels and public supergroups offer cache clearing instead of history deletion. */
+    val clearsCacheOnly: Boolean = false,
 ) : UniqueItem<ChatItem> {
     /**
      * @param senderName The name of the sender, null if it shouldn't be shown

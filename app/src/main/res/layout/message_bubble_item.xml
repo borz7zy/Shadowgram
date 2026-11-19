@@ -18,6 +18,12 @@
         app:strokeWidth="0dp">
 
         <LinearLayout
+            android:id="@+id/messageBubbleBodyLayout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+        <LinearLayout
+            android:id="@+id/messageContentLayout"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="vertical">
@@ -305,6 +311,14 @@
                 android:textAppearance="?attr/textAppearanceLabelSmall"
                 tools:text="17:21" />
 
+        </LinearLayout>
+        <com.github.borz7zy.shadowgram.ui.views.MaxWidthLinearLayout
+            android:id="@+id/stickerInfoLayout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:orientation="vertical"
+            android:visibility="gone" />
         </LinearLayout>
 
     </com.google.android.material.card.MaterialCardView>

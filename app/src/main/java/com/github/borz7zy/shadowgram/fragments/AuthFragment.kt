@@ -19,6 +19,8 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.CheckBox
+import org.drinkless.tdlib.TdApi
 import androidx.activity.addCallback
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.ViewCompat
@@ -72,9 +74,18 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
     private val requestQrCodeButton by getViewProperty<Button>(R.id.requestQrCodeButton)
     private val cancelQrCodeButton by getViewProperty<Button>(R.id.cancelQrCodeButton)
     private val submitButtonsLayout by getViewProperty<LinearLayout>(R.id.submitButtonsLayout)
+    private val firstNameTextInputLayout by getViewProperty<TextInputLayout>(R.id.firstNameTextInputLayout)
+    private val lastNameTextInputLayout by getViewProperty<TextInputLayout>(R.id.lastNameTextInputLayout)
+    private val emailTextInputLayout by getViewProperty<TextInputLayout>(R.id.emailTextInputLayout)
+    private val termsTextView by getViewProperty<TextView>(R.id.termsTextView)
+    private val termsCheckBox by getViewProperty<CheckBox>(R.id.termsCheckBox)
+    private val resendCodeButton by getViewProperty<Button>(R.id.resendCodeButton)
+    private val recoverPasswordButton by getViewProperty<Button>(R.id.recoverPasswordButton)
+    private val cancelRecoveryButton by getViewProperty<Button>(R.id.cancelRecoveryButton)
 
     private val textInputLayouts
-        get() = listOf(phoneNumberTextInputLayout, codeTextInputLayout, passwordTextInputLayout)
+        get() = listOf(phoneNumberTextInputLayout, codeTextInputLayout, passwordTextInputLayout,
+            firstNameTextInputLayout, lastNameTextInputLayout, emailTextInputLayout)
 
     /**
      * The text input layouts filled with the dialpad instead of the keyboard.
@@ -121,9 +132,18 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
 
         requestQrCodeButton.setOnClickListener { viewModel.requestQrCode() }
         cancelQrCodeButton.setOnClickListener { viewModel.cancelQrCode() }
+        resendCodeButton.setOnClickListener { viewModel.resendCode() }
+        recoverPasswordButton.setOnClickListener { viewModel.recoverPassword() }
+        cancelRecoveryButton.setOnClickListener { viewModel.cancelRecovery() }
+        termsCheckBox.setOnCheckedChangeListener { _, checked ->
+            if (viewModel.uiState.value.step is Step.Registration) nextButton.isEnabled = checked && !viewModel.uiState.value.isSubmitting
+        }
         val qrBackCallback = requireActivity().onBackPressedDispatcher.addCallback(
             viewLifecycleOwner, enabled = false
         ) { viewModel.cancelQrCode() }
+        val stepBackCallback = requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, enabled = false) {
+            if (viewModel.uiState.value.step is Step.Recovery) viewModel.cancelRecovery() else viewModel.changePhoneNumber()
+        }
 
         textInputLayouts.forEach {
             it.editText?.setOnEditorActionListener { _, _, _ ->
@@ -163,9 +183,14 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
         }
 
         var displayedQrLink: String? = null
+        var displayedStep: Class<*>? = null
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.uiState.collectLatest { (step, isSubmitting, error) ->
+                viewModel.uiState.collectLatest { state ->
+                    val (step, isSubmitting, error) = state
+                    val hadStep = displayedStep != null
+                    val stepChanged = displayedStep != step.javaClass
+                    displayedStep = step.javaClass
                     if (step is Step.Done) {
                         // Start over with the home page of the new account
                         findNavController().navigateSafe(
@@ -182,6 +207,9 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
                         is Step.PhoneNumber -> phoneNumberTextInputLayout
                         is Step.Code -> codeTextInputLayout
                         is Step.Password -> passwordTextInputLayout
+                        is Step.Registration -> firstNameTextInputLayout
+                        is Step.Email -> emailTextInputLayout
+                        is Step.EmailCode, is Step.Recovery -> codeTextInputLayout
                         else -> null
                     }
 
@@ -195,8 +223,10 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
                     }
                     qrCodeImageView.isVisible = qrLink != null
                     qrBackCallback.isEnabled = step is Step.QrCode
-                    qrErrorTextView.isVisible = step is Step.QrCode && error != null
-                    qrErrorTextView.text = if (step is Step.QrCode) error else null
+                    stepBackCallback.isEnabled = step is Step.Code || step is Step.Password || step is Step.Registration ||
+                        step is Step.Email || step is Step.EmailCode || step is Step.Recovery || step is Step.Premium
+                    qrErrorTextView.isVisible = textInputLayout == null && error != null
+                    qrErrorTextView.text = error
                     requestQrCodeButton.isVisible = step is Step.PhoneNumber || step is Step.Code
                     requestQrCodeButton.isEnabled = !isSubmitting
                     cancelQrCodeButton.isVisible = step is Step.QrCode
@@ -204,18 +234,19 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
 
                     descriptionTextView.text = when (step) {
                         is Step.PhoneNumber -> getString(R.string.auth_phone_number_description)
-                        is Step.Code -> getString(
-                            R.string.auth_code_description,
-                            PhoneNumberParser.parse(step.phoneNumber)?.formatted
-                                ?: step.phoneNumber
-                        )
+                        is Step.Code -> codeDescription(step.info) + if (step.info.nextType == null) "\n\n" + getString(R.string.auth_resend_unavailable) else ""
                         is Step.Password -> getString(R.string.auth_password_description)
                         is Step.QrCode -> getString(R.string.auth_qr_description)
-                        else -> getString(R.string.auth_unsupported_step)
+                        is Step.Email -> getString(R.string.auth_email_description)
+                        is Step.EmailCode -> getString(R.string.auth_email_code_description, step.email)
+                        is Step.Recovery -> getString(R.string.auth_recovery_description, step.email)
+                        is Step.Registration -> getString(R.string.auth_registration)
+                        is Step.Premium -> getString(R.string.auth_premium_required, step.days, step.supportEmail)
+                        else -> ""
                     }
 
                     textInputLayouts.forEach {
-                        it.isVisible = it === textInputLayout
+                        it.isVisible = it === textInputLayout || (step is Step.Registration && it === lastNameTextInputLayout)
                         it.isEnabled = !isSubmitting
                         it.error = error.takeIf { _ -> it === textInputLayout }
                     }
@@ -224,24 +255,46 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
                         ?.takeIf { it.isNotEmpty() }
                         ?.let { getString(R.string.auth_password_hint_format, it) }
 
-                    val hasDialpad = textInputLayout in dialpadTextInputLayouts
+                    termsTextView.isVisible = step is Step.Registration
+                    termsCheckBox.isVisible = step is Step.Registration
+                    if (step is Step.Registration) {
+                        termsTextView.text = step.terms
+                        termsCheckBox.text = if (step.minimumAge > 0) getString(R.string.auth_terms_accept, step.minimumAge)
+                            else getString(R.string.auth_terms_accept_any)
+                    }
+                    resendCodeButton.isVisible = step is Step.Code || step is Step.EmailCode || step is Step.Recovery
+                    resendCodeButton.isEnabled = state.canResend && !isSubmitting
+                    resendCodeButton.text = if (state.resendSeconds > 0) getString(R.string.auth_resend_wait, state.resendSeconds)
+                        else getString(R.string.auth_resend)
+                    recoverPasswordButton.isVisible = (step as? Step.Password)?.canRecover == true
+                    recoverPasswordButton.isEnabled = !isSubmitting
+                    cancelRecoveryButton.isVisible = step is Step.Recovery
+                    cancelRecoveryButton.isEnabled = !isSubmitting
+                    val wordCode = step is Step.Code && (step.info.type is TdApi.AuthenticationCodeTypeSmsWord || step.info.type is TdApi.AuthenticationCodeTypeSmsPhrase)
+                    val inputType = if (wordCode) android.text.InputType.TYPE_CLASS_TEXT else android.text.InputType.TYPE_CLASS_NUMBER
+                    if (codeTextInputLayout.editText?.inputType != inputType) codeTextInputLayout.editText?.inputType = inputType
+                    codeTextInputLayout.editText?.showSoftInputOnFocus = wordCode
+                    val hasDialpad = textInputLayout in dialpadTextInputLayouts && !wordCode
 
                     dialpadConstraintLayout.isVisible = hasDialpad
 
                     // Show the cursor, the dialpad types where it is
-                    textInputLayout?.editText?.requestFocus()
+                    if (stepChanged) {
+                        if (hadStep && textInputLayout === codeTextInputLayout) codeTextInputLayout.editText?.text?.clear()
+                        textInputLayout?.editText?.requestFocus()
+                    }
 
-                    if (hasDialpad) {
+                    if (hasDialpad && stepChanged) {
                         // The keyboard may still be there from the password
                         WindowCompat.getInsetsController(requireActivity().window, view)
                             .hide(WindowInsetsCompat.Type.ime())
                     }
 
                     nextButton.isVisible = textInputLayout != null
-                    nextButton.isEnabled = !isSubmitting
+                    nextButton.isEnabled = !isSubmitting && (step !is Step.Registration || termsCheckBox.isChecked)
                     submitButtonsLayout.isVisible = textInputLayout != null
 
-                    changePhoneNumberButton.isVisible = step is Step.Code || step is Step.Password
+                    changePhoneNumberButton.isVisible = stepBackCallback.isEnabled
                     changePhoneNumberButton.isEnabled = !isSubmitting
                 }
             }
@@ -292,7 +345,22 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
 
     private fun submit() {
         textInputLayouts.firstOrNull { it.isVisible }?.editText?.text?.let {
-            viewModel.submit(it.toString().trim())
+            val value = if (viewModel.uiState.value.step is Step.Password) it.toString() else it.toString().trim()
+            viewModel.submit(value, lastNameTextInputLayout.editText?.text?.toString()?.trim().orEmpty(), termsCheckBox.isChecked)
+        }
+    }
+
+    private fun codeDescription(info: TdApi.AuthenticationCodeInfo): String {
+        val phone = PhoneNumberParser.parse(info.phoneNumber)?.formatted ?: info.phoneNumber
+        return when (val type = info.type) {
+            is TdApi.AuthenticationCodeTypeTelegramMessage -> getString(R.string.auth_code_telegram, phone)
+            is TdApi.AuthenticationCodeTypeCall -> getString(R.string.auth_code_call, phone)
+            is TdApi.AuthenticationCodeTypeFlashCall -> getString(R.string.auth_code_flash, phone)
+            is TdApi.AuthenticationCodeTypeMissedCall -> getString(R.string.auth_code_missed, phone)
+            is TdApi.AuthenticationCodeTypeFragment -> getString(R.string.auth_code_fragment, type.url)
+            is TdApi.AuthenticationCodeTypeSmsWord -> getString(R.string.auth_code_word, phone, type.firstLetter)
+            is TdApi.AuthenticationCodeTypeSmsPhrase -> getString(R.string.auth_code_phrase, phone, type.firstWord)
+            else -> getString(R.string.auth_code_sms, phone)
         }
     }
 }

@@ -21,6 +21,7 @@ preference = "1.2.1"
 recyclerview = "1.4.0"
 viewpager2 = "1.1.0"
 window = "1.5.0"
+zoomimage = "1.4.0"
 zxing = "3.5.3"
 zxing-cpp = "3.1.1"
 
@@ -61,6 +62,7 @@ coil-video = { group = "io.coil-kt.coil3", name = "coil-video", version.ref = "c
 kotlinx-coroutines-guava = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-guava", version.ref = "kotlinx-coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+zoomimage-view = { group = "io.github.panpf.zoomimage", name = "zoomimage-view", version.ref = "zoomimage" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 zxing-cpp-android = { group = "io.github.zxing-cpp", name = "android", version.ref = "zxing-cpp" }
 nier-visualizer = { group = "com.github.bogerchan", name = "Nier-Visualizer", version.ref = "nier-visualizer" }

@@ -13,7 +13,6 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
@@ -51,6 +50,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -58,6 +58,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
+import coil3.dispose
 import coil3.load
 import coil3.request.allowHardware
 import coil3.request.placeholder
@@ -66,6 +67,7 @@ import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ui.finishOverlayReturn
 import com.github.borz7zy.shadowgram.ui.mediaTransitionViewport
 import com.github.borz7zy.shadowgram.ext.getViewProperty
+import com.github.borz7zy.shadowgram.ext.setPlaying
 import com.github.borz7zy.shadowgram.playback.TdFileDataSource
 import com.github.borz7zy.shadowgram.ui.viewer.ZoomableImageView
 import com.github.borz7zy.shadowgram.viewmodels.PhotoViewerViewModel
@@ -85,6 +87,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * The photos and videos of a message or a profile, VK style: the tapped one flies from its
@@ -144,6 +147,10 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
 
         override fun onRenderedFirstFrame() {
             hasFrame = true
+        }
+
+        override fun onVideoSizeChanged(videoSize: VideoSize) {
+            currentHolder()?.updateVideoSize(videoSize)
         }
     }
 
@@ -231,7 +238,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
         viewPager2.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 bindBars()
-                notifyShown()
+                if (!viewModel.isProfile) notifyShown()
                 // Its page may only be laid out next
                 viewPager2.post { bindPlayer() }
             }
@@ -248,8 +255,14 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
             setUiShown(true, animate = false)
         } else {
             view.doOnPreDraw { open(frame) }
-            // The chat hides its picture once this one shows it
-            view.viewTreeObserver.registerFrameCommitCallback { notifyShown() }
+        }
+        if (viewModel.isProfile || (frame != null && savedInstanceState == null)) {
+            // Hide the source after the dialog has drawn, including when it was recreated.
+            val afterDraw = Runnable { if (this.view === view) notifyShown() }
+            view.doOnPreDraw {
+                if (it.isHardwareAccelerated) it.viewTreeObserver.registerFrameCommitCallback(afterDraw)
+                else it.post(afterDraw)
+            }
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -289,6 +302,13 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
         transitionAnimator?.cancel()
         transitionImageView.animate().cancel()
         anchor.restore?.invoke()
+        if (viewModel.isProfile) {
+            anchor.drawable = null
+            anchor.frame = null
+            anchor.locate = null
+            anchor.restore = null
+            setFragmentResult(REQUEST_KEY_PROFILE_CLOSED, Bundle())
+        }
         player?.release()
         player = null
         playerMessageId = 0L
@@ -297,9 +317,13 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
         super.onDestroyView()
     }
 
-    /** Tell the chat which photo this shows, it hides that picture of its own. */
+    /** Let the source hide the picture drawn by the viewer. */
     private fun notifyShown() {
         if (isClosing) return
+        if (viewModel.isProfile) {
+            setFragmentResult(REQUEST_KEY_PROFILE_SHOWN, Bundle())
+            return
+        }
         val photo = viewModel.state.value.photos.getOrNull(viewPager2.currentItem)
         setFragmentResult(REQUEST_KEY_SHOWN, bundleOf(KEY_MESSAGE_ID to (photo?.messageId ?: viewModel.messageId)))
     }
@@ -381,7 +405,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
     private fun bindPlayPause() {
         val isPlaying = player?.isPlaying == true
                 || (player?.playWhenReady == true && player?.playbackState == Player.STATE_BUFFERING)
-        playPauseMaterialButton.setIconResource(if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow)
+        playPauseMaterialButton.setPlaying(isPlaying)
     }
 
     private fun bindPosition() {
@@ -429,7 +453,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
 
         val finish = {
             cancelReturnHandoff = finishOverlayReturn(anchor.restore?.invoke()) {
-                setFragmentResult(REQUEST_KEY, Bundle())
+                if (!viewModel.isProfile) setFragmentResult(REQUEST_KEY, Bundle())
                 dismissAllowingStateLoss()
             }
         }
@@ -578,7 +602,28 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
         }
     }
 
-    override fun onTap() = setUiShown(!isUiShown, animate = true)
+    override fun onTap(image: ZoomableImageView, x: Float) {
+        if (!isOpened || isClosing || currentHolder()?.image !== image ||
+            viewPager2.scrollState != ViewPager2.SCROLL_STATE_IDLE
+        ) return
+
+        val position = viewPager2.currentItem
+        val photo = adapter.currentList.getOrNull(position) ?: return
+        if (photo.video == null && !image.isZoomed) {
+            // Like Glimpse, each outer fifth of the page is a navigation target.
+            val offset = when {
+                x < image.width * EDGE_TAP_FRACTION -> -1
+                x > image.width * (1f - EDGE_TAP_FRACTION) -> 1
+                else -> 0
+            }
+            if (offset != 0) {
+                val target = position + offset
+                if (target in adapter.currentList.indices) viewPager2.setCurrentItem(target, true)
+                return
+            }
+        }
+        setUiShown(!isUiShown, animate = true)
+    }
 
     override fun onDismissProgress(fraction: Float) {
         // The chat shows through as the photo is pulled away
@@ -726,10 +771,13 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
 
         fun bind(photo: PhotoViewerViewModel.Photo) {
             job?.cancel()
+            image.dispose()
+            image.resetMedia()
             messageId = photo.messageId
             video = photo.video
-            videoWidth = photo.width
-            videoHeight = photo.height
+            videoWidth = if (video != null) photo.width else 0
+            videoHeight = if (video != null) photo.height else 0
+            image.setVideoSize(videoWidth, videoHeight)
             textureView.isVisible = photo.video != null
             // The opened one starts from what the bubble showed
             when {
@@ -737,12 +785,6 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
                     image.setImageDrawable(anchor.drawable?.constantState?.newDrawable() ?: anchor.drawable)
 
                 photo.minithumbnail != null -> image.load(photo.minithumbnail)
-                // A video without a still: black of its size, so it's placed all the same
-                photo.video != null -> image.setImageDrawable(GradientDrawable().apply {
-                    setColor(android.graphics.Color.BLACK)
-                    setSize(photo.width.coerceAtLeast(1), photo.height.coerceAtLeast(1))
-                })
-
                 else -> image.setImageDrawable(null)
             }
             progress.isVisible = photo.video == null && photo.path == null
@@ -752,13 +794,17 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
                     progress.isVisible = false
                 }
                 path ?: return@launch
-                image.load(File(path)) {
+                val file = File(path)
+                image.load(file) {
                     // Zoomed in, it stays sharp
                     size(MAX_SIZE, MAX_SIZE)
                     precision(Precision.INEXACT)
                     allowHardware(false)
                     // The picture shown meanwhile stays until the sharp one is in
                     placeholder(image.drawable)
+                    if (photo.video == null) {
+                        listener(onSuccess = { _, _ -> image.setFullSizePhoto(file) })
+                    }
                 }
             }
             if (bindingAdapterPosition == viewPager2.currentItem) {
@@ -772,6 +818,14 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
             }
         }
 
+        fun updateVideoSize(size: VideoSize) {
+            if (video == null || messageId != playerMessageId || size.width <= 0 || size.height <= 0) return
+            val pixelAspectRatio = size.pixelWidthHeightRatio.takeIf { it.isFinite() && it > 0f } ?: 1f
+            videoWidth = (size.width * pixelAspectRatio).roundToInt().coerceAtLeast(1)
+            videoHeight = size.height
+            image.setVideoSize(videoWidth, videoHeight)
+        }
+
         /** The frame the video is at, null if it hasn't one. */
         fun frame(): Drawable? {
             if (video == null || !hasFrame || !textureView.isAvailable) {
@@ -779,10 +833,16 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
             }
             // The surface's picture at the video's own shape, the view's transform aside
             val scale = minOf(1f, FRAME_MAX_SIZE.toFloat() / maxOf(videoWidth, videoHeight, 1))
-            val bitmap = textureView.getBitmap(
-                (videoWidth * scale).toInt().coerceAtLeast(1),
-                (videoHeight * scale).toInt().coerceAtLeast(1),
-            ) ?: return null
+            val transform = textureView.getTransform(Matrix())
+            textureView.setTransform(null)
+            val bitmap = try {
+                textureView.getBitmap(
+                    (videoWidth * scale).toInt().coerceAtLeast(1),
+                    (videoHeight * scale).toInt().coerceAtLeast(1),
+                )
+            } finally {
+                textureView.setTransform(transform)
+            } ?: return null
             return BitmapDrawable(resources, bitmap)
         }
 
@@ -803,6 +863,8 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
 
         fun recycle() {
             job?.cancel()
+            image.dispose()
+            image.resetMedia()
             // Its video stops with it, and starts over if it's shown again
             if (messageId == playerMessageId) {
                 player?.stop()
@@ -818,8 +880,11 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
         /** The viewer shows the photo, the chat can hide its own. */
         const val REQUEST_KEY_SHOWN = "photo_viewer_shown"
         const val KEY_MESSAGE_ID = "message_id"
+        const val REQUEST_KEY_PROFILE_SHOWN = "profile_photo_viewer_shown"
+        const val REQUEST_KEY_PROFILE_CLOSED = "profile_photo_viewer_closed"
 
         private const val MAX_SIZE = 4096
+        private const val EDGE_TAP_FRACTION = 0.2f
 
         private const val MENU_SAVE_DOWNLOADS = 1
         private const val MENU_SAVE_GIFS = 2

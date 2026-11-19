@@ -32,6 +32,7 @@ class AlbumView @JvmOverloads constructor(
 ) : ViewGroup(context, attrs) {
     /** A picture tapped: open it, from where it is. */
     var onItemClick: ((MessageItem, ImageView) -> Unit)? = null
+    var onItemLongClick: ((MessageItem) -> Unit)? = null
 
     private val spacing = toPx(SPACING_DP).toFloat()
     private var items = listOf<MessageItem>()
@@ -98,6 +99,7 @@ class AlbumView @JvmOverloads constructor(
             // Hidden while the viewer showed it, the cell may hold another one now
             cell.alpha = 1f
             cell.setOnClickListener { onItemClick?.invoke(item, cell.image) }
+            cell.setOnLongClickListener { onItemLongClick?.invoke(item); true }
         }
         requestLayout()
     }

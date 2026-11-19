@@ -66,6 +66,7 @@ class TelegramClient(
 
     // Must be declared after the flows and stores, updates start coming as soon as the client is created
     private val client: Client = Client.create(::onUpdate, null, null)
+    private val networkMonitor = TelegramNetworkMonitor(context.applicationContext) { client.send(it, {}) }
 
     /**
      * Send a request to TDLib and wait for its result.
@@ -110,6 +111,7 @@ class TelegramClient(
         }
 
         val authorizationState = update.authorizationState
+        if (authorizationState is TdApi.AuthorizationStateClosed) networkMonitor.close()
 
         if (authorizationState is TdApi.AuthorizationStateWaitTdlibParameters) {
             Log.i(LOG_TAG, "TDLib requests parameters")

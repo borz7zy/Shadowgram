@@ -13,6 +13,11 @@ import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.models.ChatItem
 import com.github.borz7zy.shadowgram.models.ChatListKey
 import com.github.borz7zy.shadowgram.models.ChatRow
+import com.github.borz7zy.shadowgram.models.ChatBulkAction
+import com.github.borz7zy.shadowgram.models.Result
+import com.github.borz7zy.shadowgram.telegram.TelegramErrorText
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
 import com.github.borz7zy.shadowgram.models.FlowResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -44,11 +49,12 @@ class ChatListViewModel(
 
     // Signed in first: TDLib can't load chats before, opened from another app's "Share" the
     // launcher didn't wait for it
-    private val chatsStore = viewModelScope.async {
+    private val client = viewModelScope.async {
         getApplication<ShadowgramApplication>().accountsRepository.activeClient().apply {
             authorizationState.first { it is TdApi.AuthorizationStateReady }
-        }.chats
+        }
     }
+    private val chatsStore = viewModelScope.async { client.await().chats }
 
     private val chats = flow { emitAll(chatsStore.await().chatList(chatListKey)) }
         .map<_, FlowResult<List<ChatItem>, Nothing>> {
@@ -59,6 +65,12 @@ class ChatListViewModel(
         }
 
     private val selectedChatIds = MutableStateFlow(setOf<Long>())
+    val selectionBusy = MutableStateFlow(false)
+    private val errorsChannel = Channel<String>(Channel.BUFFERED)
+    val errors = errorsChannel.receiveAsFlow()
+    val selectedChats = combine(chats, selectedChatIds) { result, ids ->
+        (result as? FlowResult.Success)?.data.orEmpty().filter { it.id in ids }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** The forum of this list whose topics are shown, null for none. */
     private val forumChatId = MutableStateFlow<Long?>(null)
@@ -122,6 +134,7 @@ class ChatListViewModel(
         )
 
     fun toggleSelection(chatId: Long) {
+        if (selectionBusy.value) return
         selectedChatIds.update {
             when (chatId in it) {
                 true -> it - chatId
@@ -131,7 +144,102 @@ class ChatListViewModel(
     }
 
     fun clearSelection() {
+        if (selectionBusy.value) return
         selectedChatIds.value = setOf()
+    }
+
+    fun performSelection(action: ChatBulkAction) {
+        val selected = selectedChats.value.toList()
+        if (selectionBusy.value || selected.isEmpty()) return
+        if (action == ChatBulkAction.CLEAR && com.github.borz7zy.shadowgram.models.chatHistoryClearAction(selected) == null) return
+        if (action == ChatBulkAction.REMOVE_FOLDER) {
+            val folder = chatListKey as? ChatListKey.Folder ?: return
+            editFolder(folder.id, remove = true)
+            return
+        }
+        selectionBusy.value = true
+        viewModelScope.launch {
+            val current = client.await()
+            val failed = mutableSetOf<Long>()
+            val mute = selected.any { !it.isMuted }
+            val pin = selected.any { !it.isPinned }
+            try {
+                for (chat in selected) {
+                    val result: Result<out TdApi.Object, TdApi.Error> = when (action) {
+                        ChatBulkAction.ARCHIVE -> current.send(TdApi.AddChatToList(chat.id,
+                            if (chatListKey == ChatListKey.Archive) TdApi.ChatListMain() else TdApi.ChatListArchive()))
+                        ChatBulkAction.PIN -> current.send(TdApi.ToggleChatIsPinned(chatListKey.toTdApi(), chat.id, pin))
+                        ChatBulkAction.UNREAD -> current.send(TdApi.ToggleChatIsMarkedAsUnread(chat.id, true))
+                        ChatBulkAction.MUTE -> {
+                            when (val response = current.send(TdApi.GetChat(chat.id))) {
+                                is Result.Failure -> response
+                                is Result.Success -> current.send(TdApi.SetChatNotificationSettings(chat.id, response.data.notificationSettings.apply {
+                                    useDefaultMuteFor = false
+                                    muteFor = if (mute) Int.MAX_VALUE else 0
+                                }))
+                            }
+                        }
+                        ChatBulkAction.DELETE -> {
+                            when (val response = current.send(TdApi.GetChat(chat.id))) {
+                                is Result.Failure -> response
+                                is Result.Success -> when (response.data.type) {
+                                    is TdApi.ChatTypeSupergroup -> current.send(TdApi.LeaveChat(chat.id))
+                                    is TdApi.ChatTypeBasicGroup -> {
+                                        when (val left = current.send(TdApi.LeaveChat(chat.id))) {
+                                            is Result.Failure -> left
+                                            is Result.Success -> current.send(TdApi.DeleteChatHistory(chat.id, true, false))
+                                        }
+                                    }
+                                    else -> current.send(TdApi.DeleteChatHistory(chat.id, true, false))
+                                }
+                            }
+                        }
+                        ChatBulkAction.CLEAR -> if (chat.clearsCacheOnly) current.send(TdApi.OptimizeStorage(
+                            0, 0, 0, 0, null, longArrayOf(chat.id), null, true, 0
+                        )) else current.send(TdApi.DeleteChatHistory(chat.id, false, false))
+                        ChatBulkAction.REMOVE_FOLDER -> error("Handled above")
+                    }
+                    if (result is Result.Failure) {
+                        failed += chat.id
+                        errorsChannel.send(TelegramErrorText.message(getApplication(), result.error))
+                    }
+                }
+                selectedChatIds.value = failed
+            } finally { selectionBusy.value = false }
+        }
+    }
+
+    fun addSelectionToFolder(folderId: Int) = editFolder(folderId, remove = false)
+
+    private fun editFolder(folderId: Int, remove: Boolean) {
+        if (selectionBusy.value) return
+        val ids = selectedChats.value.map { it.id }.toSet()
+        if (ids.isEmpty()) return
+        selectionBusy.value = true
+        viewModelScope.launch {
+            try {
+                val current = client.await()
+                val result = when (val response = current.send(TdApi.GetChatFolder(folderId))) {
+                    is Result.Failure -> response
+                    is Result.Success -> {
+                        val folder = response.data
+                        if (remove) {
+                            folder.pinnedChatIds = folder.pinnedChatIds.filterNot { it in ids }.toLongArray()
+                            folder.includedChatIds = folder.includedChatIds.filterNot { it in ids }.toLongArray()
+                            folder.excludedChatIds = (folder.excludedChatIds.toList() + ids).distinct().toLongArray()
+                        } else {
+                            folder.excludedChatIds = folder.excludedChatIds.filterNot { it in ids }.toLongArray()
+                            folder.includedChatIds = (folder.includedChatIds.toList() + ids.filterNot { it in folder.pinnedChatIds }).distinct().toLongArray()
+                        }
+                        current.send(TdApi.EditChatFolder(folderId, folder))
+                    }
+                }
+                when (result) {
+                    is Result.Success -> selectedChatIds.value = emptySet()
+                    is Result.Failure -> errorsChannel.send(TelegramErrorText.message(getApplication(), result.error))
+                }
+            } finally { selectionBusy.value = false }
+        }
     }
 
     /**
