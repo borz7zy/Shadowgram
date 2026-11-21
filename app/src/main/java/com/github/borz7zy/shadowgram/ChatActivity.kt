@@ -27,7 +27,7 @@ class ChatActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             val app = application as ShadowgramApplication
-            val switched = app.accountsRepository.activateNotificationAccount(accountId)
+            val switched = app.accountsRepository.activateAccount(accountId)
             if (switched == null) {
                 startActivity(Intent(this@ChatActivity, LauncherActivity::class.java))
                 finish()

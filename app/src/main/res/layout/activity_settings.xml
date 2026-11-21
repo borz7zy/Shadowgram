@@ -9,23 +9,29 @@
     android:id="@+id/coordinatorLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="?attr/colorSurfaceContainer"
     tools:context=".SettingsActivity">
 
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/appBarLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:fitsSystemWindows="true"
-        app:liftOnScrollTargetViewId="@+id/settings">
+        android:background="?attr/colorSurfaceContainer"
+        android:fitsSystemWindows="true">
 
         <com.google.android.material.appbar.CollapsingToolbarLayout
+            android:id="@+id/settings_collapsing_toolbar"
             style="?attr/collapsingToolbarLayoutLargeStyle"
             android:layout_width="match_parent"
-            android:layout_height="179dp"
-            app:expandedTitleMarginBottom="31dp"
-            app:expandedTitleMarginStart="24dp"
-            app:expandedTitleTextAppearance="?attr/textAppearanceDisplaySmall"
+            android:layout_height="136dp"
+            app:contentScrim="?attr/colorSurfaceContainer"
+            app:expandedTitleMarginBottom="14dp"
+            app:expandedTitleMarginEnd="20dp"
+            app:expandedTitleMarginStart="20dp"
+            app:expandedTitleTextAppearance="?attr/textAppearanceHeadlineLarge"
             app:layout_scrollFlags="scroll|exitUntilCollapsed|snap"
+            app:statusBarScrim="?attr/colorSurfaceContainer"
+            app:title="@string/title_activity_settings"
             app:titleCollapseMode="fade"
             app:toolbarId="@id/toolbar">
 
@@ -34,7 +40,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="?actionBarSize"
                 android:elevation="0dp"
-                app:layout_collapseMode="pin" />
+                android:theme="@style/ThemeOverlay.Shadowgram.SettingsToolbar"
+                app:layout_collapseMode="pin"
+                app:navigationContentDescription="@string/settings_navigate_back"
+                app:navigationIcon="@drawable/ic_arrow_back"
+                app:navigationIconTint="?attr/colorOnSurfaceVariant" />
 
         </com.google.android.material.appbar.CollapsingToolbarLayout>
 

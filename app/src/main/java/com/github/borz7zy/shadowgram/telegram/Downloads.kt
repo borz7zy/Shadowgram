@@ -35,6 +35,7 @@ object Downloads {
     data class Saveable(val file: TdApi.File, val name: String, val mimeType: String)
 
     private const val LOG_TAG = "Downloads"
+    private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
     /** Asked for by a tap, before the pictures on screen. */
     private const val PRIORITY = 32
 
@@ -57,40 +58,54 @@ object Downloads {
     }
 
     /**
-     * A downloaded file: the system asks what to do with it every time, the apps that open it
-     * and the ones it can be sent to, never a remembered default app.
+     * Opens downloaded APKs in Android's installer and other documents in the file chooser.
      *
-     * @param context An activity's, the chooser starts from it
+     * @param context An activity's, so Android can attribute the install request to this app.
      */
     private suspend fun open(context: Context, document: MessageItem.Document) {
         val path = document.path ?: return
-        val (uri, mimeType) = withContext(Dispatchers.IO) {
-            val uri = FileProvider.getUriForFile(
-                context.applicationContext, "${context.packageName}.files", File(path)
-            )
-            val mimeType = MimeTypeMap.getSingleton()
-                .getMimeTypeFromExtension(File(document.name).extension.lowercase()) ?: "*/*"
-            uri to mimeType
-        }
-        val send = Intent(Intent.ACTION_SEND)
-            .setType(mimeType)
-            .putExtra(Intent.EXTRA_STREAM, uri)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        val chooser = Intent.createChooser(
-            Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, mimeType)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-            document.name,
-        )
-        // A protected chat's file is only viewed
-        if (document.canBeSaved) {
-            chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(send))
+        if (document.isApk && !document.canBeSaved) {
+            Toast.makeText(context, R.string.document_install_protected, Toast.LENGTH_SHORT).show()
+            return
         }
         try {
+            val uri = withContext(Dispatchers.IO) {
+                FileProvider.getUriForFile(
+                    context.applicationContext, "${context.packageName}.files", File(path)
+                )
+            }
+            val mimeType = if (document.isApk) APK_MIME_TYPE else MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(File(document.name).extension.lowercase()) ?: "*/*"
+            val view = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, mimeType)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (document.isApk) {
+                context.startActivity(view)
+                return
+            }
+
+            val chooser = Intent.createChooser(view, document.name)
+            if (document.canBeSaved) {
+                val send = Intent(Intent.ACTION_SEND)
+                    .setType(mimeType)
+                    .putExtra(Intent.EXTRA_STREAM, uri)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(send))
+            }
             context.startActivity(chooser)
-        } catch (e: ActivityNotFoundException) {
-            Toast.makeText(context, R.string.document_no_app, Toast.LENGTH_SHORT).show()
+        } catch (_: ActivityNotFoundException) {
+            val error = if (document.isApk) R.string.document_install_failed else R.string.document_no_app
+            Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+        } catch (_: SecurityException) {
+            showOpenError(context, document)
+        } catch (_: IllegalArgumentException) {
+            showOpenError(context, document)
         }
+    }
+
+    private fun showOpenError(context: Context, document: MessageItem.Document) {
+        val error = if (document.isApk) R.string.document_install_failed else R.string.document_open_failed
+        Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
     }
 
     /** [document] as the bubbles and rows show it, [file] the latest state of its file. */
@@ -102,6 +117,9 @@ object Downloads {
         isDownloading = file.local.isDownloadingActive,
         path = file.local.path.takeIf { file.local.isDownloadingCompleted },
         canBeSaved = canBeSaved,
+        isApk = document.mimeType.equals(APK_MIME_TYPE, ignoreCase = true) ||
+            document.fileName.endsWith(".apk", ignoreCase = true) ||
+            file.local.path.endsWith(".apk", ignoreCase = true),
     )
 
     /** The file of [message] that can be saved, null for messages without one or protected. */

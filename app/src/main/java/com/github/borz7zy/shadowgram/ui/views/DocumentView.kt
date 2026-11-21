@@ -78,6 +78,8 @@ class DocumentView @JvmOverloads constructor(
         }
 
         val (icon, description) = when {
+            document.path != null && document.isApk && document.canBeSaved ->
+                R.drawable.ic_draft to R.string.document_install
             document.path != null -> R.drawable.ic_draft to R.string.document_open
             document.isDownloading -> R.drawable.ic_close to R.string.document_cancel
             else -> R.drawable.ic_download to R.string.document_download

@@ -9,7 +9,7 @@
     <string name="create_new_chat">Создать новый чат</string>
     <string name="stories_material_button_appbar">Истории</string>
     <string name="accounts_header">Аккаунты</string>
-    <string name="add_account">Добавить аккаунты</string>
+    <string name="add_account">Добавить аккаунт</string>
     <string name="sign_in">Вход</string>
     <string name="auth_phone_number_hint">Номер телефона</string>
     <string name="auth_code_hint">Код</string>
@@ -24,6 +24,10 @@
     <string name="message_voice_note">Голосовое сообщение</string>
     <string name="message_audio">Аудио</string>
     <string name="message_document">Файл</string>
+    <string name="document_open_failed">Не удалось открыть файл</string>
+    <string name="document_install">Установить APK</string>
+    <string name="document_install_failed">Не удалось открыть установщик Android</string>
+    <string name="document_install_protected">Установка APK из защищённых сообщений недоступна</string>
     <string name="message_sticker">Стикер</string>
     <string name="message_poll">Голосование</string>
     <string name="message_location">Местоположение</string>

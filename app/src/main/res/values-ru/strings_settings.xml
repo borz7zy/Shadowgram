@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_navigate_back">Назад</string>
+    <string name="settings_search_hint">Поиск по настройкам</string>
+    <string name="settings_search_empty">Ничего не найдено</string>
+    <string name="settings_accounts_summary">Переключение и добавление аккаунтов</string>
+    <string name="settings_current_accounts">Текущие аккаунты</string>
+    <string name="settings_account_actions">Управление аккаунтами</string>
+    <string name="settings_accounts_loading">Загрузка аккаунтов…</string>
+    <string name="settings_accounts_empty">Нет добавленных аккаунтов</string>
+    <string name="settings_account_number">Аккаунт %1$d</string>
+    <string name="settings_account_active">Активный аккаунт</string>
+    <string name="settings_account_active_detail">%1$s · Активный аккаунт</string>
+    <string name="settings_account_switch_failed">Не удалось переключить аккаунт. Попробуйте ещё раз.</string>
+    <string name="settings_interface_header">Интерфейс</string>
+    <string name="settings_screen_header">Экран</string>
+    <string name="settings_audio_header">Аудио</string>
+    <string name="settings_audio_summary">Воспроизведение, локальные медиа и экспериментальные настройки</string>
+    <string name="settings_playback_header">Воспроизведение</string>
+    <string name="settings_local_media_header">Локальные медиа</string>
+    <string name="settings_add_account_summary">Войти в другой аккаунт Telegram</string>
+    <string name="experimental_header">Экспериментальные</string>
+
+    <string name="fullscreen_mode">Полноэкранный режим</string>
+    <string name="fullscreen_mode_summary">Не рекомендуется к использованию. Скрывает строку состояния и панель навигации.</string>
+    <string name="enable_offload">Аппаратная разгрузка аудио</string>
+    <string name="enable_offload_summary">Снижает расход батареи при воспроизведении. Отключите при проблемах со звуком или эффектами.</string>
+    <string name="enable_float_output">32-битный вывод звука</string>
+    <string name="enable_float_output_summary">Использует PCM с плавающей точкой для подходящих записей. В этом режиме недоступна регулировка скорости и высоты звука. Требуется перезапуск приложения.</string>
+    <string name="stop_playback_on_task_removed">Останавливать воспроизведение</string>
+    <string name="stop_playback_on_task_removed_summary">Останавливает звук, если убрать Shadowgram из списка недавних приложений.</string>
+    <string name="skip_silence">Пропускать тишину</string>
+    <string name="skip_silence_summary">Пропускает паузы при воспроизведении аудио.</string>
+
+    <string name="reset_local_stats">Сбросить статистику воспроизведения</string>
+    <string name="reset_local_stats_confirm_title">Сброс статистики</string>
+    <string name="reset_local_stats_confirm_message">Сбросить всю статистику воспроизведения локальных медиа? Это действие нельзя отменить.</string>
+    <string name="reset_local_stats_confirm_positive">Сбросить</string>
+    <string name="reset_local_stats_success">Статистика воспроизведения сброшена</string>
+
+    <string name="rescan_media_store">Пересканировать медиатеку</string>
+    <string name="rescan_media_store_confirm_title">Пересканирование медиатеки</string>
+    <string name="rescan_media_store_confirm_message">Запустить повторное сканирование MediaStore? Это может помочь, если в медиатеке не видно некоторых файлов.</string>
+    <string name="rescan_media_store_confirm_positive">Сканировать</string>
+    <string name="rescan_media_store_started">Сканирование медиатеки запущено</string>
+
+    <string name="split_local_devices">Разделять хранилища</string>
+    <string name="split_local_devices_summary">Внутренняя память, SD-карты и USB-устройства отображаются как отдельные источники медиа.</string>
+</resources>

@@ -4,93 +4,135 @@
      SPDX-License-Identifier: Apache-2.0
 -->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto">
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    app:key="settings_home">
 
-    <PreferenceCategory
-        app:iconSpaceReserved="false"
+    <PreferenceScreen
+        app:icon="@drawable/ic_person"
+        app:key="settings_accounts"
+        app:summary="@string/settings_accounts_summary"
         app:title="@string/accounts_header">
 
-        <Preference
-            app:iconSpaceReserved="false"
-            app:key="add_account"
-            app:title="@string/add_account">
+        <PreferenceCategory
+            app:key="settings_current_accounts"
+            app:title="@string/settings_current_accounts" />
 
-            <intent
-                android:targetClass="com.github.borz7zy.shadowgram.AuthActivity"
-                android:targetPackage="com.github.borz7zy.shadowgram">
+        <PreferenceCategory
+            app:key="settings_account_actions"
+            app:title="@string/settings_account_actions">
 
-                <extra
-                    android:name="add_account"
-                    android:value="true" />
+            <com.github.borz7zy.shadowgram.ui.SettingsActionPreference
+                app:icon="@drawable/ic_person_add"
+                app:key="add_account"
+                app:summary="@string/settings_add_account_summary"
+                app:title="@string/add_account">
 
-            </intent>
+                <intent
+                    android:targetClass="com.github.borz7zy.shadowgram.AuthActivity"
+                    android:targetPackage="com.github.borz7zy.shadowgram">
 
-        </Preference>
+                    <extra
+                        android:name="add_account"
+                        android:value="true" />
 
-    </PreferenceCategory>
+                </intent>
 
-    <PreferenceCategory
-        app:iconSpaceReserved="false"
-        app:title="@string/general_header">
+            </com.github.borz7zy.shadowgram.ui.SettingsActionPreference>
 
-        <SwitchPreference
-            app:defaultValue="false"
-            app:iconSpaceReserved="false"
-            app:key="fullscreen_mode"
-            app:summary="@string/fullscreen_mode_summary"
-            app:title="@string/fullscreen_mode" />
+        </PreferenceCategory>
 
-        <SwitchPreference
-            app:defaultValue="true"
-            app:iconSpaceReserved="false"
-            app:key="enable_offload"
-            app:summary="@string/enable_offload_summary"
-            app:title="@string/enable_offload" />
+    </PreferenceScreen>
 
-        <SwitchPreference
-            app:defaultValue="true"
-            app:iconSpaceReserved="false"
-            app:key="enable_float_output"
-            app:summary="@string/enable_float_output_summary"
-            app:title="@string/enable_float_output" />
+    <PreferenceScreen
+        app:icon="@drawable/ic_smartphone"
+        app:key="settings_interface"
+        app:summary="@string/fullscreen_mode"
+        app:title="@string/settings_interface_header">
 
-        <SwitchPreference
-            app:defaultValue="true"
-            app:iconSpaceReserved="false"
-            app:key="stop_playback_on_task_removed"
-            app:summary="@string/stop_playback_on_task_removed_summary"
-            app:title="@string/stop_playback_on_task_removed" />
+        <PreferenceCategory
+            app:key="settings_screen"
+            app:title="@string/settings_screen_header">
 
-        <SwitchPreference
-            app:defaultValue="false"
-            app:iconSpaceReserved="false"
-            app:key="skip_silence"
-            app:summary="@string/skip_silence_summary"
-            app:title="@string/skip_silence" />
+            <com.github.borz7zy.shadowgram.ui.SettingsSwitchPreference
+                app:defaultValue="false"
+                app:icon="@drawable/ic_expand_content"
+                app:key="fullscreen_mode"
+                app:summary="@string/fullscreen_mode_summary"
+                app:title="@string/fullscreen_mode" />
 
-        <Preference
-            app:iconSpaceReserved="false"
-            app:key="reset_local_stats"
-            app:title="@string/reset_local_stats" />
+        </PreferenceCategory>
 
-        <Preference
-            app:iconSpaceReserved="false"
-            app:key="rescan_media_store"
-            app:title="@string/rescan_media_store" />
+    </PreferenceScreen>
 
-    </PreferenceCategory>
+    <PreferenceScreen
+        app:icon="@drawable/ic_headphones"
+        app:key="settings_audio"
+        app:summary="@string/settings_audio_summary"
+        app:title="@string/settings_audio_header">
 
-    <PreferenceCategory
-        app:iconSpaceReserved="false"
-        app:title="@string/experimental_header">
+        <PreferenceCategory
+            app:key="settings_playback"
+            app:title="@string/settings_playback_header">
 
-        <SwitchPreference
-            app:defaultValue="false"
-            app:iconSpaceReserved="false"
-            app:key="split_local_devices"
-            app:summary="@string/split_local_devices_summary"
-            app:title="@string/split_local_devices" />
+            <com.github.borz7zy.shadowgram.ui.SettingsSwitchPreference
+                app:defaultValue="true"
+                app:icon="@drawable/ic_audiofx"
+                app:key="enable_offload"
+                app:summary="@string/enable_offload_summary"
+                app:title="@string/enable_offload" />
 
-    </PreferenceCategory>
+            <com.github.borz7zy.shadowgram.ui.SettingsSwitchPreference
+                app:defaultValue="true"
+                app:icon="@drawable/ic_high_res"
+                app:key="enable_float_output"
+                app:summary="@string/enable_float_output_summary"
+                app:title="@string/enable_float_output" />
+
+            <com.github.borz7zy.shadowgram.ui.SettingsSwitchPreference
+                app:defaultValue="true"
+                app:icon="@drawable/ic_pause"
+                app:key="stop_playback_on_task_removed"
+                app:summary="@string/stop_playback_on_task_removed_summary"
+                app:title="@string/stop_playback_on_task_removed" />
+
+            <com.github.borz7zy.shadowgram.ui.SettingsSwitchPreference
+                app:defaultValue="false"
+                app:icon="@drawable/ic_skip_next"
+                app:key="skip_silence"
+                app:summary="@string/skip_silence_summary"
+                app:title="@string/skip_silence" />
+
+        </PreferenceCategory>
+
+        <PreferenceCategory
+            app:key="settings_local_media"
+            app:title="@string/settings_local_media_header">
+
+            <com.github.borz7zy.shadowgram.ui.SettingsActionPreference
+                app:icon="@drawable/ic_delete"
+                app:key="reset_local_stats"
+                app:title="@string/reset_local_stats" />
+
+            <com.github.borz7zy.shadowgram.ui.SettingsActionPreference
+                app:icon="@drawable/ic_sync"
+                app:key="rescan_media_store"
+                app:title="@string/rescan_media_store" />
+
+        </PreferenceCategory>
+
+        <PreferenceCategory
+            app:key="settings_experimental"
+            app:title="@string/experimental_header">
+
+            <com.github.borz7zy.shadowgram.ui.SettingsSwitchPreference
+                app:defaultValue="false"
+                app:icon="@drawable/ic_usb"
+                app:key="split_local_devices"
+                app:summary="@string/split_local_devices_summary"
+                app:title="@string/split_local_devices" />
+
+        </PreferenceCategory>
+
+    </PreferenceScreen>
 
 </PreferenceScreen>

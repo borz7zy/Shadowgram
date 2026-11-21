@@ -139,6 +139,7 @@ data class MessageItem(
         val path: String?,
         /** False in protected chats: viewed only, never handed to "Send to…". */
         val canBeSaved: Boolean,
+        val isApk: Boolean,
     )
 
     /**

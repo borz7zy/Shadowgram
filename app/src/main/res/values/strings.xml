@@ -231,7 +231,11 @@
     <string name="document_download">Download</string>
     <string name="document_cancel">Cancel download</string>
     <string name="document_open">Open</string>
+    <string name="document_open_failed">Couldn’t open the file</string>
     <string name="document_no_app">No app can open this file</string>
+    <string name="document_install">Install APK</string>
+    <string name="document_install_failed">Couldn’t open the Android installer</string>
+    <string name="document_install_protected">You can’t install APKs from protected messages</string>
     <string name="downloads_saved">Saved to Downloads</string>
     <string name="downloads_failed">Couldn\'t save to Downloads</string>
 

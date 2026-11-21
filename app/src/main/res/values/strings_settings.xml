@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_navigate_back">Back</string>
+    <string name="settings_search_hint">Search settings</string>
+    <string name="settings_search_empty">No matching settings</string>
+    <string name="settings_accounts_summary">Switch or add an account</string>
+    <string name="settings_current_accounts">Signed-in accounts</string>
+    <string name="settings_account_actions">Manage accounts</string>
+    <string name="settings_accounts_loading">Loading accounts…</string>
+    <string name="settings_accounts_empty">No signed-in accounts</string>
+    <string name="settings_account_number">Account %1$d</string>
+    <string name="settings_account_active">Active account</string>
+    <string name="settings_account_active_detail">%1$s · Active account</string>
+    <string name="settings_account_switch_failed">Couldn’t switch accounts. Try again.</string>
+    <string name="settings_interface_header">Interface</string>
+    <string name="settings_screen_header">Display</string>
+    <string name="settings_audio_header">Audio</string>
+    <string name="settings_audio_summary">Playback, local media, experimental settings</string>
+    <string name="settings_playback_header">Playback</string>
+    <string name="settings_local_media_header">Local media</string>
+    <string name="settings_add_account_summary">Sign in to another Telegram account</string>
+</resources>

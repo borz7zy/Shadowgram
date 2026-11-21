@@ -14,11 +14,13 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import com.github.borz7zy.shadowgram.BuildConfig
 import com.github.borz7zy.shadowgram.models.Result
 import com.github.borz7zy.shadowgram.models.Result.Companion.getOrNull
@@ -86,6 +88,21 @@ class AccountsRepository(
      */
     suspend fun newAccountClient() = client { newAccountId }
 
+    data class SavedAccount(val id: Int, val isActive: Boolean, val user: TdApi.User?)
+
+    suspend fun savedAccounts(): List<SavedAccount> = withContext(Dispatchers.IO) {
+        val (ids, activeId) = clientsMutex.withLock { accountIds.sorted() to activeAccountId }
+        ids.map { id ->
+            async {
+                val user = withTimeoutOrNull(3_000) {
+                    val client = signedInClient(id) ?: return@withTimeoutOrNull null
+                    if (client.isAuthorized()) client.send(TdApi.GetMe()).getOrNull() else null
+                }
+                SavedAccount(id, id == activeId, user)
+            }
+        }.awaitAll()
+    }
+
     internal suspend fun signedInClients(receiverId: Long = 0): Map<Int, TelegramClient> =
         withContext(Dispatchers.IO) {
             tdlib.await()
@@ -113,16 +130,23 @@ class AccountsRepository(
             }
         }
 
-    /** Returns null for a stale notification and true if the UI must reopen for another account. */
-    internal suspend fun activateNotificationAccount(accountId: Int): Boolean? = withContext(Dispatchers.IO) {
-        val client = signedInClient(accountId) ?: return@withContext null
-        if (!client.isAuthorized()) return@withContext null
-        clientsMutex.withLock {
-            if (accountId !in accountIds || client.authorizationState.value !is TdApi.AuthorizationStateReady) {
+    /** Returns null for an unavailable account and true if the UI must reopen for another account. */
+    internal suspend fun activateAccount(
+        accountId: Int,
+        authorizationTimeoutMillis: Long = Long.MAX_VALUE,
+    ): Boolean? {
+        val client = withTimeoutOrNull(authorizationTimeoutMillis) {
+            signedInClient(accountId)?.takeIf { it.isAuthorized() }
+        } ?: return null
+
+        return clientsMutex.withLock {
+            if (clients[accountId] !== client || accountId !in accountIds ||
+                client.authorizationState.value !is TdApi.AuthorizationStateReady
+            ) {
                 return@withLock null
             }
             val changed = activeAccountId != accountId
-            if (changed) sharedPreferences.edit(commit = true) { putInt(ACTIVE_ACCOUNT_ID_KEY, accountId) }
+            if (changed) sharedPreferences.edit { putInt(ACTIVE_ACCOUNT_ID_KEY, accountId) }
             changed
         }
     }
