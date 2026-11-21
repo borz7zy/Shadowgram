@@ -48,6 +48,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.children
 import androidx.core.view.descendants
+import androidx.core.view.doOnLayout
 import androidx.core.view.doOnNextLayout
 import androidx.core.view.drawToBitmap
 import androidx.core.view.isVisible
@@ -457,10 +458,10 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         }
         selectionForwardButton.setOnClickListener { forwardSelection() }
         selectionReplyButton.setOnClickListener {
-            viewModel.selectedMessages.value.values.singleOrNull()?.let { message ->
-                viewModel.clearMessageSelection()
-                replyTo(message, null, 0)
-            }
+            val message = viewModel.selectedMessages.value.values.singleOrNull() ?: return@setOnClickListener
+            viewModel.clearMessageSelection()
+            renderMessageSelection()
+            replyTo(message, null, 0)
         }
         channelMuteButton.setOnClickListener { viewModel.toggleMute() }
         requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, selectionBackCallback)
@@ -934,10 +935,14 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         if (viewModel.selectionBusy.value) return
         val ids = viewModel.selectedMessages.value.keys.sorted().toLongArray()
         if (viewModel.header.value?.chat?.hasProtectedContent == true || ids.isEmpty() || ids.any { viewModel.selectionProperties.value[it]?.canBeForwarded != true }) return
-        findNavController().navigateSafe(R.id.fragment_chat_picker, ChatPickerFragment.createForwardBundle(
-            requireArguments().getLong(ChatViewModel.ARG_CHAT_ID), ids,
-        ))
-        viewModel.clearMessageSelection()
+        val navController = findNavController()
+        navController.navigateSafe(
+            R.id.action_chatFragment_to_fragment_chat_picker,
+            ChatPickerFragment.createForwardBundle(requireArguments().getLong(ChatViewModel.ARG_CHAT_ID), ids),
+        )
+        if (navController.currentDestination?.id == R.id.chatPickerFragment) {
+            viewModel.clearMessageSelection()
+        }
     }
 
     private fun copySelection() {
@@ -1267,9 +1272,9 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 quotePosition,
             )
         )
-        messageEditText.requestFocus()
-        androidx.core.view.WindowCompat.getInsetsController(requireActivity().window, messageEditText)
-            .show(androidx.core.view.WindowInsetsCompat.Type.ime())
+        composerLinearLayout.doOnLayout { composer ->
+            if (composer.isShown) panels?.showKeyboard()
+        }
     }
 
     /** Go to [messageId] in the chat and flash it, marking its [quote] when there's one. */

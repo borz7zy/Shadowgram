@@ -54,6 +54,10 @@
             android:id="@+id/action_chatFragment_to_messageMenuDialogFragment"
             app:destination="@id/messageMenuDialogFragment" />
 
+        <action
+            android:id="@+id/action_chatFragment_to_fragment_chat_picker"
+            app:destination="@id/fragment_chat_picker" />
+
         <!-- The top bar, a sender's name or avatar -->
         <action
             android:id="@+id/action_chatFragment_to_profileFragment"
@@ -121,6 +125,10 @@
         <action
             android:id="@+id/action_chatFragment_to_messageMenuDialogFragment"
             app:destination="@id/messageMenuDialogFragment" />
+
+        <action
+            android:id="@id/action_chatFragment_to_fragment_chat_picker"
+            app:destination="@id/fragment_chat_picker" />
 
         <action
             android:id="@+id/action_chatFragment_to_profileFragment"
