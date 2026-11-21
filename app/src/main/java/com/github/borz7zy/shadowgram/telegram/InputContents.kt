@@ -74,6 +74,7 @@ object InputContents {
         uri: Uri,
         asFile: Boolean,
         caption: String?,
+        preferAudio: Boolean = false,
     ): TdApi.InputMessageContent? = withContext(Dispatchers.IO) {
         val file = copy(context, uri) ?: return@withContext null
         // Files of our own (a photo shot in the gallery panel) have no type from the resolver
@@ -84,6 +85,8 @@ object InputContents {
         val text = caption?.takeIf { it.isNotBlank() }?.let { TdApi.FormattedText(it, arrayOf()) }
 
         when {
+            preferAudio && mimeType.startsWith("audio/") -> audio(file, local)
+
             asFile -> document(local, text)
 
             mimeType == "image/gif" -> {
@@ -116,6 +119,15 @@ object InputContents {
 
     private fun document(local: TdApi.InputFile, text: TdApi.FormattedText?) =
         TdApi.InputMessageDocument(TdApi.InputDocument(local, null, false), text)
+
+    private fun audio(file: File, local: TdApi.InputFile) = MediaMetadataRetriever().use { retriever ->
+        retriever.setDataSource(file.absolutePath)
+        val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            ?.toLongOrNull()?.let { ((it + 500) / 1000).toInt() } ?: 0
+        val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE).orEmpty().take(64)
+        val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST).orEmpty().take(64)
+        TdApi.InputMessageAudio(TdApi.InputAudio(local, null, duration, title, artist), null)
+    }
 
     private fun video(
         file: File,
@@ -176,6 +188,7 @@ object InputContents {
             uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
         )?.use { if (it.moveToFirst()) it.getString(0) else null }
             ?.replace('/', '_')
+            ?: uri.takeIf { it.scheme == "file" }?.lastPathSegment
             ?: "file"
         val directory = File(context.cacheDir, "outgoing/${System.nanoTime()}").apply { mkdirs() }
         val file = File(directory, name)

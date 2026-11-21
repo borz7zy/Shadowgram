@@ -70,6 +70,7 @@ class MessageMenuDialogFragment : DialogFragment() {
 
     // Views
     private val actionsLinearLayout by getViewProperty<LinearLayout>(R.id.actionsLinearLayout)
+    private val editMaterialButton by getViewProperty<MaterialButton>(R.id.editMaterialButton)
     private val bubbleImageView by getViewProperty<ImageView>(R.id.bubbleImageView)
     private val copyLinkMaterialButton by getViewProperty<MaterialButton>(R.id.copyLinkMaterialButton)
     private val copyMaterialButton by getViewProperty<MaterialButton>(R.id.copyMaterialButton)
@@ -149,6 +150,12 @@ class MessageMenuDialogFragment : DialogFragment() {
 
         val text = requireArguments().getString(MessageMenuViewModel.ARG_TEXT)
         replyMaterialButton.setOnClickListener { close(bundleOf(KEY_ACTION to ACTION_REPLY)) }
+        editMaterialButton.setOnClickListener {
+            close(bundleOf(
+                KEY_ACTION to ACTION_EDIT,
+                KEY_MESSAGE_ID to requireArguments().getLong(MessageMenuViewModel.ARG_MESSAGE_ID),
+            ))
+        }
         copyMaterialButton.setOnClickListener {
             requireContext().getSystemService(ClipboardManager::class.java)
                 .setPrimaryClip(ClipData.newPlainText(null, text))
@@ -217,13 +224,14 @@ class MessageMenuDialogFragment : DialogFragment() {
 
     private fun bind(state: MessageMenuViewModel.State, text: String?) {
         val properties = state.properties
-        // A scheduled message can only go now or be deleted, nobody saw it to react to it
+        // Scheduled messages have no audience yet to reply or react to them.
         val isScheduled = requireArguments().getBoolean(ARG_SCHEDULED)
         canQuote = !isScheduled && properties?.canBeReplied == true
         canCopyPart = properties?.canBeCopied == true
         textView?.isVisible = !isClosing && (canQuote || canCopyPart)
         sendNowMaterialButton.isVisible = isScheduled
         replyMaterialButton.isVisible = !isScheduled && properties?.canBeReplied == true
+        editMaterialButton.isVisible = state.canEdit
         // Protected content can't be copied or forwarded: nothing until TDLib says it can
         copyMaterialButton.isVisible = !text.isNullOrEmpty() && properties?.canBeCopied == true
         copyLinkMaterialButton.isVisible = properties?.canGetLink == true
@@ -235,7 +243,7 @@ class MessageMenuDialogFragment : DialogFragment() {
         deleteMaterialButton.isVisible = properties?.canBeDeletedOnlyForSelf == true
                 || properties?.canBeDeletedForAllUsers == true
         actionsLinearLayout.isVisible = !isExpanded && (sendNowMaterialButton.isVisible
-                || replyMaterialButton.isVisible || copyMaterialButton.isVisible
+                || replyMaterialButton.isVisible || editMaterialButton.isVisible || copyMaterialButton.isVisible
                 || copyLinkMaterialButton.isVisible || forwardMaterialButton.isVisible
                 || pinMaterialButton.isVisible
                 || saveMaterialButton.isVisible
@@ -580,11 +588,13 @@ class MessageMenuDialogFragment : DialogFragment() {
         /** The menu shows the bubble's picture, the chat can hide the bubble. */
         const val REQUEST_KEY_SHOWN = "message_menu_shown"
         const val KEY_ACTION = "action"
+        const val KEY_MESSAGE_ID = "message_id"
         const val KEY_EMOJI = "emoji"
         const val KEY_CUSTOM_EMOJI_ID = "custom_emoji_id"
         const val KEY_CAN_REVOKE = "can_revoke"
 
         const val ACTION_REPLY = "reply"
+        const val ACTION_EDIT = "edit"
         const val ACTION_DELETE = "delete"
         const val ACTION_FORWARD = "forward"
         const val ACTION_SEND_NOW = "send_now"

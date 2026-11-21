@@ -22,19 +22,23 @@ import com.github.borz7zy.shadowgram.models.MessageItem
 import com.github.borz7zy.shadowgram.telegram.ChatHistory
 import com.github.borz7zy.shadowgram.telegram.Downloads
 import com.github.borz7zy.shadowgram.telegram.InputContents
+import com.github.borz7zy.shadowgram.telegram.MessageEdits
 import com.github.borz7zy.shadowgram.telegram.StickersStore
 import com.github.borz7zy.shadowgram.ui.text.CustomEmojiRange
 import com.github.borz7zy.shadowgram.ui.text.MentionRange
 import com.github.borz7zy.shadowgram.videonote.VideoNoteCamera
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -127,6 +131,19 @@ class ChatViewModel(
 
     val selectedMessages = MutableStateFlow<Map<Long, MessageItem>>(emptyMap())
     val selectionProperties = MutableStateFlow<Map<Long, TdApi.MessageProperties>>(emptyMap())
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val editableSelectionId = combine(selectedMessages, selectionProperties) { selected, properties ->
+        val id = selected.keys.singleOrNull() ?: return@combine null
+        properties[id]?.takeIf { it.canBeEdited }?.let { id to it }
+    }
+        .distinctUntilChanged()
+        .mapLatest { selection ->
+            val (id, properties) = selection ?: return@mapLatest null
+            val message = (client.await().send(TdApi.GetMessage(chatId, id)) as? Result.Success)?.data
+            if (message != null && MessageEdits.target(message, properties) != null) id else null
+        }
+        .flowOn(historyDispatcher)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), null)
     val selectionBusy = MutableStateFlow(false)
     private val actionErrorsChannel = Channel<String>(Channel.BUFFERED)
     val actionErrors = actionErrorsChannel.receiveAsFlow()
@@ -404,6 +421,147 @@ class ChatViewModel(
 
     /** Whether [attachments] go grouped into albums. */
     var isGrouped = true
+
+    data class ComposerDraft(val text: TdApi.FormattedText, val start: Int, val end: Int)
+
+    var normalDraft: ComposerDraft? = null
+    var editDraft: ComposerDraft? = null
+    var editPickerMessageId: Long? = null
+    var pendingPhoto: Pair<Uri, Long?>? = null
+
+    data class Edit(
+        val target: MessageEdits.Target,
+        val replacement: InputContents.Picked? = null,
+        val previewPath: String? = null,
+        val isSaving: Boolean = false,
+    )
+
+    private val _edit = MutableStateFlow<Edit?>(null)
+    val edit = _edit.asStateFlow()
+    private var loadEdit: Job? = null
+    private var loadEditPreview: Job? = null
+
+    fun startEditing(messageId: Long) {
+        if (_edit.value?.isSaving == true || _edit.value?.target?.message?.id == messageId) return
+        loadEdit?.cancel()
+        loadEdit = viewModelScope.launch {
+            val target = withContext(historyDispatcher) { editableMessage(messageId) }
+                ?: return@launch editError(R.string.message_edit_unavailable)
+            if (_edit.value?.isSaving == true) return@launch
+
+            loadEditPreview?.cancel()
+            editDraft = null
+            val thumbnail = target.attachment?.thumbnail
+            val path = thumbnail?.local?.takeIf { it.isDownloadingCompleted }?.path
+            _edit.value = Edit(target, previewPath = path)
+            onTyping(isEmpty = true)
+            if (path == null && thumbnail != null) {
+                loadEditPreview = viewModelScope.launch {
+                    val result = withContext(historyDispatcher) {
+                        client.await().send(TdApi.DownloadFile(thumbnail.id, 16, 0, 0, true))
+                    }
+                    val local = (result as? Result.Success)?.data?.local
+                    val current = _edit.value
+                    if (current?.target === target && local?.isDownloadingCompleted == true) {
+                        _edit.value = current.copy(previewPath = local.path)
+                    }
+                }
+            }
+        }
+    }
+
+    fun replaceEditedAttachment(messageId: Long, picked: InputContents.Picked?) {
+        val current = _edit.value ?: return
+        if (current.target.message.id == messageId && current.target.canReplaceMedia && !current.isSaving) {
+            _edit.value = current.copy(replacement = picked)
+        }
+    }
+
+    fun cancelEditing() {
+        if (_edit.value?.isSaving == true) return
+        finishEditing()
+    }
+
+    private fun finishEditing() {
+        loadEdit?.cancel()
+        loadEditPreview?.cancel()
+        _edit.value = null
+        editDraft = null
+    }
+
+    private suspend fun editableMessage(messageId: Long): MessageEdits.Target? {
+        val client = client.await()
+        val message = (client.send(TdApi.GetMessage(chatId, messageId)) as? Result.Success)?.data
+            ?: return null
+        val properties = (client.send(TdApi.GetMessageProperties(chatId, messageId)) as? Result.Success)?.data
+            ?: return null
+        return MessageEdits.target(message, properties)
+    }
+
+    fun saveEdit(text: TdApi.FormattedText) {
+        val current = _edit.value ?: return
+        if (current.isSaving || (!current.target.isCaption && current.replacement == null && text.text.isBlank())) {
+            return
+        }
+        loadEdit?.cancel()
+        _edit.value = current.copy(isSaving = true)
+        viewModelScope.launch {
+            try {
+                if (withContext(historyDispatcher) { submitEdit(current, text) }) finishEditing()
+            } finally {
+                _edit.value?.let { _edit.value = it.copy(isSaving = false) }
+            }
+        }
+    }
+
+    private suspend fun submitEdit(edit: Edit, text: TdApi.FormattedText): Boolean {
+        val original = edit.target.message
+        val target = editableMessage(original.id)
+        if (target == null || target.message.content.constructor != original.content.constructor ||
+            (edit.replacement != null && !target.canReplaceMedia)
+        ) {
+            editError(R.string.message_edit_unavailable)
+            return false
+        }
+        val replacement = edit.replacement?.let {
+            val input = try {
+                InputContents.fromUri(
+                    getApplication(), it.uri, it.asFile, caption = null, preferAudio = target.prefersAudio,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.w(LOG_TAG, "Can't prepare edited attachment", error)
+                null
+            }
+            if (input == null) {
+                editError(R.string.chat_send_unreadable)
+                return false
+            }
+            if (!target.accepts(input)) {
+                editError(R.string.message_edit_album_type)
+                return false
+            }
+            input
+        }
+        val caption = if (text.text.isBlank()) TdApi.FormattedText("", emptyArray()) else text
+        return when (val result = client.await().send(target.request(caption, replacement))) {
+            is Result.Success -> true
+            is Result.Failure -> {
+                if (result.error.message == "MESSAGE_NOT_MODIFIED") return true
+                actionErrorsChannel.send(
+                    getApplication<Application>().getString(
+                        R.string.message_edit_failed, TelegramErrorText.message(getApplication(), result.error),
+                    )
+                )
+                false
+            }
+        }
+    }
+
+    private fun editError(resource: Int) {
+        actionErrorsChannel.trySend(getApplication<Application>().getString(resource))
+    }
 
     /**
      * Send picked files, [caption] on the first. Only now are they read and uploaded.

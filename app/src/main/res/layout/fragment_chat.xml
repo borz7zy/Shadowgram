@@ -341,6 +341,7 @@
                     tools:visibility="visible">
 
                     <ImageView
+                        android:id="@+id/composerContextIcon"
                         android:layout_width="24dp"
                         android:layout_height="24dp"
                         android:importantForAccessibility="no"
@@ -430,6 +431,7 @@
 
                             <com.google.android.material.textfield.TextInputEditText
                                 android:id="@+id/messageEditText"
+                                android:saveEnabled="false"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_gravity="center_vertical"

@@ -99,7 +99,9 @@ import com.github.borz7zy.shadowgram.ui.recyclerview.SenderAvatarDecoration
 import com.github.borz7zy.shadowgram.ui.text.CustomEmojiSpan
 import com.github.borz7zy.shadowgram.ui.text.MentionSpan
 import com.github.borz7zy.shadowgram.ui.text.attachCustomEmoji
+import com.github.borz7zy.shadowgram.ui.text.composerContents
 import com.github.borz7zy.shadowgram.ui.text.customEmojiRanges
+import com.github.borz7zy.shadowgram.ui.text.forComposer
 import com.github.borz7zy.shadowgram.ui.text.mentionRanges
 import com.github.borz7zy.shadowgram.ui.text.removeEmojiUnderCustom
 import com.github.borz7zy.shadowgram.ui.text.stringResId
@@ -155,6 +157,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private val channelMuteButton by getViewProperty<MaterialButton>(R.id.channelMuteButton)
     private val channelMuteContainer by getViewProperty<View>(R.id.channelMuteContainer)
     private val replyLinearLayout by getViewProperty<LinearLayout>(R.id.replyLinearLayout)
+    private val composerContextIcon by getViewProperty<ImageView>(R.id.composerContextIcon)
     private val replyTitleTextView by getViewProperty<TextView>(R.id.replyTitleTextView)
     private val replyTextTextView by getViewProperty<TextView>(R.id.replyTextTextView)
     private val cancelReplyMaterialButton by getViewProperty<MaterialButton>(R.id.cancelReplyMaterialButton)
@@ -199,6 +202,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
 
     /** The sticker keyboard loads the account's stickers the first time it opens. */
     private var isCollectingStickers = false
+    private var composerBound = false
+    private var renderedEdit: ChatViewModel.Edit? = null
 
     /**
      * Redraws emoji whose sprite just loaded; Emoji keeps it weakly. Every text of the rows, not
@@ -220,10 +225,25 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris -> attach(uris, asFiles = true) }
 
-    private var photoUri: Uri? = null
+    private val pickEditMedia = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> replaceFromPicker(uri, asFile = false) }
+
+    private val pickEditFile = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> replaceFromPicker(uri, asFile = true) }
+
     private val takePhoto = registerForActivityResult(
         ActivityResultContracts.TakePicture()
-    ) { isTaken -> photoUri?.takeIf { isTaken }?.let { attach(listOf(it), asFiles = false) } }
+    ) { taken ->
+        val photo = viewModel.pendingPhoto
+        viewModel.pendingPhoto = null
+        if (taken && photo != null) {
+            val (uri, editId) = photo
+            if (editId == null) attach(listOf(uri), asFiles = false)
+            else viewModel.replaceEditedAttachment(editId, InputContents.Picked(uri, asFile = false))
+        }
+    }
 
     private val pickContact = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -402,6 +422,15 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        if (viewModel.normalDraft == null) {
+            savedInstanceState?.getString(STATE_DRAFT)?.let { text ->
+                viewModel.normalDraft = ChatViewModel.ComposerDraft(
+                    TdApi.FormattedText(text, emptyArray()),
+                    savedInstanceState.getInt(STATE_DRAFT_START, text.length),
+                    savedInstanceState.getInt(STATE_DRAFT_END, text.length),
+                )
+            }
+        }
         val emojiReady = (requireContext().applicationContext as ShadowgramApplication).emojiReady
         exitTransition = TransitionInflater.from(requireContext()).inflateTransition(R.transition.profile_window)
         reenterTransition = TransitionInflater.from(requireContext()).inflateTransition(R.transition.profile_window)
@@ -429,14 +458,15 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 insets
             }
         }
-        // Scheduled messages are only looked at here, they're written in the chat
         if (viewModel.isScheduled) {
             composerLinearLayout.isVisible = false
             // Without the composer the list goes down to the navigation bar
             val paddingBottom = recyclerView.paddingBottom
             ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { v, windowInsets ->
                 v.updatePadding(
-                    bottom = paddingBottom + windowInsets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+                    bottom = paddingBottom + if (viewModel.edit.value == null) {
+                        windowInsets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+                    } else 0
                 )
                 windowInsets
             }
@@ -450,6 +480,10 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             when (item.itemId) {
                 R.id.selection_forward, R.id.selection_forward_more -> forwardSelection()
                 R.id.selection_copy -> copySelection()
+                R.id.selection_edit -> viewModel.selectedMessages.value.keys.singleOrNull()?.let {
+                    viewModel.clearMessageSelection()
+                    viewModel.startEditing(it)
+                }
                 R.id.selection_delete -> deleteSelection()
                 R.id.selection_favorite -> viewModel.favoriteSelectedSticker()
                 else -> return@setOnMenuItemClickListener false
@@ -510,11 +544,11 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             if (emojiInitialized) updateComposerEmoji()
             updateSendButton()
             // Not the text a rotation puts back
-            if (isResumed) {
+            if (isResumed && viewModel.edit.value == null) {
                 viewModel.onTyping(it.isNullOrEmpty())
             }
             viewModel.mentionQuery.value = mentionQuery()
-            viewModel.composerText.value = it?.toString().orEmpty()
+            viewModel.composerText.value = if (viewModel.edit.value == null) it?.toString().orEmpty() else ""
         }
 
         // CameraX and both cameras' capabilities, so the recorder opens at once
@@ -545,7 +579,9 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         setFragmentResultListener(MessageMenuDialogFragment.REQUEST_KEY) { _, bundle ->
             onMenuResult(bundle)
         }
-        cancelReplyMaterialButton.setOnClickListener { viewModel.setReply(null) }
+        cancelReplyMaterialButton.setOnClickListener {
+            if (viewModel.edit.value != null) viewModel.cancelEditing() else viewModel.setReply(null)
+        }
 
         setFragmentResultListener(VideoNoteDialogFragment.REQUEST_KEY) { _, bundle ->
             bundle.getString(VideoNoteDialogFragment.KEY_PATH)?.let {
@@ -557,6 +593,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         sendMaterialButton.setOnClickListener { send(null) }
         // When it goes, like the new chat menu
         sendMaterialButton.setOnLongClickListener {
+            if (viewModel.edit.value != null) return@setOnLongClickListener false
             val subtitle = viewModel.header.value?.subtitle
             // Only a user who isn't online now can come online
             sendWhenOnlineMaterialButton.tag = subtitle is ChatHeader.Subtitle.Status
@@ -579,11 +616,13 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             viewLifecycleOwner, sendMenuOnBackPressedCallback
         )
 
+        renderComposer(viewModel.edit.value, viewModel.replyTo.value)
         viewLifecycleOwner.lifecycleScope.launch {
             emojiReady.await()
             Emoji.registerInvalidator(emojiInvalidator)
             emojiInitialized = true
             updateComposerEmoji()
+            renderComposer(viewModel.edit.value, viewModel.replyTo.value)
             updatePinnedBar()
         }
         viewLifecycleOwner.lifecycleScope.launch {
@@ -593,7 +632,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                         it ?: return@collectLatest
                         chatHeaderView.setHeader(it)
                         renderMessageSelection()
-                        scheduledMaterialButton.isVisible = it.chat.hasScheduledMessages
+                        scheduledMaterialButton.isVisible = it.chat.hasScheduledMessages && viewModel.edit.value == null
                         bindJumpButtons(it.chat)
                         // A protected chat: no screenshots, no screen recording
                         when (it.chat.hasProtectedContent) {
@@ -616,6 +655,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                     renderMessageSelection()
                 } }
                 launch { viewModel.selectionProperties.collectLatest { renderMessageSelection() } }
+                launch { viewModel.editableSelectionId.collectLatest { renderMessageSelection() } }
                 launch { viewModel.selectionBusy.collectLatest { renderMessageSelection() } }
                 launch { viewModel.actionErrors.collectLatest { Toast.makeText(context, it, Toast.LENGTH_LONG).show() } }
 
@@ -636,14 +676,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 }
 
                 launch {
-                    emojiReady.await()
-                    viewModel.replyTo.collectLatest { reply ->
-                        replyLinearLayout.isVisible = reply != null
-                        reply ?: return@collectLatest
-                        replyTitleTextView.text = getString(R.string.message_replying_to, reply.name)
-                        replyTextTextView.text = Emoji.replaceEmoji(
-                            reply.text, replyTextTextView.paint.fontMetricsInt, false
-                        )
+                    combine(viewModel.edit, viewModel.replyTo, ::Pair).collect { (edit, reply) ->
+                        renderComposer(edit, reply)
                     }
                 }
             }
@@ -657,6 +691,110 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         messageEditText.attachCustomEmoji()
     }
 
+    private fun rememberComposer() {
+        val text = messageEditText.text?.composerContents() ?: TdApi.FormattedText("", emptyArray())
+        val draft = ChatViewModel.ComposerDraft(text, messageEditText.selectionStart, messageEditText.selectionEnd)
+        val id = renderedEdit?.target?.message?.id
+        when {
+            id == null -> viewModel.normalDraft = draft
+            id == viewModel.edit.value?.target?.message?.id -> viewModel.editDraft = draft
+        }
+    }
+
+    private fun renderComposer(edit: ChatViewModel.Edit?, reply: ChatViewModel.Reply?) {
+        val previous = renderedEdit
+        val initialized = composerBound
+        val modeChanged = previous?.target !== edit?.target
+        if (modeChanged && initialized) rememberComposer()
+        renderedEdit = edit
+        composerBound = true
+        if (!initialized || modeChanged) {
+            if (modeChanged) {
+                setSendMenuOpen(false)
+                panels?.hide()
+            }
+            val draft = if (edit == null) viewModel.normalDraft else viewModel.editDraft
+            val text = draft?.text ?: edit?.target?.text
+            messageEditText.setText(text?.forComposer(messageEditText))
+            val length = messageEditText.length()
+            val start = draft?.start?.coerceIn(0, length) ?: length
+            val end = draft?.end?.coerceIn(0, length) ?: length
+            messageEditText.setSelection(start, end)
+            if (viewModel.isScheduled) ViewCompat.requestApplyInsets(recyclerView)
+        }
+
+        val saving = edit?.isSaving == true
+        val editing = edit != null
+        replyLinearLayout.isVisible = editing || reply != null
+        composerContextIcon.setImageResource(if (editing) R.drawable.ic_edit else R.drawable.ic_reply)
+        val cancelLabel = if (editing) R.string.message_edit_cancel else R.string.message_cancel_reply
+        cancelReplyMaterialButton.contentDescription = getString(cancelLabel)
+        cancelReplyMaterialButton.tooltipText = cancelReplyMaterialButton.contentDescription
+        cancelReplyMaterialButton.isEnabled = !saving
+        replyTitleTextView.text = when {
+            saving -> getString(R.string.message_edit_saving)
+            editing -> getString(R.string.message_editing)
+            reply != null -> getString(R.string.message_replying_to, reply.name)
+            else -> null
+        }
+        val preview = if (edit != null) {
+            edit.target.text.text.takeIf { it.isNotBlank() }
+                ?: edit.target.attachment?.let { getString(it.label) }
+        } else reply?.text
+        replyTextTextView.isVisible = !preview.isNullOrEmpty()
+        replyTextTextView.text = if (emojiInitialized && preview != null) {
+            Emoji.replaceEmoji(preview, replyTextTextView.paint.fontMetricsInt, false)
+        } else preview
+
+        if (!initialized || previous != edit) {
+            val canReplace = edit?.target?.canReplaceMedia == true
+            attachMaterialButton.isVisible = !editing || canReplace
+            attachMaterialButton.isEnabled = !saving
+            messageEditText.isEnabled = !saving
+            emojiMaterialButton.isEnabled = !saving
+            sendMaterialButton.setIconResource(if (editing) R.drawable.ic_check else R.drawable.ic_send)
+            sendMaterialButton.contentDescription = getString(
+                if (editing) R.string.message_edit_save else R.string.chat_send
+            )
+            sendMaterialButton.tooltipText = sendMaterialButton.contentDescription
+            scheduledMaterialButton.isVisible = !editing && viewModel.header.value?.chat?.hasScheduledMessages == true
+            galleryPanelView.singleSelection = editing
+            attachPanelView.showActions(edit?.let(::editAttachmentActions) ?: AttachPanelView.Action.entries.toSet())
+            attachMaterialButton.contentDescription = getString(
+                if (editing) R.string.message_replace_attachment else R.string.chat_attach
+            )
+            attachMaterialButton.tooltipText = attachMaterialButton.contentDescription
+            if (saving) panels?.hide()
+            if (edit == null) {
+                attachmentStripView.setItems(viewModel.attachments)
+            } else {
+                val attachment = edit.target.attachment
+                val name = attachment?.let { it.name?.takeIf(String::isNotBlank) ?: getString(it.label) }
+                val replacement = edit.replacement
+                val action: (() -> Unit)? = when {
+                    saving || !canReplace -> null
+                    replacement != null -> {
+                        { viewModel.replaceEditedAttachment(edit.target.message.id, null) }
+                    }
+                    else -> {
+                        { panels?.show(KeyboardPanels.Panel.ATTACH) }
+                    }
+                }
+                attachmentStripView.showEditAttachment(
+                    name = name.takeIf { replacement == null },
+                    preview = replacement?.uri ?: edit.previewPath?.let { Uri.fromFile(File(it)) },
+                    isReplacement = replacement != null,
+                    action = action,
+                )
+            }
+        }
+        updateSendButton()
+        renderMessageSelection()
+        if (modeChanged && edit != null && !saving) {
+            composerLinearLayout.doOnLayout { if (it.isShown) panels?.showKeyboard() }
+        }
+    }
+
     /** Put what TDLib refused back in the composer, unless something new is there already. */
     private fun onSendFailed(failed: ChatViewModel.Failed) {
         Toast.makeText(
@@ -667,6 +805,17 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             },
             Toast.LENGTH_LONG,
         ).show()
+        if (viewModel.edit.value != null) {
+            if (failed.text != null && viewModel.normalDraft?.text?.text.isNullOrEmpty()) {
+                viewModel.normalDraft = ChatViewModel.ComposerDraft(
+                    TdApi.FormattedText(failed.text, emptyArray()), failed.text.length, failed.text.length,
+                )
+            }
+            if (failed.attachments.isNotEmpty() && viewModel.attachments.isEmpty()) {
+                viewModel.attachments = failed.attachments
+            }
+            return
+        }
         if (failed.text != null && messageEditText.text.isNullOrEmpty()) {
             messageEditText.setText(failed.text)
         }
@@ -688,7 +837,21 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         super.onStop()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (composerBound) rememberComposer()
+        viewModel.normalDraft?.let { draft ->
+            outState.putString(STATE_DRAFT, draft.text.text)
+            outState.putInt(STATE_DRAFT_START, draft.start)
+            outState.putInt(STATE_DRAFT_END, draft.end)
+        }
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onDestroyView() {
+        if (composerBound) rememberComposer()
+        composerBound = false
+        renderedEdit = null
+        isCollectingStickers = false
         menuMessage?.let { setMenuBubbleHidden(it.id, false) }
         menuMessage = null
         menuAnchor.locate = null
@@ -769,11 +932,13 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             }
 
             override fun onSticker(sticker: StickersStore.Sticker) {
+                if (viewModel.edit.value != null) return
                 viewModel.sendSticker(sticker)
                 recyclerView.scrollToPosition(0)
             }
 
             override fun onGif(gif: StickersStore.Gif) {
+                if (viewModel.edit.value != null) return
                 viewModel.sendGif(gif)
                 recyclerView.scrollToPosition(0)
             }
@@ -792,14 +957,21 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             override fun onRequestCameraPermission() =
                 cameraPermission.launch(Manifest.permission.CAMERA)
 
-            override fun onFolders() = pickMedia.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-            )
+            override fun onFolders() {
+                val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                val edit = viewModel.edit.value
+                if (edit == null) {
+                    pickMedia.launch(request)
+                } else if (!edit.isSaving && edit.target.canReplaceMedia) {
+                    viewModel.editPickerMessageId = edit.target.message.id
+                    pickEditMedia.launch(request)
+                }
+            }
 
-            override fun onPhotoTaken(file: File) = attach(listOf(Uri.fromFile(file)), asFiles = false)
+            override fun onPhotoTaken(file: File) = attachFromGallery(listOf(Uri.fromFile(file)))
 
             override fun onConfirm(selection: List<Uri>) {
-                attach(selection, asFiles = false)
+                attachFromGallery(selection)
                 panels?.hide()
             }
         }
@@ -814,7 +986,11 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         updateSendButton()
 
         var cameraOutputJob: Job? = null
-        attachPanelView.onAction = { action ->
+        attachPanelView.onAction = actionListener@ { action ->
+            val edit = viewModel.edit.value
+            if (edit != null && (edit.isSaving || action !in editAttachmentActions(edit))) {
+                return@actionListener
+            }
             when (action) {
                 AttachPanelView.Action.GALLERY -> panels?.show(KeyboardPanels.Panel.GALLERY)
 
@@ -829,13 +1005,20 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                                     context, "${context.packageName}.files", File(directory, "photo.jpg")
                                 )
                             }
-                            photoUri = uri
+                            viewModel.pendingPhoto = uri to edit?.target?.message?.id
                             takePhoto.launch(uri)
                         }
                     }
                 }
 
-                AttachPanelView.Action.FILES -> pickFiles.launch(arrayOf("*/*"))
+                AttachPanelView.Action.FILES -> {
+                    if (edit == null) {
+                        pickFiles.launch(arrayOf("*/*"))
+                    } else {
+                        viewModel.editPickerMessageId = edit.target.message.id
+                        pickEditFile.launch(arrayOf(if (edit.target.isAudioAlbum) "audio/*" else "*/*"))
+                    }
+                }
 
                 AttachPanelView.Action.LOCATION -> locationPermission.launch(
                     arrayOf(
@@ -863,8 +1046,13 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             if (isAttaching) R.drawable.ic_close else R.drawable.ic_add_circle
         )
         attachMaterialButton.contentDescription = getString(
-            if (isAttaching) R.string.chat_attach_close else R.string.chat_attach
+            when {
+                isAttaching -> R.string.chat_attach_close
+                viewModel.edit.value != null -> R.string.message_replace_attachment
+                else -> R.string.chat_attach
+            }
         )
+        attachMaterialButton.tooltipText = attachMaterialButton.contentDescription
 
         when (panel) {
             KeyboardPanels.Panel.GALLERY -> galleryPanelView.start(viewLifecycleOwner)
@@ -877,8 +1065,10 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             viewLifecycleOwner.lifecycleScope.launch {
                 (requireContext().applicationContext as ShadowgramApplication).emojiReady.await()
                 viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    combine(viewModel.stickers, viewModel.foundGifs, ::Pair).collectLatest { (stickers, gifs) ->
-                        stickerKeyboardView.setStickers(stickers, gifs)
+                    combine(viewModel.stickers, viewModel.foundGifs, viewModel.edit) { stickers, gifs, edit ->
+                        Triple(stickers, gifs, edit != null)
+                    }.collectLatest { (stickers, gifs, editing) ->
+                        stickerKeyboardView.setStickers(stickers, gifs, emojiOnly = editing)
                     }
                 }
             }
@@ -905,9 +1095,10 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         toolbar.title = if (selecting) getString(R.string.selection_count, selected.size) else null
         toolbar.setNavigationIcon(if (selecting) R.drawable.ic_close else R.drawable.ic_arrow_back)
         toolbar.setNavigationContentDescription(if (selecting) R.string.selection_cancel else R.string.chat_back)
-        composerLinearLayout.isVisible = !selecting && !viewModel.isScheduled && !readOnlyChannel
+        val editing = viewModel.edit.value != null
+        composerLinearLayout.isVisible = !selecting && (editing || (!viewModel.isScheduled && !readOnlyChannel))
         selectionActionsLayout.isVisible = selecting
-        channelMuteContainer.isVisible = !selecting && !viewModel.isScheduled && readOnlyChannel
+        channelMuteContainer.isVisible = !selecting && !editing && !viewModel.isScheduled && readOnlyChannel
         channelMuteButton.setText(if (chat?.isMuted == true) R.string.chat_unmute else R.string.chat_mute)
         messageEditText.setHint(if (chat?.isChannel == true && chat.canPostMessages) R.string.chat_publication else R.string.chat_message_hint)
         if (!selecting) {
@@ -920,6 +1111,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         toolbar.menu.findItem(R.id.selection_forward).isVisible = actions.forward
         toolbar.menu.findItem(R.id.selection_forward_more).isVisible = actions.forward
         toolbar.menu.findItem(R.id.selection_copy).isVisible = actions.copy
+        toolbar.menu.findItem(R.id.selection_edit).isVisible =
+            selected.keys.singleOrNull()?.let { it == viewModel.editableSelectionId.value } == true
         toolbar.menu.findItem(R.id.selection_delete).isVisible = actions.deleteSelf || actions.deleteEveryone
         toolbar.menu.findItem(R.id.selection_favorite).isVisible = actions.favoriteSticker
         selectionForwardButton.isEnabled = actions.forward && !viewModel.selectionBusy.value
@@ -1215,14 +1408,21 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     }
 
     private fun onMenuResult(bundle: Bundle) {
-        val message = menuMessage ?: return
+        val message = menuMessage
         menuMessage = null
-        setMenuBubbleHidden(message.id, false)
+        message?.let { setMenuBubbleHidden(it.id, false) }
         menuAnchor.bitmap = null
         menuAnchor.locate = null
         menuAnchor.viewport = null
         menuAnchor.restore = null
         menuAnchor.text = null
+
+        if (bundle.getString(MessageMenuDialogFragment.KEY_ACTION) == MessageMenuDialogFragment.ACTION_EDIT) {
+            val id = bundle.getLong(MessageMenuDialogFragment.KEY_MESSAGE_ID)
+            if (id != 0L) viewModel.startEditing(id)
+            return
+        }
+        message ?: return
 
         when (bundle.getString(MessageMenuDialogFragment.KEY_ACTION)) {
             MessageMenuDialogFragment.ACTION_REPLY -> replyTo(message, null, 0)
@@ -1260,6 +1460,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
 
     /** Reply to [message], to its [quote] when there's one, and type it. */
     private fun replyTo(message: MessageItem, quote: String?, quotePosition: Int) {
+        if (viewModel.edit.value?.isSaving == true) return
+        if (viewModel.edit.value != null) viewModel.cancelEditing()
         viewModel.setReply(
             ChatViewModel.Reply(
                 message.id,
@@ -1370,6 +1572,15 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     }
 
     private fun updateSendButton() {
+        val edit = viewModel.edit.value
+        if (edit != null) {
+            sendMaterialButton.isEnabled = !edit.isSaving && (edit.target.isCaption ||
+                edit.replacement != null || !messageEditText.text.isNullOrBlank())
+            sendMaterialButton.isVisible = true
+            videoNoteMaterialButton.isVisible = false
+            botCommandsMaterialButton.isVisible = false
+            return
+        }
         val canSend = !messageEditText.text.isNullOrBlank() || viewModel.attachments.isNotEmpty()
         sendMaterialButton.isEnabled = canSend
         sendMaterialButton.isVisible = canSend
@@ -1379,11 +1590,49 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
 
     /** Picked from a system picker or shot: waits above the composer until sent. */
     private fun attach(uris: List<Uri>, asFiles: Boolean) {
-        attachmentStripView.add(uris.map { InputContents.Picked(it, asFiles) })
+        val picked = uris.map { InputContents.Picked(it, asFiles) }
+        if (viewModel.edit.value == null && renderedEdit == null) {
+            attachmentStripView.add(picked)
+        } else {
+            viewModel.attachments = (viewModel.attachments + picked).distinctBy { it.uri }
+        }
+    }
+
+    private fun attachFromGallery(uris: List<Uri>) {
+        val edit = viewModel.edit.value
+        if (edit == null) {
+            attach(uris, asFiles = false)
+        } else {
+            uris.singleOrNull()?.let {
+                viewModel.replaceEditedAttachment(edit.target.message.id, InputContents.Picked(it, asFile = false))
+            }
+        }
+    }
+
+    private fun replaceFromPicker(uri: Uri?, asFile: Boolean) {
+        val id = viewModel.editPickerMessageId ?: return
+        viewModel.editPickerMessageId = null
+        if (uri != null) viewModel.replaceEditedAttachment(id, InputContents.Picked(uri, asFile))
+    }
+
+    private fun editAttachmentActions(edit: ChatViewModel.Edit): Set<AttachPanelView.Action> = when {
+        !edit.target.canReplaceMedia -> emptySet()
+        edit.target.isAudioAlbum || edit.target.isDocumentAlbum ->
+            setOf(AttachPanelView.Action.FILES)
+        edit.target.isVisualAlbum -> setOf(AttachPanelView.Action.GALLERY, AttachPanelView.Action.CAMERA)
+        else -> setOf(AttachPanelView.Action.GALLERY, AttachPanelView.Action.CAMERA, AttachPanelView.Action.FILES)
     }
 
     /** Send what the composer has: the picked files with the text as the caption, or the text. */
     private fun send(scheduling: TdApi.MessageSchedulingState?) {
+        val edit = viewModel.edit.value
+        if (edit != null) {
+            if (scheduling == null && renderedEdit?.target === edit.target) {
+                messageEditText.text?.composerContents()?.let(viewModel::saveEdit)
+            }
+            return
+        }
+        if (renderedEdit != null) return
         val raw = messageEditText.text?.toString().orEmpty()
         val text = raw.trim().takeIf { it.isNotEmpty() }
         // Custom emoji offsets in the trimmed text
@@ -1677,11 +1926,13 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         when (val action = it.action) {
             is ChatViewModel.Action.Mention -> mention(action)
             is ChatViewModel.Action.Command -> {
+                if (viewModel.edit.value != null) return@SuggestionsAdapter
                 viewModel.send(action.text)
                 messageEditText.text = null
             }
 
             is ChatViewModel.Action.InlineResult -> {
+                if (viewModel.edit.value != null) return@SuggestionsAdapter
                 viewModel.sendInlineResult(action)
                 messageEditText.text = null
             }
@@ -1863,6 +2114,10 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     }
 
     companion object {
+        private const val STATE_DRAFT = "chat_draft"
+        private const val STATE_DRAFT_START = "chat_draft_start"
+        private const val STATE_DRAFT_END = "chat_draft_end"
+
         private const val LOAD_MORE_THRESHOLD = 15
         private const val SCROLL_SLOP_PX = 8
         private const val SMOOTH_SCROLL_MAX_ITEMS = 15
@@ -1879,7 +2134,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
          *
          * @param chatId The chat to open
          * @param topicId The forum topic to open, 0 for the whole chat
-         * @param isScheduled Its scheduled messages instead, without the composer
+         * @param isScheduled Show the scheduled messages instead
          */
         fun createBundle(chatId: Long, topicId: Int = 0, isScheduled: Boolean = false) = Bundle().apply {
             putLong(ChatViewModel.ARG_CHAT_ID, chatId)

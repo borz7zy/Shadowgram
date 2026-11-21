@@ -235,6 +235,18 @@
 
     <!-- Message menu and reactions -->
     <string name="message_reply">Reply</string>
+    <string name="message_edit">Edit</string>
+    <string name="message_editing">Editing message</string>
+    <string name="message_edit_save">Save changes</string>
+    <string name="message_edit_saving">Saving changes…</string>
+    <string name="message_edit_cancel">Cancel editing</string>
+    <string name="message_edit_unavailable">This message can no longer be edited.</string>
+    <string name="message_edit_failed">Couldn’t save changes. %1$s</string>
+    <string name="message_edit_album_type">Choose a file type supported by this album.</string>
+    <string name="message_replace_attachment">Replace attachment</string>
+    <string name="message_edit_game">Game</string>
+    <string name="message_edit_paid_media">Paid media</string>
+    <string name="message_edited_at">edited %1$s</string>
     <string name="message_copy">Copy</string>
     <string name="message_copy_link">Copy link</string>
     <string name="message_forward">Forward</string>

@@ -14,6 +14,7 @@ import android.widget.TextView
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.core.widget.TextViewCompat
+import androidx.core.view.isVisible
 import com.github.borz7zy.shadowgram.R
 import com.google.android.material.button.MaterialButton
 
@@ -33,6 +34,10 @@ class AttachPanelView @JvmOverloads constructor(
     }
 
     var onAction: ((Action) -> Unit)? = null
+
+    fun showActions(actions: Set<Action>) {
+        Action.entries.forEachIndexed { index, action -> getChildAt(index).isVisible = action in actions }
+    }
 
     init {
         columnCount = COLUMNS

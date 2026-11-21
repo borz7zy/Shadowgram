@@ -15,10 +15,13 @@ import androidx.lifecycle.viewModelScope
 import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.models.Result
 import com.github.borz7zy.shadowgram.telegram.Downloads
+import com.github.borz7zy.shadowgram.telegram.MessageEdits
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.TdApi
 
 /**
@@ -80,6 +83,7 @@ class MessageMenuViewModel(
         val isLoaded: Boolean = false,
         val areReactionsLoaded: Boolean = false,
         val properties: TdApi.MessageProperties? = null,
+        val canEdit: Boolean = false,
         /** The file "Save to Downloads" saves, null for none. */
         val saveable: Downloads.Saveable? = null,
         val topReactions: List<Reaction> = listOf(),
@@ -94,12 +98,16 @@ class MessageMenuViewModel(
     init {
         viewModelScope.launch {
             val client = client.await()
-            val properties = (client.send(TdApi.GetMessageProperties(chatId, messageId)) as? Result.Success)
-                ?.data
-            val saveable = (client.send(TdApi.GetMessage(chatId, messageId)) as? Result.Success)
-                ?.data?.let(Downloads::saveableOf)
-                ?.takeIf { properties?.canBeSaved == true }
-            _state.value = State(isLoaded = true, properties = properties, saveable = saveable)
+            _state.value = withContext(Dispatchers.Default) {
+                val properties = (client.send(TdApi.GetMessageProperties(chatId, messageId)) as? Result.Success)?.data
+                val message = (client.send(TdApi.GetMessage(chatId, messageId)) as? Result.Success)?.data
+                State(
+                    isLoaded = true,
+                    properties = properties,
+                    canEdit = properties != null && message != null && MessageEdits.target(message, properties) != null,
+                    saveable = message?.takeIf { properties?.canBeSaved == true }?.let(Downloads::saveableOf),
+                )
+            }
 
             val available = (client.send(
                 TdApi.GetMessageAvailableReactions(chatId, messageId, ROW_SIZE)

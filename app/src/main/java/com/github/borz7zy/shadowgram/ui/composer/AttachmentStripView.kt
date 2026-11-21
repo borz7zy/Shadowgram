@@ -58,6 +58,7 @@ class AttachmentStripView @JvmOverloads constructor(
     private val tileMargin = dp(4)
 
     private val scrollView = DragScrollView()
+    private val settings: MaterialButton
     private val content = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
@@ -94,7 +95,7 @@ class AttachmentStripView @JvmOverloads constructor(
         setPadding(dp(8), dp(4), 0, 0)
         isVisible = false
 
-        val settings = MaterialButton(
+        settings = MaterialButton(
             context, null, com.google.android.material.R.attr.materialIconButtonStyle
         ).apply {
             setIconResource(R.drawable.ic_settings)
@@ -115,6 +116,7 @@ class AttachmentStripView @JvmOverloads constructor(
 
     /** Show [list] as is, without animations, as the view is made again. */
     fun setItems(list: List<InputContents.Picked>) {
+        settings.isVisible = true
         val transition = content.layoutTransition
         content.layoutTransition = null
         content.removeAllViews()
@@ -122,6 +124,33 @@ class AttachmentStripView @JvmOverloads constructor(
         list.forEach { addTile(it, animate = false) }
         content.layoutTransition = transition
         isVisible = items.isNotEmpty()
+    }
+
+    /** The existing attachment or its proposed replacement, with the action available for it. */
+    fun showEditAttachment(
+        name: String?,
+        preview: Uri?,
+        isReplacement: Boolean,
+        action: (() -> Unit)?,
+    ) {
+        setItems(emptyList())
+        settings.isVisible = false
+        isVisible = name != null || preview != null
+        if (!isVisible) return
+
+        val tile = LayoutInflater.from(context).inflate(R.layout.attachment_strip_item, content, false)
+        tile.findViewById<TextView>(R.id.nameTextView).text = name
+        tile.contentDescription = name
+        tile.findViewById<MaterialButton>(R.id.removeMaterialButton).apply {
+            isVisible = action != null
+            val label = if (isReplacement) R.string.attachment_remove else R.string.message_replace_attachment
+            contentDescription = context.getString(label)
+            tooltipText = contentDescription
+            setIconResource(if (isReplacement) R.drawable.ic_close else R.drawable.ic_edit)
+            setOnClickListener { action?.invoke() }
+        }
+        if (preview != null) loadPreview(tile, preview, name)
+        content.addView(tile, LayoutParams(tileSize, tileSize).apply { marginStart = tileMargin })
     }
 
     /** Add [list] after the files there, skipping ones already added. */
@@ -147,7 +176,7 @@ class AttachmentStripView @JvmOverloads constructor(
         tile.alpha = if (animate) 0f else 1f
         tile.setOnLongClickListener { startDrag(it) }
         tile.findViewById<View>(R.id.removeMaterialButton).setOnClickListener { remove(tile) }
-        loadPreview(tile, picked)
+        loadPreview(tile, picked.uri)
         items.add(picked)
         content.addView(tile, LayoutParams(tileSize, tileSize).apply { marginStart = tileMargin })
     }
@@ -182,7 +211,7 @@ class AttachmentStripView @JvmOverloads constructor(
     }
 
     /** A picture of the photo or video, the name of anything else. */
-    private fun loadPreview(tile: View, picked: InputContents.Picked) {
+    private fun loadPreview(tile: View, uri: Uri, displayName: String? = null) {
         val image = tile.findViewById<ImageView>(R.id.thumbnailImageView)
         val name = tile.findViewById<TextView>(R.id.nameTextView)
         val owner = findViewTreeLifecycleOwner() ?: return
@@ -190,10 +219,10 @@ class AttachmentStripView @JvmOverloads constructor(
             val (bitmap, title) = withContext(Dispatchers.IO) {
                 val resolver = context.contentResolver
                 val size = Size(tileSize * 2, tileSize * 2)
-                val bitmap = runCatching { resolver.loadThumbnail(picked.uri, size, null) }
+                val bitmap = runCatching { resolver.loadThumbnail(uri, size, null) }
                     .recoverCatching {
                         // A photo shot in the gallery panel is a file of our own
-                        ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, picked.uri)) { decoder, info, _ ->
+                        ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
                             val scale = size.width.toFloat() / maxOf(info.size.width, info.size.height)
                             if (scale < 1f) {
                                 decoder.setTargetSize(
@@ -204,10 +233,10 @@ class AttachmentStripView @JvmOverloads constructor(
                         }
                     }
                     .getOrNull()
-                val title = runCatching {
-                    resolver.query(picked.uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                val title = displayName ?: runCatching {
+                    resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                         ?.use { if (it.moveToFirst()) it.getString(0) else null }
-                }.getOrNull() ?: picked.uri.lastPathSegment
+                }.getOrNull() ?: uri.lastPathSegment
                 bitmap to title
             }
             image.setImageBitmap(bitmap)

@@ -527,6 +527,7 @@ class ChatHistory(
                     return false
                 }
                 messages[update.messageId]?.content = update.newContent
+                replied[update.messageId]?.content = update.newContent
             }
 
             is TdApi.UpdateMessageInteractionInfo -> {
@@ -542,6 +543,7 @@ class ChatHistory(
                     return false
                 }
                 messages[update.messageId]?.editDate = update.editDate
+                replied[update.messageId]?.editDate = update.editDate
             }
 
             is TdApi.UpdateChatReadOutbox -> {
@@ -827,6 +829,7 @@ class ChatHistory(
                 else -> file.uploadPercent()
             },
             isProcessing = isProcessing,
+            isEdited = editDate != 0,
         )
     }
 
@@ -839,6 +842,8 @@ class ChatHistory(
         is TdApi.MessageDocument -> caption
         is TdApi.MessageAudio -> caption
         is TdApi.MessageVoiceNote -> caption
+        is TdApi.MessagePaidMedia -> caption
+        is TdApi.MessageGame -> game.text
         else -> null
     }
 

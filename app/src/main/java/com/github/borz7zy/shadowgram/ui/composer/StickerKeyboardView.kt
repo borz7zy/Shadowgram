@@ -96,7 +96,11 @@ class StickerKeyboardView @JvmOverloads constructor(
      * @param snapshot The account's stickers, null while loading
      * @param foundGifs GIFs found for the search, null while it's empty
      */
-    suspend fun setStickers(snapshot: StickersStore.Snapshot?, foundGifs: List<StickersStore.Gif>?) {
+    suspend fun setStickers(
+        snapshot: StickersStore.Snapshot?,
+        foundGifs: List<StickersStore.Gif>?,
+        emojiOnly: Boolean = false,
+    ) {
         val adapter = pagesAdapter ?: return
         val resources = resources
         val recentEmoji = RecentEmoji.get(context.applicationContext)
@@ -106,6 +110,8 @@ class StickerKeyboardView @JvmOverloads constructor(
                 recentEmoji,
                 snapshot?.emojiPacks?.takeIf { snapshot.isPremium }.orEmpty(),
             )
+            val emojiTab = Tab.Icon(KeyboardPage.EMOJI_ID, R.drawable.ic_mood)
+            if (emojiOnly) return@withContext listOf(emoji) to listOf(emojiTab)
             val recentItems = buildList {
                 snapshot?.favorite?.takeIf { it.isNotEmpty() }?.let { favorite ->
                     add(GridItem.Header(resources.getString(R.string.keyboard_favorite)))
@@ -129,7 +135,7 @@ class StickerKeyboardView @JvmOverloads constructor(
                 )
             }
             val tabs = listOf(
-                Tab.Icon(KeyboardPage.EMOJI_ID, R.drawable.ic_mood),
+                emojiTab,
                 Tab.Icon(KeyboardPage.RECENT_ID, R.drawable.ic_schedule),
                 Tab.Icon(KeyboardPage.GIFS_ID, R.drawable.ic_gif),
             ) + packs.map { Tab.Pack(it.id, it.stickers.firstOrNull()) }
@@ -138,6 +144,7 @@ class StickerKeyboardView @JvmOverloads constructor(
         if (adapter !== pagesAdapter) return
         adapter.submitList(pages)
         tabsAdapter.submitList(tabs)
+        if (emojiOnly) pager.setCurrentItem(0, false)
     }
 
     private fun buildEmojiPage(

@@ -1019,7 +1019,7 @@ class MessageListAdapter(
 
         private fun bindMeta(message: MessageItem, color: Int) {
             val time = DateFormat.getTimeFormat(view.context).format(message.date * 1000L)
-            metaTextView.text = time
+            metaTextView.text = if (message.isEdited) view.context.getString(R.string.message_edited_at, time) else time
 
             val iconResId = when {
                 message.state == MessageItem.State.FAILED -> R.drawable.ic_error

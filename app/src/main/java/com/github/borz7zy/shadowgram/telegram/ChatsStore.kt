@@ -860,6 +860,8 @@ internal fun TdApi.MessageContent.toPreviewContent(): Pair<MessagePreview.Kind, 
         is TdApi.MessageAnimatedEmoji -> MessagePreview.Kind.TEXT to emoji
         is TdApi.MessageDice -> MessagePreview.Kind.TEXT to emoji
         is TdApi.MessagePhoto -> MessagePreview.Kind.PHOTO to caption.orNull()
+        is TdApi.MessagePaidMedia -> MessagePreview.Kind.OTHER to caption.orNull()
+        is TdApi.MessageGame -> MessagePreview.Kind.OTHER to (game.text.orNull() ?: game.title)
         is TdApi.MessageVideo -> MessagePreview.Kind.VIDEO to caption.orNull()
         is TdApi.MessageVideoNote -> MessagePreview.Kind.VIDEO_NOTE to null
         is TdApi.MessageVoiceNote -> MessagePreview.Kind.VOICE_NOTE to caption.orNull()

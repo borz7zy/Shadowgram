@@ -75,6 +75,13 @@ class GalleryPanelView @JvmOverloads constructor(
 
     var listener: Listener? = null
 
+    var singleSelection = false
+        set(value) {
+            if (field == value) return
+            field = value
+            clearSelection()
+        }
+
     private val recyclerView = RecyclerView(context)
     private val confirmButton = ExtendedFloatingActionButton(context).apply {
         setIconResource(R.drawable.ic_check)
@@ -350,6 +357,7 @@ class GalleryPanelView @JvmOverloads constructor(
             view.setOnClickListener {
                 val uri = uri ?: return@setOnClickListener
                 if (!selection.remove(uri)) {
+                    if (singleSelection) selection.clear()
                     selection.add(uri)
                 }
                 // Numbers of the others move too

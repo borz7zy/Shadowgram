@@ -92,6 +92,14 @@
             tools:visibility="visible" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/editMaterialButton"
+            style="@style/Theme.Shadowgram.MessageMenu.Action"
+            android:text="@string/message_edit"
+            android:visibility="gone"
+            app:icon="@drawable/ic_edit"
+            tools:visibility="visible" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/copyMaterialButton"
             style="@style/Theme.Shadowgram.MessageMenu.Action"
             android:text="@string/message_copy"

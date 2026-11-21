@@ -54,6 +54,7 @@ data class MessageItem(
     val reply: Reply? = null,
     /** Mentions in [text] that open a profile. */
     val mentions: List<Mention> = listOf(),
+    val isEdited: Boolean = false,
 ) {
     /**
      * An @username or a mention by name in the text, offsets in UTF-16 like TDLib's.
