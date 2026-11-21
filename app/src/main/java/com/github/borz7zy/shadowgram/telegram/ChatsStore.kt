@@ -388,6 +388,8 @@ class ChatsStore(
         .onStart { loadTopics(chatId) }
         .flowOn(Dispatchers.Default)
 
+    internal fun notificationTitle(chatId: Long): String? = synchronized(lock) { chats[chatId]?.title }
+
     /**
      * The top bar of a chat, or of one of its topics when [topicId] isn't 0.
      */

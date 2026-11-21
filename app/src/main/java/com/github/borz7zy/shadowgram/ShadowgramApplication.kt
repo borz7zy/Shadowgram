@@ -17,6 +17,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import com.github.borz7zy.shadowgram.emoji.Emoji
+import com.github.borz7zy.shadowgram.notifications.ShadowgramFirebaseMessagingService
+import com.github.borz7zy.shadowgram.notifications.TelegramNotifications
 import com.github.borz7zy.shadowgram.playback.MessagePlayer
 import com.github.borz7zy.shadowgram.repositories.AccountsRepository
 import com.github.borz7zy.shadowgram.repositories.MediaRepository
@@ -35,7 +37,15 @@ class ShadowgramApplication : ApertureApplication(), SingletonImageLoader.Factor
     internal val emojiReady = backgroundScope.async(start = CoroutineStart.LAZY) {
         Emoji.init(this@ShadowgramApplication)
     }
-    val accountsRepository by lazy { AccountsRepository(applicationContext, backgroundScope) }
+    internal val telegramNotifications by lazy { TelegramNotifications(this, backgroundScope) }
+    val accountsRepository by lazy {
+        AccountsRepository(
+            applicationContext,
+            backgroundScope,
+            onAccountsChanged = { ShadowgramFirebaseMessagingService.scheduleRegistration(this, refresh = true) },
+            onNotificationUpdate = telegramNotifications::onUpdate,
+        )
+    }
     val providersRepository by lazy { ProvidersRepository() }
     val mediaRepository by lazy {
         MediaRepository(applicationContext, backgroundScope, providersRepository)

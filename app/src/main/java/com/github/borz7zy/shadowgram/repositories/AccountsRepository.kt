@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import com.github.borz7zy.shadowgram.BuildConfig
 import com.github.borz7zy.shadowgram.models.Result
 import com.github.borz7zy.shadowgram.models.Result.Companion.getOrNull
+import com.github.borz7zy.shadowgram.telegram.ChatsStore
 import com.github.borz7zy.shadowgram.telegram.DatabaseKey
 import com.github.borz7zy.shadowgram.telegram.TelegramClient
 import org.drinkless.tdlib.Client
@@ -38,6 +39,8 @@ import java.util.Locale
 class AccountsRepository(
     private val context: Context,
     private val coroutineScope: CoroutineScope,
+    private val onAccountsChanged: () -> Unit,
+    private val onNotificationUpdate: (Int, TdApi.Object, ChatsStore) -> Unit,
 ) {
     private val sharedPreferences by lazy {
         context.getSharedPreferences("accounts", Context.MODE_PRIVATE)
@@ -82,6 +85,47 @@ class AccountsRepository(
      * Get the client of the account to sign in. Loads TDLib when needed.
      */
     suspend fun newAccountClient() = client { newAccountId }
+
+    internal suspend fun signedInClients(receiverId: Long = 0): Map<Int, TelegramClient> =
+        withContext(Dispatchers.IO) {
+            tdlib.await()
+            clientsMutex.withLock {
+                val ids = accountIds
+                val matched = ids.filter { sharedPreferences.getLong(receiverKey(it), 0) == receiverId }
+                // An unknown receiver may be from a registration whose result didn't reach disk.
+                // TDLib checks the receiver and encryption key again before processing each push.
+                val selected = if (receiverId == 0L || matched.isEmpty()) ids else matched
+                selected.associateWith(::getOrCreateClient)
+            }
+        }
+
+    internal suspend fun signedInClient(accountId: Int): TelegramClient? = withContext(Dispatchers.IO) {
+        tdlib.await()
+        clientsMutex.withLock { accountId.takeIf { it in accountIds }?.let(::getOrCreateClient) }
+    }
+
+    internal suspend fun savePushReceiver(accountId: Int, client: TelegramClient, receiverId: Long) =
+        withContext(Dispatchers.IO) {
+            clientsMutex.withLock {
+                if (clients[accountId] === client && client.authorizationState.value is TdApi.AuthorizationStateReady) {
+                    sharedPreferences.edit(commit = true) { putLong(receiverKey(accountId), receiverId) }
+                }
+            }
+        }
+
+    /** Returns null for a stale notification and true if the UI must reopen for another account. */
+    internal suspend fun activateNotificationAccount(accountId: Int): Boolean? = withContext(Dispatchers.IO) {
+        val client = signedInClient(accountId) ?: return@withContext null
+        if (!client.isAuthorized()) return@withContext null
+        clientsMutex.withLock {
+            if (accountId !in accountIds || client.authorizationState.value !is TdApi.AuthorizationStateReady) {
+                return@withLock null
+            }
+            val changed = activeAccountId != accountId
+            if (changed) sharedPreferences.edit(commit = true) { putInt(ACTIVE_ACCOUNT_ID_KEY, accountId) }
+            changed
+        }
+    }
 
     suspend fun signedInUserIds(): LongArray = withContext(Dispatchers.IO) {
         val ids = clientsMutex.withLock { accountIds }
@@ -131,7 +175,9 @@ class AccountsRepository(
         val parameters = buildParameters(accountId)
         val isEncrypted = parameters.databaseEncryptionKey.isNotEmpty()
         val fallbackKey = if (isEncrypted) ByteArray(0) else databaseKey
-        TelegramClient(parameters, context, fallbackKey).also { client ->
+        TelegramClient(parameters, context, fallbackKey) { update, chats ->
+            onNotificationUpdate(accountId, update, chats)
+        }.also { client ->
             if (!isEncrypted) coroutineScope.launch(Dispatchers.IO) { encrypt(accountId, client) }
             coroutineScope.launch(Dispatchers.IO) {
                 val state = client.authorizationState.first {
@@ -139,15 +185,19 @@ class AccountsRepository(
                 }
 
                 if (state is TdApi.AuthorizationStateReady) {
-                    clientsMutex.withLock {
+                    val added = clientsMutex.withLock {
                         if (clients[accountId] === client && accountId !in accountIds) {
                             val ids = accountIds + accountId
                             sharedPreferences.edit(commit = true) {
                                 putStringSet(ACCOUNT_IDS_KEY, ids.map(Int::toString).toSet())
                                 putInt(ACTIVE_ACCOUNT_ID_KEY, accountId)
                             }
+                            true
+                        } else {
+                            false
                         }
                     }
+                    if (added) onAccountsChanged()
                 }
             }
         }
@@ -169,6 +219,7 @@ class AccountsRepository(
     }
 
     private fun encryptedKey(accountId: Int) = "db_encrypted_$accountId"
+    private fun receiverKey(accountId: Int) = "push_receiver_$accountId"
 
     private fun buildParameters(accountId: Int) = TdApi.SetTdlibParameters().apply {
         val accountDirectory = File(context.filesDir, "accounts/$accountId")

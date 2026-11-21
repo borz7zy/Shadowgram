@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="notification_channel_messages">Сообщения Telegram</string>
+    <string name="notification_new_message">Новое сообщение</string>
     <string name="title_activity_settings">Настройки</string>
     <string name="main_fragment_section_chats">Чаты</string>
     <string name="main_fragment_section_contacts">Контакты</string>

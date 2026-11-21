@@ -1,8 +1,25 @@
 import java.util.Properties
 
+buildscript {
+    // Only resolve the plugin for builds that have a Firebase project.
+    if (file("google-services.json").isFile) {
+        repositories {
+            google()
+            mavenCentral()
+        }
+        dependencies {
+            classpath("com.google.gms:google-services:4.6.0")
+        }
+    }
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.serialization)
+}
+
+if (file("google-services.json").isFile) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 // Telegram API credentials (https://my.telegram.org), kept out of version control
@@ -74,7 +91,9 @@ dependencies {
     implementation(libs.androidx.recyclerview)
     implementation(libs.androidx.viewpager2)
     implementation(libs.androidx.window)
+    implementation(libs.androidx.work.runtime)
     implementation(libs.coil)
+    implementation(libs.firebase.messaging)
     implementation(libs.kotlinx.coroutines.guava)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.material)

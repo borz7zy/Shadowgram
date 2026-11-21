@@ -5,15 +5,21 @@
 
 package com.github.borz7zy.shadowgram
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.animation.AnimationUtils
 import android.widget.FrameLayout
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.Insets
+import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.util.Consumer
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -28,8 +34,10 @@ import androidx.navigation.fragment.NavHostFragment
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.github.borz7zy.shadowgram.ext.navigateSafe
 import com.github.borz7zy.shadowgram.ext.slideDown
 import com.github.borz7zy.shadowgram.ext.slideUp
@@ -42,6 +50,7 @@ import com.github.borz7zy.shadowgram.fragments.MainFragment
 import com.github.borz7zy.shadowgram.fragments.PlaylistFragment
 import com.github.borz7zy.shadowgram.models.MediaType
 import com.github.borz7zy.shadowgram.models.Result
+import com.github.borz7zy.shadowgram.notifications.ShadowgramFirebaseMessagingService
 import com.github.borz7zy.shadowgram.ui.views.NowPlayingBar
 import com.github.borz7zy.shadowgram.ui.views.AdaptiveChatLayout
 import com.github.borz7zy.shadowgram.viewmodels.ChatViewModel
@@ -51,6 +60,8 @@ import com.github.borz7zy.shadowgram.viewmodels.NowPlayingViewModel
 import kotlin.reflect.cast
 
 class MainActivity : AppCompatActivity(R.layout.activity_main) {
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+
     // View models
     private val fullscreenViewModel by viewModels<FullscreenViewModel>()
     private val intentsViewModel by viewModels<IntentsViewModel>()
@@ -139,6 +150,24 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 loadData()
             }
+        }
+
+        val app = application as ShadowgramApplication
+        app.backgroundScope.launch { ShadowgramFirebaseMessagingService.scheduleRegistration(app) }
+        lifecycleScope.launch { requestNotificationPermission() }
+    }
+
+    private suspend fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        ) return
+
+        val alreadyAsked = withContext(Dispatchers.IO) {
+            getPreferences(MODE_PRIVATE).getBoolean("notification_permission_asked", false)
+        }
+        if (!alreadyAsked) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            getPreferences(MODE_PRIVATE).edit { putBoolean("notification_permission_asked", true) }
         }
     }
 

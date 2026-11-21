@@ -9,6 +9,9 @@ import android.content.Context
 import android.util.Log
 import com.github.borz7zy.shadowgram.videonote.VideoNoteGenerator
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -29,6 +32,7 @@ class TelegramClient(
     private val parameters: TdApi.SetTdlibParameters,
     context: Context,
     private var fallbackKey: ByteArray? = null,
+    private val onNotificationUpdate: (TdApi.Object, ChatsStore) -> Unit = { _, _ -> },
 ) {
     private val _initError = MutableStateFlow<TdApi.Error?>(null)
 
@@ -41,6 +45,23 @@ class TelegramClient(
      * The current authorization state, null until TDLib reports the first one.
      */
     val authorizationState = _authorizationState.asStateFlow()
+
+    private val notificationOptionsReady = CompletableDeferred<Boolean>()
+    private val connectionState = MutableStateFlow<TdApi.ConnectionState?>(null)
+    private val havePendingNotifications = MutableStateFlow(false)
+
+    internal suspend fun isAuthorized(): Boolean =
+        combine(authorizationState, initError, ::Pair).first { (state, error) ->
+            error != null || state != null && state !is TdApi.AuthorizationStateWaitTdlibParameters
+        }.first is TdApi.AuthorizationStateReady
+
+    internal suspend fun awaitNotificationSetup() = notificationOptionsReady.await()
+
+    internal suspend fun awaitNotificationSync() {
+        combine(connectionState, havePendingNotifications) { connection, pending ->
+            connection is TdApi.ConnectionStateReady && !pending
+        }.first { it }
+    }
 
     /**
      * The chats of this account. Created with the client so that no update is missed.
@@ -106,6 +127,18 @@ class TelegramClient(
         stickers.onUpdate(update)
         updateListeners.forEach { it(update) }
 
+        when (update) {
+            is TdApi.UpdateConnectionState -> connectionState.value = update.state
+            is TdApi.UpdateHavePendingNotifications -> {
+                havePendingNotifications.value = update.haveDelayedNotifications ||
+                    update.haveUnreceivedNotifications
+            }
+            is TdApi.UpdateAuthorizationState,
+            is TdApi.UpdateActiveNotifications,
+            is TdApi.UpdateNotificationGroup,
+            is TdApi.UpdateNotification -> onNotificationUpdate(update, chats)
+        }
+
         if (update !is TdApi.UpdateAuthorizationState) {
             return
         }
@@ -125,6 +158,9 @@ class TelegramClient(
         client.send(parameters) { result ->
             if (result !is TdApi.Error) {
                 Log.i(LOG_TAG, "TDLib parameters accepted")
+                client.send(TdApi.SetOption("notification_group_count_max", TdApi.OptionValueInteger(20L))) {
+                    notificationOptionsReady.complete(it is TdApi.Ok)
+                }
                 return@send
             }
             Log.e(LOG_TAG, "SetTdlibParameters failed: ${result.code} ${result.message}")
