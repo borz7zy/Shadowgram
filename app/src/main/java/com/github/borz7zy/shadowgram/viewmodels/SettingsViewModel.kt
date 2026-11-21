@@ -9,12 +9,15 @@ import android.app.Application
 import android.media.MediaScannerConnection
 import android.os.storage.StorageManager
 import androidx.annotation.OptIn
+import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import com.github.borz7zy.shadowgram.ext.Bundle
 import com.github.borz7zy.shadowgram.ext.applicationContext
 import com.github.borz7zy.shadowgram.services.PlaybackService
 import com.github.borz7zy.shadowgram.services.PlaybackService.CustomCommand.Companion.sendCustomCommand
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class SettingsViewModel(application: Application) : TwelveViewModel(application) {
     // System services
@@ -51,12 +54,14 @@ class SettingsViewModel(application: Application) : TwelveViewModel(application)
     }
 
     fun rescanMediaStore() {
-        MediaScannerConnection.scanFile(
-            applicationContext,
-            storageManager.storageVolumes.mapNotNull { it.directory?.absolutePath }.toTypedArray(),
-            null,
-            null,
-        )
+        viewModelScope.launch(Dispatchers.IO) {
+            MediaScannerConnection.scanFile(
+                applicationContext,
+                storageManager.storageVolumes.mapNotNull { it.directory?.absolutePath }.toTypedArray(),
+                null,
+                null,
+            )
+        }
     }
 
     private suspend fun withMediaController(block: suspend MediaController.() -> Unit) {

@@ -10,7 +10,10 @@ import android.annotation.SuppressLint
 import android.app.Application
 import androidx.camera.camera2.internal.CameraCompatibilityFilter
 import com.google.android.material.color.DynamicColors
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.async
 import org.lineageos.aperture.repositories.CameraRepository
 import org.lineageos.aperture.repositories.MediaRepository
 import org.lineageos.aperture.repositories.OverlaysRepository
@@ -24,10 +27,16 @@ open class ApertureApplication : Application() {
     val apertureMediaRepository by lazy { MediaRepository(this) }
     val overlaysRepository by lazy { OverlaysRepository(this) }
     val preferencesRepository by lazy { PreferencesRepository(this, coroutineScope) }
+    private val preferencesReady by lazy {
+        coroutineScope.async(Dispatchers.IO, CoroutineStart.LAZY) { preferencesRepository.preload() }
+    }
+
+    internal suspend fun awaitPreferences() = preferencesReady.await()
 
     @SuppressLint("RestrictedApi")
     override fun onCreate() {
         super.onCreate()
+        preferencesReady.start()
 
         // Observe dynamic colors changes
         DynamicColors.applyToActivitiesIfAvailable(this)

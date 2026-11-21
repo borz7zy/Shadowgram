@@ -39,9 +39,9 @@ class AccountsRepository(
     private val context: Context,
     private val coroutineScope: CoroutineScope,
 ) {
-    private val sharedPreferences = context.getSharedPreferences(
-        "accounts", Context.MODE_PRIVATE
-    )
+    private val sharedPreferences by lazy {
+        context.getSharedPreferences("accounts", Context.MODE_PRIVATE)
+    }
 
     /**
      * Lazy TDLib initializer: the native library is loaded off the main thread the first time
@@ -58,21 +58,13 @@ class AccountsRepository(
     private val clientsMutex = Mutex()
     private val clients = mutableMapOf<Int, TelegramClient>()
 
-    private var accountIds: Set<Int>
+    private val accountIds: Set<Int>
         get() = sharedPreferences.getStringSet(ACCOUNT_IDS_KEY, null).orEmpty()
             .map(String::toInt)
             .toSet()
-        set(value) = sharedPreferences.edit {
-            putStringSet(ACCOUNT_IDS_KEY, value.map(Int::toString).toSet())
-        }
 
-    private var activeAccountId: Int?
+    private val activeAccountId: Int?
         get() = sharedPreferences.getInt(ACTIVE_ACCOUNT_ID_KEY, -1).takeIf { it in accountIds }
-        set(value) = sharedPreferences.edit {
-            value?.also {
-                putInt(ACTIVE_ACCOUNT_ID_KEY, it)
-            } ?: remove(ACTIVE_ACCOUNT_ID_KEY)
-        }
 
     /**
      * The slot used to sign in a new account.
@@ -84,31 +76,33 @@ class AccountsRepository(
      * Get the client of the active account, or the one of the account to sign in when there is
      * none. Loads TDLib when needed.
      */
-    suspend fun activeClient() = client(activeAccountId ?: newAccountId)
+    suspend fun activeClient() = client { activeAccountId ?: newAccountId }
 
     /**
      * Get the client of the account to sign in. Loads TDLib when needed.
      */
-    suspend fun newAccountClient() = client(newAccountId)
+    suspend fun newAccountClient() = client { newAccountId }
 
-    suspend fun signedInUserIds(): LongArray = accountIds.mapNotNull { accountId ->
-        val accountClient = client(accountId)
-        val state = accountClient.authorizationState.first {
-            it != null && it !is TdApi.AuthorizationStateWaitTdlibParameters
-        }
-        if (state !is TdApi.AuthorizationStateReady) return@mapNotNull null
+    suspend fun signedInUserIds(): LongArray = withContext(Dispatchers.IO) {
+        val ids = clientsMutex.withLock { accountIds }
+        ids.mapNotNull { accountId ->
+            val accountClient = client { accountId }
+            val state = accountClient.authorizationState.first {
+                it != null && it !is TdApi.AuthorizationStateWaitTdlibParameters
+            }
+            if (state !is TdApi.AuthorizationStateReady) return@mapNotNull null
 
-        val result = accountClient.send(TdApi.GetOption("my_id"))
-        (result.getOrNull() as? TdApi.OptionValueInteger)?.value
-            ?.takeIf { it > 0 }
-    }.toLongArray()
+            val result = accountClient.send(TdApi.GetOption("my_id"))
+            (result.getOrNull() as? TdApi.OptionValueInteger)?.value?.takeIf { it > 0 }
+        }.toLongArray()
+    }
 
     /**
      * TDLib requires a fresh authorization state to go from QR confirmation back to phone login.
      * Only the client of the pending account is eligible for reset.
      */
     suspend fun cancelQrSignIn(pendingClient: TelegramClient): Result<TelegramClient, TdApi.Error> =
-        withContext(NonCancellable) {
+        withContext(Dispatchers.IO + NonCancellable) {
             clientsMutex.withLock {
                 val accountId = newAccountId
                 if (clients[accountId] !== pendingClient ||
@@ -128,10 +122,9 @@ class AccountsRepository(
             }
         }
 
-    private suspend fun client(accountId: Int): TelegramClient {
+    private suspend fun client(accountId: () -> Int): TelegramClient = withContext(Dispatchers.IO) {
         tdlib.await()
-
-        return clientsMutex.withLock { getOrCreateClient(accountId) }
+        clientsMutex.withLock { getOrCreateClient(accountId()) }
     }
 
     private fun getOrCreateClient(accountId: Int): TelegramClient = clients.getOrPut(accountId) {
@@ -139,8 +132,8 @@ class AccountsRepository(
         val isEncrypted = parameters.databaseEncryptionKey.isNotEmpty()
         val fallbackKey = if (isEncrypted) ByteArray(0) else databaseKey
         TelegramClient(parameters, context, fallbackKey).also { client ->
-            if (!isEncrypted) coroutineScope.launch { encrypt(accountId, client) }
-            coroutineScope.launch {
+            if (!isEncrypted) coroutineScope.launch(Dispatchers.IO) { encrypt(accountId, client) }
+            coroutineScope.launch(Dispatchers.IO) {
                 val state = client.authorizationState.first {
                     it is TdApi.AuthorizationStateReady || it is TdApi.AuthorizationStateClosed
                 }
@@ -148,8 +141,11 @@ class AccountsRepository(
                 if (state is TdApi.AuthorizationStateReady) {
                     clientsMutex.withLock {
                         if (clients[accountId] === client && accountId !in accountIds) {
-                            accountIds += accountId
-                            activeAccountId = accountId
+                            val ids = accountIds + accountId
+                            sharedPreferences.edit(commit = true) {
+                                putStringSet(ACCOUNT_IDS_KEY, ids.map(Int::toString).toSet())
+                                putInt(ACTIVE_ACCOUNT_ID_KEY, accountId)
+                            }
                         }
                     }
                 }
@@ -165,7 +161,9 @@ class AccountsRepository(
         client.authorizationState.first { it != null && it !is TdApi.AuthorizationStateWaitTdlibParameters }
         if (client.initError.value != null) return
         when (val result = client.send(TdApi.SetDatabaseEncryptionKey(databaseKey))) {
-            is Result.Success -> sharedPreferences.edit { putBoolean(encryptedKey(accountId), true) }
+            is Result.Success -> sharedPreferences.edit(commit = true) {
+                putBoolean(encryptedKey(accountId), true)
+            }
             is Result.Failure -> Log.e(LOG_TAG, "SetDatabaseEncryptionKey failed: ${result.error.message}")
         }
     }
@@ -177,7 +175,7 @@ class AccountsRepository(
 
         // A new database starts encrypted, an old one is encrypted by [encrypt] once open
         if (!accountDirectory.exists()) {
-            sharedPreferences.edit { putBoolean(encryptedKey(accountId), true) }
+            sharedPreferences.edit(commit = true) { putBoolean(encryptedKey(accountId), true) }
         }
         databaseEncryptionKey = when (sharedPreferences.getBoolean(encryptedKey(accountId), false)) {
             true -> databaseKey

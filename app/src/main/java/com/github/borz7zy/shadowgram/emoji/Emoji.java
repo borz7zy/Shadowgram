@@ -51,6 +51,8 @@ public class Emoji {
 
     public static void init(Context context) {
         appContext = context.getApplicationContext();
+        drawImgSize = dp(20);
+        bigImgSize = dp(34);
     }
 
     private static final java.util.HashMap<CharSequence, DrawableInfo> rects = new java.util.HashMap<>();
@@ -106,8 +108,6 @@ public class Emoji {
     }
 
     static {
-        drawImgSize = dp(20);
-        bigImgSize = dp(34);
         for (int a = 0; a < emojiBmp.length; a++) {
             emojiBmp[a] = new Bitmap[emojiCounts[a]];
             loadingEmoji[a] = new boolean[emojiCounts[a]];

@@ -17,8 +17,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.lineageos.aperture.ext.preferenceFlow
 import org.lineageos.aperture.models.BurstProcessing
 import org.lineageos.aperture.models.CameraFacing
@@ -40,31 +44,55 @@ import org.lineageos.aperture.models.ShadingMode
 import org.lineageos.aperture.models.TimerMode
 import org.lineageos.aperture.models.VideoDynamicRange
 import org.lineageos.aperture.models.VideoMirrorMode
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * User preferences repository.
  */
 class PreferencesRepository(
-    context: Context,
+    private val context: Context,
     private val coroutineScope: CoroutineScope,
 ) {
+    private class PendingValue<T>(val value: T)
+
     /**
      * [Preference] holder.
      */
     inner class PreferenceHolder<T>(
         private val preference: Preference<T>,
     ) : Flow<T> by preference.preferenceFlow() {
+        private val pending = AtomicReference<PendingValue<T>?>(null)
+
         /**
          * The value.
          */
         var value: T
-            get() = preference.getValue(sharedPreferences)
-            set(value) = sharedPreferences.edit {
-                preference.setValue(this, value)
+            get() {
+                val update = pending.get()
+                return if (update == null) preference.getValue(sharedPreferences) else update.value
+            }
+            @Synchronized set(value) {
+                val update = PendingValue(value)
+                pending.set(update)
+                coroutineScope.launch(preferenceDispatcher) {
+                    try {
+                        sharedPreferences.edit(commit = true) { preference.setValue(this, value) }
+                    } finally {
+                        pending.compareAndSet(update, null)
+                    }
+                }
             }
     }
 
-    private val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+    private val preferenceDispatcher = Dispatchers.IO.limitedParallelism(1)
+    private val sharedPreferences by lazy { PreferenceManager.getDefaultSharedPreferences(context) }
+
+    /** Wait for the first preferences load before constructing the camera's ViewModel. */
+    suspend fun preload() = withContext(preferenceDispatcher) {
+        // Reading a value waits until SharedPreferences has loaded the file.
+        sharedPreferences.contains(lastCameraModeKey)
+        Unit
+    }
 
     /**
      * The last [CameraFacing] used.
@@ -86,7 +114,7 @@ class PreferencesRepository(
      * The last [CameraMode] used.
      */
     val lastCameraMode = enumPreference(
-        key = "last_camera_mode",
+        key = lastCameraModeKey,
         defaultValue = CameraMode.PHOTO,
         enumMapper = {
             when (it) {
@@ -485,9 +513,10 @@ class PreferencesRepository(
         ).asPreferenceHolder()
     }
 
-    private fun <T> Preference<T>.preferenceFlow() = sharedPreferences.preferenceFlow(
-        key, getter = { getValue(sharedPreferences) }
-    )
+    private fun <T> Preference<T>.preferenceFlow() = flow {
+        val preferences = sharedPreferences
+        emitAll(preferences.preferenceFlow(key, getter = { getValue(preferences) }))
+    }
         .flowOn(Dispatchers.IO)
         .shareIn(
             scope = coroutineScope,
@@ -500,6 +529,7 @@ class PreferencesRepository(
     )
 
     companion object {
+        private const val lastCameraModeKey = "last_camera_mode"
         val HardwareKey.sharedPreferencesKeyPrefix: String
             get() = when (this) {
                 HardwareKey.CAMERA -> "camera_button"

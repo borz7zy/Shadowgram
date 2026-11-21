@@ -16,6 +16,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.annotation.DrawableRes
+import androidx.core.content.edit
 import androidx.core.view.children
 import androidx.core.view.isVisible
 import androidx.core.widget.TextViewCompat
@@ -29,8 +30,8 @@ import coil3.dispose
 import coil3.load
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.emoji.Emoji
-import com.github.borz7zy.shadowgram.emoji.EmojiData
 import com.github.borz7zy.shadowgram.telegram.StickersStore
+import com.github.borz7zy.shadowgram.ui.UiPreferences
 import com.github.borz7zy.shadowgram.ui.views.AnimationView
 import com.github.borz7zy.shadowgram.ui.views.StickerView
 import com.google.android.material.textfield.TextInputEditText
@@ -41,27 +42,24 @@ sealed interface KeyboardPage {
     val id: Long
 
     /**
-     * @param customPacks The account's custom emoji sets, after the plain emoji; empty without
-     *   Premium
+     * @param headers The category jump targets in [items]
      */
-    data class Emoji(val customPacks: List<StickersStore.Pack> = listOf()) : KeyboardPage {
+    data class Emoji(val items: List<GridItem>, val headers: Map<Int, Int>) : KeyboardPage {
         override val id = EMOJI_ID
     }
 
     /** Recent and favorite stickers, or one installed set. */
     data class Stickers(override val id: Long, val items: List<GridItem>) : KeyboardPage
 
-    /**
-     * @param found GIFs found for the search, null while it's empty: [saved] show instead
-     */
-    data class Gifs(val saved: List<StickersStore.Gif>, val found: List<StickersStore.Gif>?) :
-        KeyboardPage {
-        override val id = -3L
+    /** Saved GIFs or the results for the current search. */
+    data class Gifs(val items: List<GridItem>) : KeyboardPage {
+        override val id = GIFS_ID
     }
 
     companion object {
         const val EMOJI_ID = -1L
         const val RECENT_ID = -2L
+        const val GIFS_ID = -3L
     }
 }
 
@@ -428,8 +426,7 @@ class PagesAdapter(
         }
 
         override fun bind(page: KeyboardPage) {
-            val gifs = page as KeyboardPage.Gifs
-            adapter.submitList((gifs.found ?: gifs.saved).map { GridItem.Gif(it) })
+            adapter.submitList((page as KeyboardPage.Gifs).items)
         }
     }
 
@@ -443,7 +440,7 @@ class PagesAdapter(
         private val context = parent.context
         private val adapter = GridAdapter(listener)
         private val recyclerView = grid(context, columns(context, EMOJI_CELL_DP, 7), adapter)
-        private val headers = HashMap<Int, Int>()
+        private var headers = emptyMap<Int, Int>()
 
         /** Redraws the cells whose sprite just loaded; Emoji only keeps it weakly. */
         private val invalidator = Runnable {
@@ -488,27 +485,8 @@ class PagesAdapter(
         }
 
         override fun bind(page: KeyboardPage) {
-            val titles = context.resources.getStringArray(R.array.emoji_categories)
-            val items = ArrayList<GridItem>()
-            headers.clear()
-
-            val recent = RecentEmoji.get(context)
-            if (recent.isNotEmpty()) {
-                headers[0] = items.size
-                items.add(GridItem.Header(titles[0]))
-                recent.mapTo(items) { GridItem.EmojiCell(it) }
-            }
-            EmojiData.dataColored.forEachIndexed { index, codes ->
-                headers[index + 1] = items.size
-                items.add(GridItem.Header(titles[index + 1]))
-                codes.mapTo(items) { GridItem.EmojiCell(it) }
-            }
-            // Custom emoji sets, cells like stickers' that type their emoji
-            (page as KeyboardPage.Emoji).customPacks.forEach { pack ->
-                items.add(GridItem.Header(pack.title))
-                pack.stickers.mapTo(items) { GridItem.Sticker(it, CUSTOM_EMOJI_SECTION) }
-            }
-            adapter.submitList(items)
+            val emoji = page as KeyboardPage.Emoji
+            adapter.submitList(emoji.items) { headers = emoji.headers }
         }
     }
 
@@ -522,7 +500,6 @@ class PagesAdapter(
 
     companion object {
         private const val TYPE_EMOJI = 0
-        private const val CUSTOM_EMOJI_SECTION = 2
         private const val TYPE_STICKERS = 1
         private const val TYPE_GIFS = 2
 
@@ -550,17 +527,18 @@ object RecentEmoji {
     private const val KEY = "recent"
     private const val MAX = 32
 
-    fun get(context: Context): List<String> = context
-        .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-        .getString(KEY, null)
+    private fun parse(value: String?): List<String> = value
         ?.split('\n')
         ?.filter { it.isNotEmpty() }
         .orEmpty()
 
+    suspend fun get(context: Context): List<String> =
+        UiPreferences.read(context, PREFERENCES) { parse(it.getString(KEY, null)) }
+
     fun add(context: Context, code: String) {
-        val list = (listOf(code) + get(context).filter { it != code }).take(MAX)
-        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
-            .putString(KEY, list.joinToString("\n"))
-            .apply()
+        UiPreferences.write(context, PREFERENCES) {
+            val list = (listOf(code) + parse(it.getString(KEY, null)).filter { it != code }).take(MAX)
+            it.edit(commit = true) { putString(KEY, list.joinToString("\n")) }
+        }
     }
 }

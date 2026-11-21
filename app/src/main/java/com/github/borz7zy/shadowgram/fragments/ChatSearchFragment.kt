@@ -30,6 +30,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.github.borz7zy.shadowgram.R
+import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.emoji.Emoji
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.updatePadding
@@ -76,6 +77,8 @@ class ChatSearchFragment : Fragment(R.layout.fragment_chat_search) {
         }
     }
 
+    private var emojiInvalidatorRegistered = false
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
@@ -101,9 +104,11 @@ class ChatSearchFragment : Fragment(R.layout.fragment_chat_search) {
 
         recyclerView.adapter = adapter
         recyclerView.addOnScrollListener(onScrollListener)
-        Emoji.registerInvalidator(emojiInvalidator)
 
         viewLifecycleOwner.lifecycleScope.launch {
+            (requireContext().applicationContext as ShadowgramApplication).emojiReady.await()
+            Emoji.registerInvalidator(emojiInvalidator)
+            emojiInvalidatorRegistered = true
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.state.collectLatest { state ->
                     linearProgressIndicator.isVisible = !state.isLoaded
@@ -115,7 +120,10 @@ class ChatSearchFragment : Fragment(R.layout.fragment_chat_search) {
     }
 
     override fun onDestroyView() {
-        Emoji.unregisterInvalidator(emojiInvalidator)
+        if (emojiInvalidatorRegistered) {
+            Emoji.unregisterInvalidator(emojiInvalidator)
+            emojiInvalidatorRegistered = false
+        }
         recyclerView.removeOnScrollListener(onScrollListener)
         recyclerView.adapter = null
 

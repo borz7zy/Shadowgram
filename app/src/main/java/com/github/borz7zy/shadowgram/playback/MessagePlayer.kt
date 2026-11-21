@@ -33,9 +33,11 @@ import com.github.borz7zy.shadowgram.services.PlaybackService
 import com.github.borz7zy.shadowgram.services.TwelveRenderersFactory
 import com.github.borz7zy.shadowgram.telegram.TelegramClient
 import com.github.borz7zy.shadowgram.ui.views.FloatingVideoNoteView
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.TdApi
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
@@ -289,26 +291,22 @@ object MessagePlayer {
             false -> TdApi.SearchMessagesFilterVoiceAndVideoNote()
         }
 
-        var from = track.messageId
-        while (true) {
-            val older = search(client, track.chatId, from, 0, filter)
-                ?.filter { it.id < from }?.sortedBy { it.id }
-            if (older.isNullOrEmpty()) {
-                break
+        for (older in listOf(true, false)) {
+            var from = track.messageId
+            while (true) {
+                val (next, items) = withContext(Dispatchers.Default) {
+                    val offset = if (older) 0 else -PAGE_SIZE + 1
+                    val page = search(client, track.chatId, from, offset, filter)
+                        ?.filter { if (older) it.id < from else it.id > from }
+                        ?.sortedBy { it.id }
+                        .orEmpty()
+                    val edge = (if (older) page.firstOrNull() else page.lastOrNull())?.id
+                        ?: return@withContext null
+                    edge to page.mapNotNull { trackOf(client, it)?.toMediaItem() }
+                } ?: break
+                if (older) player.addMediaItems(0, items) else player.addMediaItems(items)
+                from = next
             }
-            player.addMediaItems(0, older.mapNotNull { trackOf(client, it)?.toMediaItem() })
-            from = older.first().id
-        }
-
-        from = track.messageId
-        while (true) {
-            val newer = search(client, track.chatId, from, -PAGE_SIZE + 1, filter)
-                ?.filter { it.id > from }?.sortedBy { it.id }
-            if (newer.isNullOrEmpty()) {
-                break
-            }
-            player.addMediaItems(newer.mapNotNull { trackOf(client, it)?.toMediaItem() })
-            from = newer.last().id
         }
     }
 

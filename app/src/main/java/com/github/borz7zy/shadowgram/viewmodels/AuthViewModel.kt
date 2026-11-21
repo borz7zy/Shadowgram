@@ -101,7 +101,13 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     fun submit(value: String, lastName: String = "", termsAccepted: Boolean = false) {
         val function = when (val step = uiState.value.step) {
-            is Step.PhoneNumber -> TdApi.SetAuthenticationPhoneNumber(value, null)
+            is Step.PhoneNumber -> {
+                val digits = value.filter { it in '0'..'9' }
+                TdApi.SetAuthenticationPhoneNumber(
+                    if (digits.isEmpty()) value else "+$digits",
+                    null,
+                )
+            }
             is Step.Code -> TdApi.CheckAuthenticationCode(value)
             is Step.Password -> TdApi.CheckAuthenticationPassword(value)
             is Step.Email -> TdApi.SetAuthenticationEmailAddress(value)

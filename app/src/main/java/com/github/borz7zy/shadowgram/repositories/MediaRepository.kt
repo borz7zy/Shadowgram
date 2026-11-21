@@ -30,6 +30,7 @@ import com.github.borz7zy.shadowgram.models.ProviderIdentifier
 import com.github.borz7zy.shadowgram.models.Result
 import com.github.borz7zy.shadowgram.models.SortingRule
 import com.github.borz7zy.shadowgram.models.SortingStrategy
+import com.github.borz7zy.shadowgram.ui.UiPreferences
 
 /**
  * Media repository. This class coordinates all the providers and their data source.
@@ -40,7 +41,7 @@ import com.github.borz7zy.shadowgram.models.SortingStrategy
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MediaRepository(
-    context: Context,
+    private val context: Context,
     scope: CoroutineScope,
     providersRepository: ProvidersRepository,
 ) {
@@ -98,7 +99,7 @@ class MediaRepository(
      * @param providerIdentifier The new navigation provider identifier
      */
     fun setNavigationProvider(providerIdentifier: ProviderIdentifier) {
-        sharedPreferences.defaultProvider = providerIdentifier
+        UiPreferences.write(context) { it.defaultProvider = providerIdentifier }
     }
 
     /**

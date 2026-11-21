@@ -5,6 +5,7 @@
 
 package com.github.borz7zy.shadowgram.viewmodels
 
+import com.github.borz7zy.shadowgram.ui.UiPreferences
 import android.app.Application
 import android.content.SharedPreferences
 import androidx.lifecycle.viewModelScope
@@ -48,6 +49,6 @@ class PlaylistsViewModel(application: Application) : TwelveViewModel(application
         )
 
     fun setSortingRule(sortingRule: SortingRule) {
-        sharedPreferences.playlistsSortingRule = sortingRule
+        UiPreferences.write(getApplication<Application>()) { it.playlistsSortingRule = sortingRule }
     }
 }

@@ -17,7 +17,6 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.preference.PreferenceManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -28,6 +27,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.withContext
 import com.github.borz7zy.shadowgram.ext.applicationContext
 import com.github.borz7zy.shadowgram.ext.availableCommandsFlow
 import com.github.borz7zy.shadowgram.ext.eventsFlow
@@ -47,6 +47,7 @@ import com.github.borz7zy.shadowgram.models.FlowResult
 import com.github.borz7zy.shadowgram.models.PlaybackState
 import com.github.borz7zy.shadowgram.models.RepeatMode
 import com.github.borz7zy.shadowgram.services.TwelveRenderersFactory
+import com.github.borz7zy.shadowgram.ui.UiPreferences
 
 /**
  * A view model useful to playback stuff locally (not in the playback service).
@@ -64,10 +65,6 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
                 it.value == value
             }
         }
-    }
-
-    private val sharedPreferences by lazy {
-        PreferenceManager.getDefaultSharedPreferences(application)
     }
 
     // ExoPlayer
@@ -193,17 +190,15 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
         super.onCleared()
     }
 
-    fun setMediaUris(uris: Iterable<Uri>) {
+    suspend fun setMediaUris(uris: List<Uri>) {
+        val (repeat, shuffle) = UiPreferences.read(applicationContext) {
+            it.typedRepeatMode to it.shuffleModeEnabled
+        }
+        val items = withContext(Dispatchers.Default) { uris.map { MediaItem.fromUri(it) } }
         exoPlayer.apply {
-            // Initialize shuffle and repeat modes
-            typedRepeatMode = sharedPreferences.typedRepeatMode
-            shuffleModeEnabled = sharedPreferences.shuffleModeEnabled
-
-            setMediaItems(
-                uris.map {
-                    MediaItem.fromUri(it)
-                }
-            )
+            typedRepeatMode = repeat
+            shuffleModeEnabled = shuffle
+            setMediaItems(items)
             prepare()
             play()
         }
@@ -234,13 +229,15 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun toggleShuffleMode() {
-        exoPlayer.shuffleModeEnabled = exoPlayer.shuffleModeEnabled.not()
-        sharedPreferences.shuffleModeEnabled = exoPlayer.shuffleModeEnabled
+        val shuffle = !exoPlayer.shuffleModeEnabled
+        exoPlayer.shuffleModeEnabled = shuffle
+        UiPreferences.write(applicationContext) { it.shuffleModeEnabled = shuffle }
     }
 
     fun toggleRepeatMode() {
-        exoPlayer.typedRepeatMode = exoPlayer.typedRepeatMode.next()
-        sharedPreferences.typedRepeatMode = exoPlayer.typedRepeatMode
+        val repeat = exoPlayer.typedRepeatMode.next()
+        exoPlayer.typedRepeatMode = repeat
+        UiPreferences.write(applicationContext) { it.typedRepeatMode = repeat }
     }
 
     fun seekToPrevious() {

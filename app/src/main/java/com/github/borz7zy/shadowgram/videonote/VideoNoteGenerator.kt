@@ -12,6 +12,7 @@ import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.telegram.TelegramClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -35,7 +36,7 @@ class VideoNoteGenerator(
     private val context: Context,
     private val client: TelegramClient,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Running generations by id. */
     private val jobs = ConcurrentHashMap<Long, Job>()
@@ -53,7 +54,19 @@ class VideoNoteGenerator(
         when (update) {
             is TdApi.UpdateFileGenerationStart -> {
                 if (update.conversion.startsWith(CONVERSION)) {
-                    jobs[update.generationId] = scope.launch { generate(update) }
+                    val id = update.generationId
+                    val job = scope.launch(start = CoroutineStart.LAZY) { generate(update) }
+                    if (jobs.putIfAbsent(id, job) == null) {
+                        job.invokeOnCompletion { cause ->
+                            jobs.remove(id, job)
+                            if (cause is CancellationException) {
+                                scope.launch { File(update.originalPath).delete() }
+                            }
+                        }
+                        job.start()
+                    } else {
+                        job.cancel()
+                    }
                 }
             }
 
@@ -79,7 +92,6 @@ class VideoNoteGenerator(
             raw.delete()
         } catch (e: CancellationException) {
             // Stopped by TDLib, the message is gone
-            raw.delete()
             throw e
         } catch (e: Exception) {
             Log.e(LOG_TAG, "Video note transcode failed", e)
@@ -89,7 +101,6 @@ class VideoNoteGenerator(
                 Toast.makeText(context, R.string.video_note_failed, Toast.LENGTH_LONG).show()
             }
         } finally {
-            jobs.remove(id)
             _progress.update { it - update.destinationPath }
         }
     }

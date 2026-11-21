@@ -32,6 +32,7 @@ import androidx.camera.core.impl.CameraCaptureResults
 import androidx.camera.view.CameraController
 import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -206,19 +207,34 @@ object CameraPipeline {
         location: Location?,
         onCaptureStarted: () -> Unit,
         onProcessing: () -> Unit,
-    ): Uri? = try {
-        captureAndProcessImpl(
-            context, controller, mode, executor, location, onCaptureStarted, onProcessing
-        )
-    } finally {
-        synchronized(nativeBuffers) {
-            nativeBuffers.forEach(::nativeFree)
-            nativeBuffers.clear()
+    ): Uri? {
+        val buffers = RawBuffers()
+        return try {
+            captureAndProcessImpl(
+                context, controller, mode, executor, location, buffers, onCaptureStarted, onProcessing
+            )
+        } finally {
+            withContext(NonCancellable + Dispatchers.Default) { buffers.close() }
         }
     }
 
-    /** Native frame buffers of the capture in flight, freed when it ends. */
-    private val nativeBuffers = mutableListOf<ByteBuffer>()
+    /** A camera callback can deliver a frame after the capture coroutine is cancelled. */
+    private class RawBuffers {
+        private val buffers = mutableListOf<ByteBuffer>()
+        private var closed = false
+
+        @Synchronized
+        fun own(buffer: ByteBuffer) {
+            if (closed) nativeFree(buffer) else buffers += buffer
+        }
+
+        @Synchronized
+        fun close() {
+            closed = true
+            buffers.forEach(::nativeFree)
+            buffers.clear()
+        }
+    }
 
     private suspend fun captureAndProcessImpl(
         context: Context,
@@ -226,6 +242,7 @@ object CameraPipeline {
         mode: BurstProcessing,
         executor: Executor,
         location: Location?,
+        buffers: RawBuffers,
         onCaptureStarted: () -> Unit,
         onProcessing: () -> Unit,
     ): Uri? {
@@ -259,7 +276,7 @@ object CameraPipeline {
         val tap = ResultTap(control)
         try {
             // 1. Metering frame with HAL AE/AWB (stand-in for the HDR+ AE, spec 01 §1.3).
-            val meter = controller.takeRaw(executor, tap)
+            val meter = controller.takeRaw(executor, tap, buffers)
             onCaptureStarted()
             val meterResult = meter.result ?: error("No capture result for the RAW frame")
             val aeExpMs = (meterResult.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: 33_000_000L) / 1e6f
@@ -271,20 +288,22 @@ object CameraPipeline {
             val iso: Float
             val count: Int
             if (mode == BurstProcessing.NIGHT_SIGHT) {
-                val focalPx = focalPx(chars)
-                val omega = gyroRms(context)
-                val plan = nativeNightPlan(tet, omega, focalPx, isoMin, isoMax, expMaxMs)
-                    ?: error("Night plan failed")
+                val omega = withContext(Dispatchers.IO) { gyroRms(context) }
+                val plan = withContext(Dispatchers.Default) {
+                    nativeNightPlan(tet, omega, focalPx(chars), isoMin, isoMax, expMaxMs)
+                } ?: error("Night plan failed")
                 expMs = plan[0]
                 iso = plan[1]
                 count = plan[2].toInt()
                 rHdr = (tet / (expMs * iso)).coerceIn(1f, MAX_HDR_RATIO)
                 Log.i(LOG_TAG, "Night: omega=$omega tripod=${plan[3]} plan=${plan.toList()}")
             } else {
-                val ratio = nativeHdrRatio(
-                    meter.buffer, meter.width, meter.height, meter.stridePx, cfa,
-                    blackLevel(meterResult, chars), whiteLevel(meterResult, chars),
-                ).coerceIn(1f, MAX_HDR_RATIO)
+                val ratio = withContext(Dispatchers.Default) {
+                    nativeHdrRatio(
+                        meter.buffer, meter.width, meter.height, meter.stridePx, cfa,
+                        blackLevel(meterResult, chars), whiteLevel(meterResult, chars),
+                    ).coerceIn(1f, MAX_HDR_RATIO)
+                }
                 val shortTet = tet / ratio
                 expMs = if (shortTet / aeExpMs >= isoMin) aeExpMs else shortTet / isoMin
                 iso = (shortTet / expMs).coerceIn(isoMin, isoMax)
@@ -311,7 +330,7 @@ object CameraPipeline {
             ).await()
             Log.i(LOG_TAG, "Burst $mode: $count x ${expMs}ms ISO $iso, R_hdr=$rHdr")
             repeat(count) {
-                frames += controller.takeRaw(executor, tap)
+                frames += controller.takeRaw(executor, tap, buffers)
             }
         } finally {
             tap.close()
@@ -320,6 +339,24 @@ object CameraPipeline {
         }
 
         onProcessing()
+        return withContext(Dispatchers.Default) {
+            val bitmap = renderBurst(frames, mode, rHdr, chars, cfa, shadingApplied)
+            try {
+                withContext(Dispatchers.IO) { saveJpeg(context, bitmap, location) }
+            } finally {
+                bitmap.recycle()
+            }
+        }
+    }
+
+    private fun renderBurst(
+        frames: List<RawFrame>,
+        mode: BurstProcessing,
+        rHdr: Float,
+        chars: Camera2CameraInfo,
+        cfa: Int,
+        shadingApplied: Boolean,
+    ): Bitmap {
         val first = frames.first()
         val result = first.result ?: error("No capture result for the RAW frame")
         val params = FloatArray(PARAM_COUNT).apply {
@@ -366,18 +403,11 @@ object CameraPipeline {
         val lscData = lsc?.let { FloatArray(it.gainFactorCount).also { a -> it.copyGainFactors(a, 0) } }
 
         val size = IntArray(2)
-        val argb = withContext(Dispatchers.Default) {
-            nativeProcess(
-                frames.map { it.buffer }.toTypedArray(), meta, params,
-                lscData, lsc?.columnCount ?: 0, lsc?.rowCount ?: 0, size,
-            )
-        } ?: error("Processing failed")
-        frames.clear()
-
-        return withContext(Dispatchers.IO) {
-            val bitmap = Bitmap.createBitmap(argb, size[0], size[1], Bitmap.Config.ARGB_8888)
-            saveJpeg(context, bitmap, location).also { bitmap.recycle() }
-        }
+        val argb = nativeProcess(
+            frames.map { it.buffer }.toTypedArray(), meta, params,
+            lscData, lsc?.columnCount ?: 0, lsc?.rowCount ?: 0, size,
+        ) ?: error("Processing failed")
+        return Bitmap.createBitmap(argb, size[0], size[1], Bitmap.Config.ARGB_8888)
     }
 
     private fun saveJpeg(context: Context, bitmap: Bitmap, location: Location?): Uri? {
@@ -399,15 +429,17 @@ object CameraPipeline {
     }
 
     @SuppressLint("RestrictedApi")
-    private suspend fun CameraController.takeRaw(executor: Executor, tap: ResultTap): RawFrame {
-        val frame = takeRawImage(executor)
+    private suspend fun CameraController.takeRaw(
+        executor: Executor, tap: ResultTap, buffers: RawBuffers,
+    ): RawFrame {
+        val frame = takeRawImage(executor, buffers)
         return if (frame.result != null) frame else RawFrame(
             frame.buffer, frame.width, frame.height, frame.stridePx, frame.rotation,
             tap.await(frame.timestampNs),
         ).also { it.timestampNs = frame.timestampNs }
     }
 
-    private suspend fun CameraController.takeRawImage(executor: Executor): RawFrame =
+    private suspend fun CameraController.takeRawImage(executor: Executor, buffers: RawBuffers): RawFrame =
         suspendCancellableCoroutine { cont ->
             takePicture(executor, object : ImageCapture.OnImageCapturedCallback() {
                 override fun onCaptureSuccess(image: ImageProxy) {
@@ -419,15 +451,20 @@ object CameraPipeline {
                             val plane = it.planes[0]
                             val src = plane.buffer.rewind() as ByteBuffer
                             val copy = nativeAlloc(src.remaining())
-                                .also { b -> synchronized(nativeBuffers) { nativeBuffers += b } }
-                                .order(ByteOrder.nativeOrder())
-                                .put(src)
-                            RawFrame(
-                                copy, it.width, it.height, plane.rowStride / plane.pixelStride,
-                                it.imageInfo.rotationDegrees,
-                                CameraCaptureResults.retrieveCameraCaptureResult(it.imageInfo)
-                                    ?.captureResult,
-                            ).also { f -> f.timestampNs = it.imageInfo.timestamp }
+                            val raw = try {
+                                copy.order(ByteOrder.nativeOrder()).put(src)
+                                RawFrame(
+                                    copy, it.width, it.height, plane.rowStride / plane.pixelStride,
+                                    it.imageInfo.rotationDegrees,
+                                    CameraCaptureResults.retrieveCameraCaptureResult(it.imageInfo)
+                                        ?.captureResult,
+                                ).also { f -> f.timestampNs = it.imageInfo.timestamp }
+                            } catch (error: Throwable) {
+                                nativeFree(copy)
+                                throw error
+                            }
+                            buffers.own(copy)
+                            raw
                         }
                     }
                     frame.fold(cont::resume, cont::resumeWithException)
@@ -492,8 +529,11 @@ object CameraPipeline {
             override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) = Unit
         }
         sensorManager.registerListener(listener, gyro, SensorManager.SENSOR_DELAY_GAME)
-        delay(GYRO_WINDOW_MS)
-        sensorManager.unregisterListener(listener)
+        try {
+            delay(GYRO_WINDOW_MS)
+        } finally {
+            sensorManager.unregisterListener(listener)
+        }
         return synchronized(listener) { if (n == 0) 0.05f else sqrt(sum / n).toFloat() }
     }
 }

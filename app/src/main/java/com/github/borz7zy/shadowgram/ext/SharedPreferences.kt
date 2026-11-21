@@ -7,8 +7,13 @@ package com.github.borz7zy.shadowgram.ext
 
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
 import com.github.borz7zy.shadowgram.models.ProviderIdentifier
@@ -21,24 +26,17 @@ fun <T> SharedPreferences.preferenceFlow(
     vararg keys: String,
     getter: SharedPreferences.() -> T,
 ) = callbackFlow {
-    val update = {
-        trySend(getter())
-    }
-
     val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changedKey ->
-        if (changedKey in keys) {
-            update()
-        }
+        if (changedKey == null || changedKey in keys) trySend(Unit)
     }
 
     registerOnSharedPreferenceChangeListener(listener)
-
-    update()
-
-    awaitClose {
-        unregisterOnSharedPreferenceChangeListener(listener)
-    }
+    trySend(Unit)
+    awaitClose { unregisterOnSharedPreferenceChangeListener(listener) }
 }
+    .buffer(Channel.CONFLATED)
+    .map { getter() }
+    .flowOn(Dispatchers.IO)
 
 // Generic prefs
 const val FULLSCREEN_MODE_KEY = "fullscreen_mode"
@@ -82,7 +80,7 @@ var SharedPreferences.defaultProvider: ProviderIdentifier?
             Json.decodeFromString(serializer<ProviderIdentifier>(), it)
         }.getOrNull()
     }
-    set(value) = edit {
+    set(value) = edit(commit = true) {
         putString(
             DEFAULT_PROVIDER_KEY,
             Json.encodeToString(serializer<ProviderIdentifier?>(), value)
@@ -100,7 +98,7 @@ private const val TYPED_REPEAT_MODE_KEY = "typed_repeat_mode"
 private val TYPED_REPEAT_MODE_DEFAULT = RepeatMode.NONE.ordinal
 var SharedPreferences.typedRepeatMode: RepeatMode
     get() = RepeatMode.entries[getInt(TYPED_REPEAT_MODE_KEY, TYPED_REPEAT_MODE_DEFAULT)]
-    set(value) = edit {
+    set(value) = edit(commit = true) {
         putInt(TYPED_REPEAT_MODE_KEY, value.ordinal)
     }
 
@@ -108,7 +106,7 @@ private const val SHUFFLE_MODE_ENABLED_KEY = "shuffle_mode_enabled"
 private const val SHUFFLE_MODE_ENABLED_DEFAULT = false
 var SharedPreferences.shuffleModeEnabled: Boolean
     get() = getBoolean(SHUFFLE_MODE_ENABLED_KEY, SHUFFLE_MODE_ENABLED_DEFAULT)
-    set(value) = edit {
+    set(value) = edit(commit = true) {
         putBoolean(SHUFFLE_MODE_ENABLED_KEY, value)
     }
 
@@ -130,7 +128,7 @@ private fun SharedPreferences.setSortingRule(
     strategyKey: String,
     reverseKey: String,
     value: SortingRule
-) = edit {
+) = edit(commit = true) {
     putString(strategyKey, value.strategy.name)
     putBoolean(reverseKey, value.reverse)
 }

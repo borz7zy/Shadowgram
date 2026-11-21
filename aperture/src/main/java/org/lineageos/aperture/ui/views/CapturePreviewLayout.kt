@@ -14,15 +14,22 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.isVisible
+import androidx.lifecycle.findViewTreeLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import coil3.load
+import coil3.request.Disposable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.lineageos.aperture.R
 import org.lineageos.aperture.ext.smoothRotate
 import org.lineageos.aperture.models.MediaType
 import org.lineageos.aperture.models.Rotation
 import org.lineageos.aperture.utils.ExifUtils
-import java.io.InputStream
 
 /**
  * Image/video preview fragment
@@ -31,8 +38,10 @@ class CapturePreviewLayout(context: Context, attrs: AttributeSet?) : ConstraintL
     context, attrs
 ) {
     private var uri: Uri? = null
-    private var photoInputStream: InputStream? = null
+    private var photoBytes: ByteArray? = null
     private lateinit var mediaType: MediaType
+    private var photoJob: Job? = null
+    private var imageRequest: Disposable? = null
 
     private var exoPlayer: ExoPlayer? = null
 
@@ -61,14 +70,15 @@ class CapturePreviewLayout(context: Context, attrs: AttributeSet?) : ConstraintL
             onChoiceCallback(null)
         }
         confirmButton.setOnClickListener {
+            val input = uri ?: photoBytes ?: return@setOnClickListener
             stopPreview()
-            onChoiceCallback(uri ?: photoInputStream)
+            onChoiceCallback(input)
         }
     }
 
     internal fun updateSource(uri: Uri, mediaType: MediaType) {
+        stopPreview()
         this.uri = uri
-        this.photoInputStream = null
         this.mediaType = mediaType
 
         imageView.isVisible = mediaType == MediaType.PHOTO
@@ -77,9 +87,9 @@ class CapturePreviewLayout(context: Context, attrs: AttributeSet?) : ConstraintL
         startPreview()
     }
 
-    internal fun updateSource(photoInputStream: InputStream) {
-        this.uri = null
-        this.photoInputStream = photoInputStream
+    internal fun updateSource(photoBytes: ByteArray) {
+        stopPreview()
+        this.photoBytes = photoBytes
         this.mediaType = MediaType.PHOTO
 
         imageView.isVisible = true
@@ -98,30 +108,27 @@ class CapturePreviewLayout(context: Context, attrs: AttributeSet?) : ConstraintL
     }
 
     private fun startPreview() {
-        assert((uri == null) != (photoInputStream == null)) {
-            "Expected uri or photoInputStream, not both."
-        }
         when (mediaType) {
             MediaType.PHOTO -> {
-                if (uri != null) {
+                val source = uri
+                if (source != null) {
                     imageView.rotation = 0f
                     imageView.scaleX = 1f
-                    imageView.setImageURI(uri)
+                    imageRequest = imageView.load(source)
                 } else {
-                    val inputStream = photoInputStream!!
-                    val transform = ExifUtils.getTransform(inputStream)
-                    inputStream.mark(Int.MAX_VALUE)
-                    val bitmap = BitmapFactory.decodeStream(inputStream)
-                    inputStream.reset()
-                    Log.d(LOG_TAG, "Preview transform=$transform screenRotation=$screenRotation")
-                    imageView.rotation =
-                        transform.rotation.offset.toFloat() - screenRotation.offset
-                    imageView.scaleX = if (transform.mirror) {
-                        -1f
-                    } else {
-                        1f
+                    val bytes = checkNotNull(photoBytes)
+                    photoJob = findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
+                        val (bitmap, transform) = withContext(Dispatchers.Default) {
+                            bytes.inputStream().use { input ->
+                                val transform = ExifUtils.getTransform(input)
+                                BitmapFactory.decodeStream(input) to transform
+                            }
+                        }
+                        Log.d(LOG_TAG, "Preview transform=$transform screenRotation=$screenRotation")
+                        imageView.rotation = transform.rotation.offset.toFloat() - screenRotation.offset
+                        imageView.scaleX = if (transform.mirror) -1f else 1f
+                        imageView.setImageBitmap(bitmap)
                     }
-                    imageView.setImageBitmap(bitmap)
                 }
             }
 
@@ -142,13 +149,23 @@ class CapturePreviewLayout(context: Context, attrs: AttributeSet?) : ConstraintL
     }
 
     private fun stopPreview() {
-        when (mediaType) {
-            MediaType.PHOTO -> {}
-            MediaType.VIDEO -> {
-                exoPlayer?.release()
-                exoPlayer = null
-            }
+        photoJob?.cancel()
+        photoJob = null
+        imageRequest?.dispose()
+        imageRequest = null
+        imageView.setImageDrawable(null)
+        exoPlayer?.let {
+            videoView.player = null
+            it.release()
         }
+        exoPlayer = null
+        uri = null
+        photoBytes = null
+    }
+
+    override fun onDetachedFromWindow() {
+        stopPreview()
+        super.onDetachedFromWindow()
     }
 
     companion object {

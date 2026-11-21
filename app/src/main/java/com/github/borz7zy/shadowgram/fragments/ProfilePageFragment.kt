@@ -77,7 +77,9 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
             return@ProfileItemAdapter
         }
         item.document?.let {
-            Downloads.onTap(requireContext(), it) { viewModel.toggleDownload(it) }
+            viewLifecycleOwner.lifecycleScope.launch {
+                Downloads.onTap(requireContext(), it) { viewModel.toggleDownload(it) }
+            }
             return@ProfileItemAdapter
         }
         when (viewModel.kind.value) {

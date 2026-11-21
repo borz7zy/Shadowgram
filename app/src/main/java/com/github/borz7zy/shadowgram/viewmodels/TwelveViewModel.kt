@@ -9,6 +9,7 @@ import android.app.Application
 import android.content.ComponentName
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.MediaItem
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.preference.PreferenceManager
@@ -22,6 +23,10 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.guava.await
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.ext.applicationContext
 import com.github.borz7zy.shadowgram.ext.eventsFlow
@@ -31,6 +36,7 @@ import com.github.borz7zy.shadowgram.ext.typedRepeatMode
 import com.github.borz7zy.shadowgram.models.Audio
 import com.github.borz7zy.shadowgram.models.RepeatMode
 import com.github.borz7zy.shadowgram.services.PlaybackService
+import com.github.borz7zy.shadowgram.ui.UiPreferences
 
 /**
  * Base view model for all app view models.
@@ -49,6 +55,7 @@ abstract class TwelveViewModel(application: Application) : AndroidViewModel(appl
     protected val sharedPreferences by lazy {
         PreferenceManager.getDefaultSharedPreferences(application)!!
     }
+    private val playbackCommands = Mutex()
 
     private val sessionToken by lazy {
         SessionToken(
@@ -96,7 +103,7 @@ abstract class TwelveViewModel(application: Application) : AndroidViewModel(appl
         set(value) {
             mediaController.value?.apply {
                 shuffleModeEnabled = value
-                sharedPreferences.shuffleModeEnabled = value
+                UiPreferences.write(applicationContext) { it.shuffleModeEnabled = value }
             }
         }
 
@@ -105,17 +112,18 @@ abstract class TwelveViewModel(application: Application) : AndroidViewModel(appl
         set(value) {
             mediaController.value?.apply {
                 typedRepeatMode = value
-                sharedPreferences.typedRepeatMode = value
+                UiPreferences.write(applicationContext) { it.typedRepeatMode = value }
             }
         }
 
     fun playAudio(audios: List<Audio>, position: Int) {
-        mediaController.value?.apply {
-            // Initialize shuffle and repeat modes
-            shuffleModeEnabled = sharedPreferences.shuffleModeEnabled
-            typedRepeatMode = sharedPreferences.typedRepeatMode
-
-            setMediaItems(audios.map { it.toMedia3MediaItem(resources) }, true)
+        withMediaItems(audios) { items ->
+            val (shuffle, repeat) = UiPreferences.read(applicationContext) {
+                it.shuffleModeEnabled to it.typedRepeatMode
+            }
+            shuffleModeEnabled = shuffle
+            typedRepeatMode = repeat
+            setMediaItems(items, true)
             prepare()
             seekToDefaultPosition(position)
             play()
@@ -123,24 +131,30 @@ abstract class TwelveViewModel(application: Application) : AndroidViewModel(appl
     }
 
     fun addToQueue(audios: List<Audio>) {
-        mediaController.value?.apply {
-            addMediaItems(audios.map { it.toMedia3MediaItem(resources) })
-
-            if (mediaItemCount == audios.count()) {
-                play()
-            }
+        withMediaItems(audios) { items ->
+            addMediaItems(items)
+            if (mediaItemCount == items.size) play()
         }
     }
 
     fun playNext(audios: List<Audio>) {
-        mediaController.value?.apply {
-            addMediaItems(
-                currentMediaItemIndex + 1,
-                audios.map { it.toMedia3MediaItem(resources) },
-            )
+        withMediaItems(audios) { items ->
+            addMediaItems(currentMediaItemIndex + 1, items)
+            if (mediaItemCount == items.size) play()
+        }
+    }
 
-            if (mediaItemCount == audios.count()) {
-                play()
+    private fun withMediaItems(
+        audios: List<Audio>,
+        apply: suspend MediaController.(List<MediaItem>) -> Unit,
+    ) {
+        val controller = mediaController.value ?: return
+        viewModelScope.launch {
+            playbackCommands.withLock {
+                val items = withContext(Dispatchers.Default) {
+                    audios.map { it.toMedia3MediaItem(resources) }
+                }
+                if (mediaController.value === controller) controller.apply(items)
             }
         }
     }

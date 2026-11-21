@@ -32,9 +32,12 @@ import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.viewmodels.ChatViewModel
 import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.TdApi
 import java.io.File
 
@@ -58,8 +61,6 @@ class VideoNoteDialogFragment : DialogFragment(R.layout.fragment_video_note) {
     private val topicId by lazy { requireArguments().getInt(ChatViewModel.ARG_TOPIC_ID) }
 
     private var session: VideoNoteCamera.Session? = null
-    private var file: File? = null
-
     /** Send was pressed (or the duration limit hit): the finalized file goes to the chat. */
     private var isSending = false
 
@@ -150,6 +151,7 @@ class VideoNoteDialogFragment : DialogFragment(R.layout.fragment_video_note) {
     private fun startCamera() {
         viewLifecycleOwner.lifecycleScope.launch {
             val context = requireContext()
+            val application = context.applicationContext as ShadowgramApplication
             val (provider, config) = try {
                 VideoNoteCamera.awaitConfig(context)
             } catch (e: CancellationException) {
@@ -164,6 +166,9 @@ class VideoNoteDialogFragment : DialogFragment(R.layout.fragment_video_note) {
                 return@launch
             }
 
+            val file = withContext(Dispatchers.IO) {
+                File(application.cacheDir, "videonote_${System.nanoTime()}_raw.mp4")
+            }
             val session = VideoNoteCamera.Session(
                 context,
                 viewLifecycleOwner,
@@ -175,15 +180,14 @@ class VideoNoteDialogFragment : DialogFragment(R.layout.fragment_video_note) {
             this@VideoNoteDialogFragment.session = session
             session.bind()
 
-            val file = File(context.cacheDir, "videonote_${System.currentTimeMillis()}_raw.mp4")
-            this@VideoNoteDialogFragment.file = file
-            session.start(file, ::onFinalized)
+            session.start(file) { error ->
+                onFinalized(file, error, application.backgroundScope, this@VideoNoteDialogFragment.session === session)
+            }
             chronometer.base = SystemClock.elapsedRealtime()
             chronometer.start()
 
             // Tell the chat, TDLib drops the action after 5 seconds
-            val client = (context.applicationContext as ShadowgramApplication)
-                .accountsRepository.activeClient()
+            val client = application.accountsRepository.activeClient()
             while (isActive) {
                 client.send(
                     TdApi.SendChatAction(
@@ -211,28 +215,24 @@ class VideoNoteDialogFragment : DialogFragment(R.layout.fragment_video_note) {
         session.stop()
     }
 
-    private fun onFinalized(error: Int) {
-        val file = file ?: return
+    private fun onFinalized(file: File, error: Int, scope: CoroutineScope, isCurrent: Boolean) {
         val isUsable = error == VideoRecordEvent.Finalize.ERROR_NONE
                 || error == VideoRecordEvent.Finalize.ERROR_DURATION_LIMIT_REACHED
+        val canDeliver = isCurrent && isAdded
 
         when {
             // Reached 60 seconds: send, like Telegram does
-            isUsable && (isSending || error != VideoRecordEvent.Finalize.ERROR_NONE) -> {
+            canDeliver && isUsable && (isSending || error != VideoRecordEvent.Finalize.ERROR_NONE) -> {
                 setFragmentResult(
                     REQUEST_KEY, Bundle().apply { putString(KEY_PATH, file.absolutePath) }
                 )
-                if (isAdded) {
-                    dismiss()
-                }
+                dismiss()
             }
 
-            isSending -> {
-                file.delete()
-                fail(R.string.video_note_failed)
+            else -> {
+                scope.launch(Dispatchers.IO) { file.delete() }
+                if (canDeliver && isSending) fail(R.string.video_note_failed)
             }
-
-            else -> file.delete()
         }
     }
 

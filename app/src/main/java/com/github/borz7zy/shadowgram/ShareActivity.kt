@@ -14,8 +14,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.IntentCompat
 import androidx.fragment.app.commit
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.withResumed
 import androidx.navigation.fragment.NavHostFragment
 import com.github.borz7zy.shadowgram.fragments.ChatPickerFragment
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * "Share" from another app: files or text, sent to the chat picked in the chat picker, which
@@ -28,25 +33,29 @@ class ShareActivity : AppCompatActivity(R.layout.activity_chat) {
         // Enable edge-to-edge
         enableEdgeToEdge()
 
-        // Restored with its arguments otherwise
-        if (savedInstanceState == null) {
+        // Rotation can happen before the incoming files have been checked.
+        if (supportFragmentManager.findFragmentById(R.id.navHostFragment) == null) {
             val all = uris()
-            val uris = all.filter(::isForeign)
             val text = intent.getStringExtra(Intent.EXTRA_TEXT)
-            if (uris.size < all.size) {
-                Toast.makeText(this, R.string.share_file_rejected, Toast.LENGTH_SHORT).show()
-            }
-            if (uris.isEmpty() && text.isNullOrBlank()) {
-                finish()
-                return
-            }
-            val navHostFragment = NavHostFragment.create(
-                R.navigation.fragment_chat_picker,
-                ChatPickerFragment.createShareBundle(uris.map(Uri::toString), text),
-            )
-            supportFragmentManager.commit {
-                replace(R.id.navHostFragment, navHostFragment)
-                setPrimaryNavigationFragment(navHostFragment)
+            lifecycleScope.launch {
+                val uris = withContext(Dispatchers.IO) { all.filter(::isForeign).map(Uri::toString) }
+                lifecycle.withResumed {
+                    if (uris.size < all.size) {
+                        Toast.makeText(this@ShareActivity, R.string.share_file_rejected, Toast.LENGTH_SHORT).show()
+                    }
+                    if (uris.isEmpty() && text.isNullOrBlank()) {
+                        finish()
+                        return@withResumed
+                    }
+                    val navHostFragment = NavHostFragment.create(
+                        R.navigation.fragment_chat_picker,
+                        ChatPickerFragment.createShareBundle(uris, text),
+                    )
+                    supportFragmentManager.commit {
+                        replace(R.id.navHostFragment, navHostFragment)
+                        setPrimaryNavigationFragment(navHostFragment)
+                    }
+                }
             }
         }
     }

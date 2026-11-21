@@ -21,7 +21,6 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
-import com.github.borz7zy.shadowgram.ext.resources
 import com.github.borz7zy.shadowgram.models.Album
 import com.github.borz7zy.shadowgram.models.Audio
 import com.github.borz7zy.shadowgram.models.Error
@@ -251,32 +250,11 @@ class MediaItemViewModel(application: Application) : TwelveViewModel(application
     }
 
     fun addToQueue() {
-        tracks.value.takeIf { it.isNotEmpty() }?.let { audios ->
-            mediaController.value?.apply {
-                addMediaItems(audios.map { it.toMedia3MediaItem(resources) })
-
-                // If the added items are the only one, play them
-                if (mediaItemCount == audios.count()) {
-                    play()
-                }
-            }
-        }
+        tracks.value.takeIf { it.isNotEmpty() }?.let { addToQueue(it) }
     }
 
     fun playNext() {
-        tracks.value.takeIf { it.isNotEmpty() }?.let { audios ->
-            mediaController.value?.apply {
-                addMediaItems(
-                    currentMediaItemIndex + 1,
-                    audios.map { it.toMedia3MediaItem(resources) }
-                )
-
-                // If the added items are the only one, play them
-                if (mediaItemCount == audios.count()) {
-                    play()
-                }
-            }
-        }
+        tracks.value.takeIf { it.isNotEmpty() }?.let { playNext(it) }
     }
 
     suspend fun toggleFavorites() {

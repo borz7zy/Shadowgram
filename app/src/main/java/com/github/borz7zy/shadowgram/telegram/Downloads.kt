@@ -44,7 +44,7 @@ object Downloads {
      * What a tap on [document] does, from the screen showing it: open it once downloaded, else
      * cancel or start its download through [toggleDownload].
      */
-    fun onTap(context: Context, document: MessageItem.Document, toggleDownload: () -> Unit) =
+    suspend fun onTap(context: Context, document: MessageItem.Document, toggleDownload: () -> Unit) =
         when (document.path) {
             null -> toggleDownload()
             else -> open(context, document)
@@ -62,13 +62,16 @@ object Downloads {
      *
      * @param context An activity's, the chooser starts from it
      */
-    fun open(context: Context, document: MessageItem.Document) {
-        val uri = FileProvider.getUriForFile(
-            context, "${context.packageName}.files", File(document.path ?: return)
-        )
-        val mimeType = MimeTypeMap.getSingleton()
-            .getMimeTypeFromExtension(File(document.name).extension.lowercase())
-            ?: "*/*"
+    private suspend fun open(context: Context, document: MessageItem.Document) {
+        val path = document.path ?: return
+        val (uri, mimeType) = withContext(Dispatchers.IO) {
+            val uri = FileProvider.getUriForFile(
+                context.applicationContext, "${context.packageName}.files", File(path)
+            )
+            val mimeType = MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(File(document.name).extension.lowercase()) ?: "*/*"
+            uri to mimeType
+        }
         val send = Intent(Intent.ACTION_SEND)
             .setType(mimeType)
             .putExtra(Intent.EXTRA_STREAM, uri)

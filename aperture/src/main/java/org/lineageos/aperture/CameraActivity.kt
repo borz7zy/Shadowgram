@@ -77,6 +77,8 @@ import coil3.video.VideoFrameDecoder
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.guava.await
@@ -138,9 +140,7 @@ import org.lineageos.aperture.utils.GoogleLensUtils
 import org.lineageos.aperture.utils.PermissionsManager
 import org.lineageos.aperture.utils.ShortcutsUtils
 import org.lineageos.aperture.viewmodels.CameraViewModel
-import java.io.ByteArrayInputStream
-import java.io.FileNotFoundException
-import java.io.InputStream
+import java.io.IOException
 import kotlin.math.abs
 import kotlin.reflect.safeCast
 import androidx.camera.core.CameraState as CameraXCameraState
@@ -202,7 +202,12 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
 
     // QR
     private val qrBottomSheetDialog by lazy { QrBottomSheetDialog(this) }
-    private val isGoogleLensAvailable by lazy { GoogleLensUtils.isGoogleLensAvailable(this) }
+    private var cameraUiReady = false
+    private val googleLensAvailable by lazy {
+        lifecycleScope.async(Dispatchers.IO, CoroutineStart.LAZY) {
+            GoogleLensUtils.isGoogleLensAvailable(applicationContext)
+        }
+    }
 
     private var viewFinderTouchEvent: MotionEvent? = null
     private val gestureDetector by lazy {
@@ -363,7 +368,6 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
     private val launchedViaVoiceIntent
         get() = isVoiceInteractionRoot && intent.hasCategory(Intent.CATEGORY_VOICE)
 
-    @Suppress("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -389,9 +393,16 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
 
-        // Register shortcuts
-        ShortcutsUtils.registerShortcuts(this)
+        lifecycleScope.launch(Dispatchers.IO) { ShortcutsUtils.registerShortcuts(applicationContext) }
+        lifecycleScope.launch {
+            (application as ApertureApplication).awaitPreferences()
+            setupCameraUi()
+            cameraUiReady = true
+        }
+    }
 
+    @Suppress("ClickableViewAccessibility")
+    private fun setupCameraUi() {
         // Initialize initial camera mode
         overrideInitialCameraMode()?.let {
             viewModel.initialCameraMode = it
@@ -563,7 +574,7 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
                     capturePreviewLayout.isVisible = false
                 }
 
-                is InputStream,
+                is ByteArray,
                 is Uri -> sendIntentResultAndExit(input)
 
                 else -> throw Exception("Invalid input")
@@ -643,12 +654,12 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
         super.onDestroy()
     }
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?) = when (capturePreviewLayout.isVisible) {
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?) = when (!cameraUiReady || capturePreviewLayout.isVisible) {
         true -> super.onKeyDown(keyCode, event)
         false -> handleHardwareKeyDown(keyCode, event) ?: super.onKeyDown(keyCode, event)
     }
 
-    override fun onKeyUp(keyCode: Int, event: KeyEvent?) = when (capturePreviewLayout.isVisible) {
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?) = when (!cameraUiReady || capturePreviewLayout.isVisible) {
         true -> super.onKeyUp(keyCode, event)
         false -> handleHardwareKeyUp(keyCode, event) ?: super.onKeyUp(keyCode, event)
     }
@@ -689,12 +700,11 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
                                 event.output.savedUri?.let {
                                     openCapturePreview(it, MediaType.PHOTO)
                                 }
-                                event.photoOutputStream?.use {
-                                    openCapturePreview(
-                                        ByteArrayInputStream(
-                                            event.photoOutputStream.toByteArray()
-                                        )
-                                    )
+                                event.photoOutputStream?.let { output ->
+                                    val photo = withContext(Dispatchers.Default) {
+                                        output.use { it.toByteArray() }
+                                    }
+                                    openCapturePreview(photo)
                                 }
                             }
                         }
@@ -727,13 +737,16 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
 
                 // Update secondary bottom bar buttons
                 proButton.isVisible = cameraMode != CameraMode.QR
-                googleLensButton.isVisible = cameraMode == CameraMode.QR && isGoogleLensAvailable
+                googleLensButton.isVisible = false
 
                 // Update primary bar buttons
                 shutterButton.isInvisible = cameraMode == CameraMode.QR
 
                 // Update camera mode selector
                 cameraModeSelectorLayout.setCurrentCameraMode(cameraMode)
+                if (cameraMode == CameraMode.QR) {
+                    googleLensButton.isVisible = googleLensAvailable.await()
+                }
             }
         }
 
@@ -1733,10 +1746,14 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
 
     private fun openGallery() {
         lifecycleScope.launch {
-            // secureMediaUris will be cleared if keyguard is unlocked
-            // or none of the items were found.
-            withContext(Dispatchers.IO) {
-                updateSecureMediaUris(keyguardManager.isKeyguardLocked)
+            if (keyguardManager.isKeyguardLocked) {
+                val captured = secureMediaUris.toList()
+                val missing = withContext(Dispatchers.IO) {
+                    captured.filterNot { viewModel.fileExists(it) }.toSet()
+                }
+                secureMediaUris.removeAll(missing)
+            } else {
+                secureMediaUris.clear()
             }
 
             if (keyguardManager.isKeyguardLocked) {
@@ -1744,23 +1761,24 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
                     && secureMediaUris.isNotEmpty()
                 ) {
-                    val intent = Intent(
-                        MediaStore.ACTION_REVIEW_SECURE, secureMediaUris.first()
-                    ).apply {
-                        flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        if (secureMediaUris.size > 1) {
-                            clipData = ClipData.newUri(
-                                contentResolver, null, secureMediaUris[1]
-                            ).apply {
-                                for (i in 2 until secureMediaUris.size) {
-                                    addItem(contentResolver, ClipData.Item(secureMediaUris[i]))
+                    val captured = secureMediaUris.toList()
+                    val intent = withContext(Dispatchers.IO) {
+                        Intent(MediaStore.ACTION_REVIEW_SECURE, captured.first()).apply {
+                            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            if (captured.size > 1) {
+                                clipData = ClipData.newUri(contentResolver, null, captured[1]).apply {
+                                    for (i in 2 until captured.size) {
+                                        addItem(contentResolver, ClipData.Item(captured[i]))
+                                    }
                                 }
                             }
                         }
                     }
-                    runCatching {
-                        startActivity(intent)
-                        return@launch
+                    if (keyguardManager.isKeyguardLocked) {
+                        runCatching {
+                            startActivity(intent)
+                            return@launch
+                        }
                     }
                 }
             }
@@ -1804,9 +1822,9 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
         }
     }
 
-    private fun openCapturePreview(photoInputStream: InputStream) {
+    private fun openCapturePreview(photo: ByteArray) {
         runOnUiThread {
-            capturePreviewLayout.updateSource(photoInputStream)
+            capturePreviewLayout.updateSource(photo)
             capturePreviewLayout.isVisible = true
         }
     }
@@ -1816,63 +1834,60 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
      * app that sent the intent and closes the camera.
      */
     private fun sendIntentResultAndExit(input: Any) {
-        // The user confirmed the choice
-        var outputUri: Uri? = null
-        if (intent.extras?.containsKey(MediaStore.EXTRA_OUTPUT) == true) {
-            outputUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                intent.extras?.getParcelable(MediaStore.EXTRA_OUTPUT, Uri::class.java)
-            } else {
-                @Suppress("DEPRECATION")
-                intent.extras?.get(MediaStore.EXTRA_OUTPUT) as Uri
-            }
+        val outputUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(MediaStore.EXTRA_OUTPUT, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra<Uri>(MediaStore.EXTRA_OUTPUT)
         }
 
-        outputUri?.let {
+        lifecycleScope.launch {
             try {
-                contentResolver.openOutputStream(it, "wt").use { outputStream ->
-                    when (input) {
-                        is InputStream -> input.use {
-                            input.copyTo(outputStream!!)
+                when {
+                    outputUri != null -> {
+                        withContext(Dispatchers.IO) {
+                            val output = contentResolver.openOutputStream(outputUri, "wt")
+                                ?: throw IOException("Could not open capture output")
+                            output.use {
+                                when (input) {
+                                    is ByteArray -> it.write(input)
+                                    is Uri -> {
+                                        val source = contentResolver.openInputStream(input)
+                                            ?: throw IOException("Could not open capture")
+                                        source.use { stream -> stream.copyTo(it) }
+                                    }
+                                }
+                            }
                         }
-
-                        is Uri -> contentResolver.openInputStream(input).use { inputStream ->
-                            inputStream!!.copyTo(outputStream!!)
-                        }
-
-                        else -> throw IllegalStateException("Input is not Uri or InputStream")
+                        setResult(RESULT_OK)
                     }
+                    input is ByteArray -> {
+                        val bitmap = withContext(Dispatchers.Default) {
+                            input.inputStream().use {
+                                val transform = ExifUtils.getTransform(it)
+                                val decoded = BitmapFactory.decodeStream(it)
+                                    ?: throw IOException("Could not decode capture")
+                                decoded.scale(SINGLE_CAPTURE_INLINE_MAX_SIDE_LEN_PIXELS)
+                                    .transform(transform)
+                            }
+                        }
+                        setResult(RESULT_OK, Intent("inline-data").putExtra("data", bitmap))
+                    }
+                    input is Uri -> setResult(RESULT_OK, Intent().apply {
+                        data = input
+                        flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        putExtra(MediaStore.EXTRA_OUTPUT, input)
+                    })
                 }
-
-                setResult(RESULT_OK)
-            } catch (exc: FileNotFoundException) {
-                Log.e(LOG_TAG, "Failed to open URI")
+            } catch (exc: IOException) {
+                Log.e(LOG_TAG, "Failed to return capture", exc)
+                setResult(RESULT_CANCELED)
+            } catch (exc: SecurityException) {
+                Log.e(LOG_TAG, "Capture URI is no longer accessible", exc)
                 setResult(RESULT_CANCELED)
             }
-        } ?: setResult(RESULT_OK, Intent().apply {
-            when (input) {
-                is InputStream -> {
-                    // No output URI provided, so return the photo inline as a downscaled Bitmap.
-                    action = "inline-data"
-                    val transform = ExifUtils.getTransform(input)
-                    val bitmap = input.use { BitmapFactory.decodeStream(input) }
-                    val scaledAndRotatedBitmap = bitmap.scale(
-                        SINGLE_CAPTURE_INLINE_MAX_SIDE_LEN_PIXELS
-                    ).transform(transform)
-                    putExtra("data", scaledAndRotatedBitmap)
-                }
-
-                is Uri -> {
-                    // We saved the media (video), so return the URI that we saved.
-                    data = input
-                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    putExtra(MediaStore.EXTRA_OUTPUT, input)
-                }
-
-                else -> throw IllegalStateException("Input is not Uri or InputStream")
-            }
-        })
-
-        finish()
+            finish()
+        }
     }
 
     private fun openSettings() {
@@ -1927,18 +1942,6 @@ open class CameraActivity : AppCompatActivity(R.layout.activity_camera) {
             item?.let {
                 secureMediaUris.addFirst(it)
             }
-        }
-    }
-
-    /**
-     * If keyguard is not locked, remove any URIs that were stored while in the secure camera state.
-     * Otherwise, remove any URIs that no longer exist.
-     */
-    private fun updateSecureMediaUris(keyguardLocked: Boolean) {
-        if (!keyguardLocked) {
-            secureMediaUris.clear()
-        } else {
-            secureMediaUris.removeIf { !viewModel.fileExists(it) }
         }
     }
 

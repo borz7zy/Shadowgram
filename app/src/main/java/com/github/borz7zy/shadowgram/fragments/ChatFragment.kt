@@ -27,6 +27,7 @@ import android.provider.ContactsContract
 import android.text.Spanned
 import android.text.format.DateFormat
 import android.text.format.DateUtils
+import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -39,7 +40,6 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.graphics.withTranslation
 import androidx.core.location.LocationManagerCompat
@@ -66,6 +66,7 @@ import androidx.navigation.fragment.FragmentNavigatorExtras
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.borz7zy.shadowgram.R
+import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.models.MessageSelectionActions
 import com.github.borz7zy.shadowgram.models.selectedMessagesText
 import com.github.borz7zy.shadowgram.emoji.Emoji
@@ -122,9 +123,15 @@ import com.google.android.material.shape.ShapeAppearancePathProvider
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.timepicker.MaterialTimePicker
 import com.google.android.material.timepicker.TimeFormat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import org.drinkless.tdlib.TdApi
 import java.io.File
 import java.util.Calendar
@@ -275,7 +282,9 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             override fun onDocumentClick(message: MessageItem) {
                 if (viewModel.selectedMessages.value.isNotEmpty()) { viewModel.toggleMessageSelection(message); return }
                 val document = message.document ?: return
-                Downloads.onTap(requireContext(), document) { viewModel.toggleDownload(document) }
+                viewLifecycleOwner.lifecycleScope.launch {
+                    Downloads.onTap(requireContext(), document) { viewModel.toggleDownload(document) }
+                }
             }
 
             override fun onMentionClick(userId: Long, username: String) {
@@ -387,10 +396,12 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
 
     /** The pinned message the bar shows, the one a tap on it goes to. */
     private var shownPinnedId = 0L
+    private var emojiInitialized = false
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        val emojiReady = (requireContext().applicationContext as ShadowgramApplication).emojiReady
         exitTransition = TransitionInflater.from(requireContext()).inflateTransition(R.transition.profile_window)
         reenterTransition = TransitionInflater.from(requireContext()).inflateTransition(R.transition.profile_window)
         chatHeaderView.avatarView.transitionName = getString(R.string.transition_profile_avatar)
@@ -495,13 +506,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         canView = viewModel.isPositioned
 
         messageEditText.doAfterTextChanged {
-            // Emoji drawn from Telegram's sprites, set on the text in place
-            it?.let { text ->
-                Emoji.replaceEmoji(text, messageEditText.paint.fontMetricsInt, false)
-                // Custom emoji stay drawn over the plain ones they stand for
-                text.removeEmojiUnderCustom()
-                messageEditText.attachCustomEmoji()
-            }
+            if (emojiInitialized) updateComposerEmoji()
             updateSendButton()
             // Not the text a rotation puts back
             if (isResumed) {
@@ -574,6 +579,13 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         )
 
         viewLifecycleOwner.lifecycleScope.launch {
+            emojiReady.await()
+            Emoji.registerInvalidator(emojiInvalidator)
+            emojiInitialized = true
+            updateComposerEmoji()
+            updatePinnedBar()
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     viewModel.header.collectLatest {
@@ -591,6 +603,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 }
 
                 launch {
+                    emojiReady.await()
                     viewModel.rows.collectLatest(::setRows)
                 }
                 launch { viewModel.selectedMessages.collectLatest {
@@ -622,6 +635,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 }
 
                 launch {
+                    emojiReady.await()
                     viewModel.replyTo.collectLatest { reply ->
                         replyLinearLayout.isVisible = reply != null
                         reply ?: return@collectLatest
@@ -633,6 +647,13 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 }
             }
         }
+    }
+
+    private fun updateComposerEmoji() {
+        val text = messageEditText.text ?: return
+        Emoji.replaceEmoji(text, messageEditText.paint.fontMetricsInt, false)
+        text.removeEmojiUnderCustom()
+        messageEditText.attachCustomEmoji()
     }
 
     /** Put what TDLib refused back in the composer, unless something new is there already. */
@@ -677,7 +698,10 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         viewerAnchor.locate = null
         viewerAnchor.restore = null
         recyclerView.removeOnItemTouchListener(avatarTouchListener)
-        Emoji.unregisterInvalidator(emojiInvalidator)
+        if (emojiInitialized) {
+            Emoji.unregisterInvalidator(emojiInvalidator)
+            emojiInitialized = false
+        }
         galleryPanelView.stop()
         panels = null
         recyclerView.removeOnScrollListener(onScrollListener)
@@ -688,8 +712,6 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     }
 
     private fun setUpComposer() {
-        Emoji.registerInvalidator(emojiInvalidator)
-
         // The gallery opens from the attachments, the button closes either
         attachMaterialButton.setOnClickListener {
             val panels = panels ?: return@setOnClickListener
@@ -790,20 +812,26 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         attachmentStripView.onGroupedChanged = { viewModel.isGrouped = it }
         updateSendButton()
 
+        var cameraOutputJob: Job? = null
         attachPanelView.onAction = { action ->
             when (action) {
                 AttachPanelView.Action.GALLERY -> panels?.show(KeyboardPanels.Panel.GALLERY)
 
                 AttachPanelView.Action.CAMERA -> {
-                    val directory = File(requireContext().cacheDir, "outgoing/${System.nanoTime()}")
-                        .apply { mkdirs() }
-                    val uri = FileProvider.getUriForFile(
-                        requireContext(),
-                        "${requireContext().packageName}.files",
-                        File(directory, "photo.jpg"),
-                    )
-                    photoUri = uri
-                    takePhoto.launch(uri)
+                    if (cameraOutputJob?.isActive != true) {
+                        val context = requireContext().applicationContext
+                        cameraOutputJob = viewLifecycleOwner.lifecycleScope.launch {
+                            val uri = withContext(Dispatchers.IO) {
+                                val directory = File(context.cacheDir, "outgoing/${System.nanoTime()}")
+                                    .apply { mkdirs() }
+                                FileProvider.getUriForFile(
+                                    context, "${context.packageName}.files", File(directory, "photo.jpg")
+                                )
+                            }
+                            photoUri = uri
+                            takePhoto.launch(uri)
+                        }
+                    }
                 }
 
                 AttachPanelView.Action.FILES -> pickFiles.launch(arrayOf("*/*"))
@@ -846,6 +874,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             isCollectingStickers = true
             val stickerKeyboardView = stickerKeyboardView
             viewLifecycleOwner.lifecycleScope.launch {
+                (requireContext().applicationContext as ShadowgramApplication).emojiReady.await()
                 viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                     combine(viewModel.stickers, viewModel.foundGifs, ::Pair).collectLatest { (stickers, gifs) ->
                         stickerKeyboardView.setStickers(stickers, gifs)
@@ -913,15 +942,30 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
 
     private fun copySelection() {
         if (viewModel.selectionBusy.value) return
-        val messages = viewModel.selectedMessages.value.values.sortedWith(compareBy({ it.date }, { it.id }))
-        if (viewModel.header.value?.chat?.hasProtectedContent == true || messages.isEmpty() || messages.any { viewModel.selectionProperties.value[it.id]?.canBeCopied != true }) return
-        val date = DateFormat.getDateFormat(requireContext())
-        val time = DateFormat.getTimeFormat(requireContext())
-        val text = selectedMessagesText(messages, { message ->
-            message.senderName ?: if (message.isOutgoing) getString(R.string.playback_you) else viewModel.header.value?.chat?.title.orEmpty()
-        }, { seconds -> "${date.format(seconds * 1000L)} ${time.format(seconds * 1000L)}" })
-        requireContext().getSystemService(android.content.ClipboardManager::class.java)
-            .setPrimaryClip(android.content.ClipData.newPlainText(getString(R.string.selection_copy), text))
+        val selected = viewModel.selectedMessages.value
+        val properties = viewModel.selectionProperties.value
+        val chat = viewModel.header.value?.chat
+        if (chat?.hasProtectedContent == true || selected.isEmpty() ||
+            selected.keys.any { properties[it]?.canBeCopied != true }
+        ) return
+
+        val context = requireContext()
+        val ownName = getString(R.string.playback_you)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val text = withContext(Dispatchers.Default) {
+                val date = DateFormat.getDateFormat(context)
+                val time = DateFormat.getTimeFormat(context)
+                val messages = selected.values.sortedWith(compareBy({ it.date }, { it.id }))
+                selectedMessagesText(messages, { message ->
+                    message.senderName ?: if (message.isOutgoing) ownName else chat?.title.orEmpty()
+                }, { seconds -> "${date.format(seconds * 1000L)} ${time.format(seconds * 1000L)}" })
+            }
+            if (viewModel.header.value?.chat?.hasProtectedContent == true ||
+                viewModel.selectedMessages.value !== selected
+            ) return@launch
+            context.getSystemService(android.content.ClipboardManager::class.java)
+                .setPrimaryClip(android.content.ClipData.newPlainText(getString(R.string.selection_copy), text))
+        }
     }
 
     private fun deleteSelection() {
@@ -1254,6 +1298,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
      * the bar to the one before it, above them all it starts over from the newest.
      */
     private fun updatePinnedBar() {
+        if (!emojiInitialized) return
         val pinnedMessages = viewModel.pinned.value
         val pinned = pinnedMessages.items
         pinnedLinearLayout.isVisible = pinned.isNotEmpty()
@@ -1456,30 +1501,37 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     @SuppressLint("MissingPermission") // Asked for right before, see locationPermission
     private fun sendLocation() {
         val context = requireContext()
-        val manager = context.getSystemService(LocationManager::class.java)
-        val provider = when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                    && manager.isProviderEnabled(LocationManager.FUSED_PROVIDER) ->
-                LocationManager.FUSED_PROVIDER
+        viewLifecycleOwner.lifecycleScope.launch {
+            val location = withContext(Dispatchers.IO) {
+                try {
+                    val manager = context.getSystemService(LocationManager::class.java)
+                    val provider = when {
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                                manager.isProviderEnabled(LocationManager.FUSED_PROVIDER) ->
+                            LocationManager.FUSED_PROVIDER
 
-            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
-            else -> LocationManager.NETWORK_PROVIDER
-        }
-        LocationManagerCompat.getCurrentLocation(
-            manager,
-            provider,
-            null as CancellationSignal?,
-            ContextCompat.getMainExecutor(context),
-        ) { location: Location? ->
-            if (!isAdded) {
-                return@getCurrentLocation
+                        manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ->
+                            LocationManager.GPS_PROVIDER
+
+                        else -> LocationManager.NETWORK_PROVIDER
+                    }
+                    suspendCancellableCoroutine<Location?> { continuation ->
+                        val executor = Dispatchers.IO.asExecutor()
+                        val signal = CancellationSignal()
+                        continuation.invokeOnCancellation { executor.execute { signal.cancel() } }
+                        LocationManagerCompat.getCurrentLocation(
+                            manager, provider, signal, executor,
+                        ) { continuation.resume(it) }
+                    }
+                } catch (e: SecurityException) {
+                    Log.w("ChatFragment", "Location permission changed", e)
+                    null
+                }
             }
             when (location) {
                 null -> Toast.makeText(context, R.string.chat_location_failed, Toast.LENGTH_LONG).show()
                 else -> {
-                        viewModel.sendLocation(
-                        location.latitude, location.longitude, location.accuracy.toDouble()
-                    )
+                    viewModel.sendLocation(location.latitude, location.longitude, location.accuracy.toDouble())
                     panels?.hide()
                     recyclerView.scrollToPosition(0)
                 }
@@ -1492,12 +1544,22 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             ContactsContract.CommonDataKinds.Phone.NUMBER,
             ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
         )
-        requireContext().contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                viewModel.sendContact(cursor.getString(0).orEmpty(), cursor.getString(1).orEmpty())
-                panels?.hide()
-                recyclerView.scrollToPosition(0)
-            }
+        val resolver = requireContext().contentResolver
+        viewLifecycleOwner.lifecycleScope.launch {
+            val (number, name) = withContext(Dispatchers.IO) {
+                try {
+                    resolver.query(uri, projection, null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) cursor.getString(0).orEmpty() to cursor.getString(1).orEmpty()
+                        else null
+                    }
+                } catch (e: SecurityException) {
+                    Log.w("ChatFragment", "Contact is no longer accessible", e)
+                    null
+                }
+            } ?: return@launch
+            viewModel.sendContact(number, name)
+            panels?.hide()
+            recyclerView.scrollToPosition(0)
         }
     }
 

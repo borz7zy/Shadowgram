@@ -22,6 +22,8 @@ import androidx.annotation.LayoutRes
 import androidx.annotation.StringRes
 import androidx.core.view.isNotEmpty
 import androidx.core.view.isVisible
+import coil3.dispose
+import coil3.load
 import com.google.android.material.card.MaterialCardView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ext.use
@@ -268,28 +270,32 @@ class ListItem @JvmOverloads constructor(
     // ImageView utils
 
     private fun ImageView.setImageAndUpdateVisibility(bm: Bitmap) {
+        dispose()
         setImageBitmap(bm)
         isVisible = true
     }
 
     private fun ImageView.setImageAndUpdateVisibility(drawable: Drawable?) {
+        dispose()
         setImageDrawable(drawable)
         isVisible = drawable != null
     }
 
     private fun ImageView.setImageAndUpdateVisibility(icon: Icon) {
+        dispose()
         setImageIcon(icon)
         isVisible = true
     }
 
     private fun ImageView.setImageAndUpdateVisibility(@DrawableRes resId: Int) {
+        dispose()
         setImageResource(resId)
         isVisible = true
     }
 
     private fun ImageView.setImageAndUpdateVisibility(uri: Uri) {
-        setImageURI(uri)
         isVisible = true
+        load(uri)
     }
 
     // TextView utils

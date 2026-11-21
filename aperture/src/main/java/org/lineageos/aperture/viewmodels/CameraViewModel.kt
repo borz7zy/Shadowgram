@@ -62,6 +62,7 @@ import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
 import org.lineageos.aperture.R
 import org.lineageos.aperture.ext.applicationContext
 import org.lineageos.aperture.ext.broadcastReceiverFlow
@@ -115,8 +116,6 @@ class CameraViewModel(application: Application) : ApertureViewModel(application)
     private val powerManager = applicationContext.getSystemService(PowerManager::class.java)
 
     // Camera sounds
-    val cameraSoundsUtils = CameraSoundsUtils(preferencesRepository)
-
     // Orientation
     private val orientation = callbackFlow {
         val orientationEventListener = object : OrientationEventListener(applicationContext) {
@@ -142,6 +141,8 @@ class CameraViewModel(application: Application) : ApertureViewModel(application)
      * [ExecutorService] for camera related operations.
      */
     val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val cameraSoundsUtils = CameraSoundsUtils(preferencesRepository, cameraExecutor)
+    private var burstPipelineAvailable = false
 
     /**
      * CameraX's [LifecycleCameraController].
@@ -977,9 +978,8 @@ class CameraViewModel(application: Application) : ApertureViewModel(application)
     override fun onCleared() {
         cameraController.unbind()
 
-        cameraExecutor.shutdown()
-
         cameraSoundsUtils.release()
+        cameraExecutor.shutdown()
     }
 
     /**
@@ -995,6 +995,7 @@ class CameraViewModel(application: Application) : ApertureViewModel(application)
             cameraFacing = cameraFacing,
         ) ?: return false
 
+        burstPipelineAvailable = withContext(Dispatchers.IO) { CameraPipeline.isAvailable }
         val cameraConfiguration = createInitialCameraConfiguration(
             camera = camera,
             cameraMode = cameraMode,
@@ -1041,14 +1042,14 @@ class CameraViewModel(application: Application) : ApertureViewModel(application)
         val burstProcessing = preferencesRepository.burstProcessing.value
         if (burstProcessing != BurstProcessing.OFF && !inSingleCaptureMode.value) {
             if (cameraController.imageOutputFormat == ImageCapture.OUTPUT_FORMAT_RAW
-                && CameraPipeline.isAvailable
+                && burstPipelineAvailable
             ) {
                 takeBurstPhoto(burstProcessing)
                 return
             }
             Log.w(
                 LOG_TAG, "Burst unavailable: format=${cameraController.imageOutputFormat}" +
-                        " lib=${CameraPipeline.isAvailable}"
+                        " lib=$burstPipelineAvailable"
             )
             Toast.makeText(
                 applicationContext, R.string.burst_processing_unavailable, Toast.LENGTH_LONG
@@ -1232,7 +1233,7 @@ class CameraViewModel(application: Application) : ApertureViewModel(application)
     private fun canUseBurstProcessing(camera: Camera) =
         preferencesRepository.burstProcessing.value != BurstProcessing.OFF
                 && !inSingleCaptureMode.value
-                && CameraPipeline.isAvailable
+                && burstPipelineAvailable
                 && camera.supportedPhotoOutputFormats.contains(PhotoOutputFormat.RAW)
 
     fun captureVideo() {

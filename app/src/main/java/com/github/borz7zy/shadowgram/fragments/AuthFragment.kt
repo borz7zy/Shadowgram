@@ -40,8 +40,11 @@ import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.textfield.TextInputLayout
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.navigateSafe
@@ -100,6 +103,7 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
      * Whether the phone number is being replaced with its formatted version.
      */
     private var isFormattingPhoneNumber = false
+    private var phoneFormattingJob: Job? = null
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -184,10 +188,25 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
 
         var displayedQrLink: String? = null
         var displayedStep: Class<*>? = null
+        var displayedCodeNumber: String? = null
+        var formattedCodeNumber: String? = null
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.uiState.collectLatest { state ->
                     val (step, isSubmitting, error) = state
+                    val qrLink = (step as? Step.QrCode)?.link
+                    val codeNumber = (step as? Step.Code)?.info?.phoneNumber
+                    val newQrBitmap = if (qrLink != displayedQrLink && qrLink != null) {
+                        withContext(Dispatchers.Default) { createQrBitmap(qrLink) }
+                    } else null
+                    if (codeNumber != displayedCodeNumber) {
+                        formattedCodeNumber = codeNumber?.let { number ->
+                            withContext(Dispatchers.Default) {
+                                PhoneNumberParser.parse(number)?.formatted ?: number
+                            }
+                        }
+                        displayedCodeNumber = codeNumber
+                    }
                     val hadStep = displayedStep != null
                     val stepChanged = displayedStep != step.javaClass
                     displayedStep = step.javaClass
@@ -216,9 +235,10 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
                     linearProgressIndicator.isVisible = step is Step.Loading || isSubmitting
                     contentLinearLayout.isVisible = step !is Step.Loading
 
-                    val qrLink = (step as? Step.QrCode)?.link
                     if (qrLink != displayedQrLink) {
-                        qrCodeImageView.setImageDrawable(qrLink?.let(::createQrDrawable))
+                        qrCodeImageView.setImageDrawable(newQrBitmap?.let {
+                            BitmapDrawable(resources, it).apply { isFilterBitmap = false }
+                        })
                         displayedQrLink = qrLink
                     }
                     qrCodeImageView.isVisible = qrLink != null
@@ -234,7 +254,8 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
 
                     descriptionTextView.text = when (step) {
                         is Step.PhoneNumber -> getString(R.string.auth_phone_number_description)
-                        is Step.Code -> codeDescription(step.info) + if (step.info.nextType == null) "\n\n" + getString(R.string.auth_resend_unavailable) else ""
+                        is Step.Code -> codeDescription(step.info, formattedCodeNumber ?: step.info.phoneNumber) +
+                                if (step.info.nextType == null) "\n\n" + getString(R.string.auth_resend_unavailable) else ""
                         is Step.Password -> getString(R.string.auth_password_description)
                         is Step.QrCode -> getString(R.string.auth_qr_description)
                         is Step.Email -> getString(R.string.auth_email_description)
@@ -301,14 +322,13 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
         }
     }
 
-    private fun createQrDrawable(link: String): BitmapDrawable {
+    private fun createQrBitmap(link: String): Bitmap {
         // Encode at one pixel per module. Keep the built-in white quiet zone and crisp edges.
         val matrix = QRCodeWriter().encode(link, BarcodeFormat.QR_CODE, 0, 0)
         val pixels = IntArray(matrix.width * matrix.height) { index ->
             if (matrix[index % matrix.width, index / matrix.width]) Color.BLACK else Color.WHITE
         }
-        val bitmap = Bitmap.createBitmap(pixels, matrix.width, matrix.height, Bitmap.Config.ARGB_8888)
-        return BitmapDrawable(resources, bitmap).apply { isFilterBitmap = false }
+        return Bitmap.createBitmap(pixels, matrix.width, matrix.height, Bitmap.Config.ARGB_8888)
     }
 
     /**
@@ -319,28 +339,32 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
             return
         }
 
-        val phoneNumber = PhoneNumberParser.parse(editable.toString())
+        val snapshot = editable.toString()
+        phoneFormattingJob?.cancel()
+        phoneFormattingJob = viewLifecycleOwner.lifecycleScope.launch {
+            val phoneNumber = withContext(Dispatchers.Default) { PhoneNumberParser.parse(snapshot) }
+            if (editable.toString() != snapshot) return@launch
 
-        // Never empty, to keep the dialpad where it is
-        phoneNumberTextInputLayout.helperText = phoneNumber?.country ?: " "
+            // Never empty, to keep the dialpad where it is
+            phoneNumberTextInputLayout.helperText = phoneNumber?.country ?: " "
+            val formatted = phoneNumber?.formatted ?: return@launch
+            if (formatted == snapshot) return@launch
 
-        val formatted = phoneNumber?.formatted ?: return
-        if (formatted == editable.toString()) {
-            return
+            val digitsBeforeCursor = snapshot
+                .take(Selection.getSelectionEnd(editable).coerceAtLeast(0))
+                .count { it in '0'..'9' }
+
+            isFormattingPhoneNumber = true
+            try {
+                editable.replace(0, editable.length, formatted)
+                Selection.setSelection(
+                    editable,
+                    PhoneNumberParser.offsetAfterDigits(formatted, digitsBeforeCursor)
+                )
+            } finally {
+                isFormattingPhoneNumber = false
+            }
         }
-
-        val digitsBeforeCursor = editable
-            .take(Selection.getSelectionEnd(editable).coerceAtLeast(0))
-            .count { it in '0'..'9' }
-
-        isFormattingPhoneNumber = true
-        editable.replace(0, editable.length, formatted)
-        isFormattingPhoneNumber = false
-
-        Selection.setSelection(
-            editable,
-            PhoneNumberParser.offsetAfterDigits(formatted, digitsBeforeCursor)
-        )
     }
 
     private fun submit() {
@@ -350,8 +374,7 @@ class AuthFragment : Fragment(R.layout.fragment_auth) {
         }
     }
 
-    private fun codeDescription(info: TdApi.AuthenticationCodeInfo): String {
-        val phone = PhoneNumberParser.parse(info.phoneNumber)?.formatted ?: info.phoneNumber
+    private fun codeDescription(info: TdApi.AuthenticationCodeInfo, phone: String): String {
         return when (val type = info.type) {
             is TdApi.AuthenticationCodeTypeTelegramMessage -> getString(R.string.auth_code_telegram, phone)
             is TdApi.AuthenticationCodeTypeCall -> getString(R.string.auth_code_call, phone)

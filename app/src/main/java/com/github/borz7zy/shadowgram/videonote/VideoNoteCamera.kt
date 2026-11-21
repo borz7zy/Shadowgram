@@ -12,6 +12,10 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.Looper
+import android.os.Process
 import android.util.Log
 import android.util.Range
 import android.util.Rational
@@ -54,10 +58,13 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.android.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.guava.await
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.lineageos.aperture.ApertureApplication
 import org.lineageos.aperture.models.Camera
@@ -125,6 +132,12 @@ object VideoNoteCamera {
 
     private val scope = MainScope()
     private var prewarmed: Deferred<Pair<ProcessCameraProvider, Config?>>? = null
+    private val exportSlot = Semaphore(1)
+    private val exportDispatcher by lazy {
+        val thread = HandlerThread("VideoNoteExport", Process.THREAD_PRIORITY_BACKGROUND)
+        thread.start()
+        Handler(thread.looper).asCoroutineDispatcher()
+    }
 
     private fun Context.hasPermission(permission: String) =
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
@@ -332,14 +345,14 @@ object VideoNoteCamera {
      * when the encoder overshoots, it tries again with a lower bitrate, then fewer pixels, and
      * as a last resort cuts the end, see [nextAttempt].
      *
-     * @param onProgress Percent of the current try, on the main thread
+     * @param onProgress Percent of the current try, on the export thread
      */
     suspend fun transcode(
         context: Context,
         input: File,
         output: File,
         onProgress: (Int) -> Unit,
-    ) {
+    ) = exportSlot.withPermit {
         val (side, durationMs) = probe(input)
         val seconds = (durationMs / 1000.0).coerceAtLeast(1.0)
         var attempt = Attempt(
@@ -358,7 +371,7 @@ object VideoNoteCamera {
             Log.i(LOG_TAG, "Video note try $index: $attempt, $size bytes")
             check(size > 0) { "Video note export wrote nothing" }
             if (size <= MAX_SIZE_BYTES) {
-                return
+                return@withPermit
             }
             attempt = nextAttempt(attempt, size, previousSize, durationMs, index)
             previousSize = size
@@ -366,7 +379,7 @@ object VideoNoteCamera {
         error("Video note stays over $MAX_SIZE_BYTES bytes")
     }
 
-    /** Must run on a looper thread, hence Main. */
+    /** Transformer requires a looper, with export control and callbacks on the same thread. */
     @OptIn(UnstableApi::class)
     private suspend fun export(
         context: Context,
@@ -374,10 +387,11 @@ object VideoNoteCamera {
         output: File,
         attempt: Attempt,
         onProgress: (Int) -> Unit,
-    ): Unit = withContext(Dispatchers.Main) {
+    ): Unit = withContext(exportDispatcher) {
         val result = CompletableDeferred<ExportResult>()
 
         val transformer = Transformer.Builder(context)
+            .setLooper(checkNotNull(Looper.myLooper()))
             .setVideoMimeType(MimeTypes.VIDEO_H264)
             .setEncoderFactory(
                 DefaultEncoderFactory.Builder(context)

@@ -70,7 +70,11 @@ class ChatViewModel(
         getApplication<ShadowgramApplication>().accountsRepository.activeClient()
     }
 
-    private val history = viewModelScope.async { ChatHistory(client.await(), chatId, topicId, isScheduled) }
+    // Serialize the chat's commands while keeping history locks and JNI calls off main.
+    private val historyDispatcher = Dispatchers.Default.limitedParallelism(1)
+    private val history = viewModelScope.async(historyDispatcher) {
+        ChatHistory(client.await(), chatId, topicId, isScheduled)
+    }
 
     private val snapshots = flow { emitAll(history.await().snapshots()) }
         .shareIn(viewModelScope, SharingStarted.Eagerly, 1)
@@ -252,11 +256,11 @@ class ChatViewModel(
     }
 
     fun loadOlder() {
-        viewModelScope.launch { history.await().loadOlder() }
+        viewModelScope.launch(historyDispatcher) { history.await().loadOlder() }
     }
 
     fun loadNewer() {
-        viewModelScope.launch { history.await().loadNewer() }
+        viewModelScope.launch(historyDispatcher) { history.await().loadNewer() }
     }
 
     /** The reply goes with the next message, the composer stops showing it. */
@@ -279,7 +283,7 @@ class ChatViewModel(
             else -> true
         }
         typingSentAt = if (isTyping) now else 0L
-        viewModelScope.launch { history.await().setTyping(isTyping) }
+        viewModelScope.launch(historyDispatcher) { history.await().setTyping(isTyping) }
     }
 
     /**
@@ -302,7 +306,7 @@ class ChatViewModel(
 
     fun setReply(reply: Reply?) {
         replyTo.value = reply
-        viewModelScope.launch {
+        viewModelScope.launch(historyDispatcher) {
             history.await().setReplyTo(reply?.messageId ?: 0L, reply?.quote, reply?.quotePosition ?: 0)
         }
     }
@@ -361,7 +365,7 @@ class ChatViewModel(
 
     /** Send through [send], a refusal reported with nothing to restore. */
     private fun sendNow(send: suspend (ChatHistory) -> TdApi.Error?) {
-        viewModelScope.launch {
+        viewModelScope.launch(historyDispatcher) {
             send(history.await())?.let { _sendFailures.send(Failed(it.message)) }
         }
     }
@@ -380,12 +384,12 @@ class ChatViewModel(
         clearReply()
         // Sending ends the typing on Telegram's side
         typingSentAt = 0L
-        val entities = (customEmoji.map {
-            TdApi.TextEntity(it.offset, it.length, TdApi.TextEntityTypeCustomEmoji(it.customEmojiId))
-        } + mentions.map {
-            TdApi.TextEntity(it.offset, it.length, TdApi.TextEntityTypeMentionName(it.userId))
-        }).sortedBy { it.offset }.toTypedArray()
-        viewModelScope.launch {
+        viewModelScope.launch(historyDispatcher) {
+            val entities = (customEmoji.map {
+                TdApi.TextEntity(it.offset, it.length, TdApi.TextEntityTypeCustomEmoji(it.customEmojiId))
+            } + mentions.map {
+                TdApi.TextEntity(it.offset, it.length, TdApi.TextEntityTypeMentionName(it.userId))
+            }).sortedBy { it.offset }.toTypedArray()
             val error = history.await().send(
                 TdApi.InputMessageText(TdApi.FormattedText(text, entities), null, true),
                 scheduling,
@@ -415,7 +419,7 @@ class ChatViewModel(
     ) {
         clearReply()
         typingSentAt = 0L
-        viewModelScope.launch {
+        viewModelScope.launch(historyDispatcher) {
             // One unreadable file and nothing goes, rather than a message missing it
             val contents = picked.mapIndexed { index, it ->
                 InputContents.fromUri(getApplication(), it.uri, it.asFile, caption.takeIf { index == 0 })
@@ -521,6 +525,7 @@ class ChatViewModel(
                 )
             }
         }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STICKERS_STOP_MS), null)
 
     /** Download a sticker or GIF file the keyboard shows. */
@@ -534,7 +539,7 @@ class ChatViewModel(
      */
     fun sendVideoNote(raw: File) {
         replyTo.value = null
-        viewModelScope.launch {
+        viewModelScope.launch(historyDispatcher) {
             // ponytail: thumbnails stay in the cache dir (tens of KB each), TDLib uploads from
             // them; delete them on updateMessageSendSucceeded if cache size starts to matter
             val thumbnail = File(raw.parentFile, raw.name.replace("_raw.mp4", ".jpg"))
@@ -563,7 +568,7 @@ class ChatViewModel(
 
     /** Stop sending a message whose file is still uploading. */
     fun cancelUpload(messageId: Long) {
-        viewModelScope.launch { history.await().delete(messageId) }
+        viewModelScope.launch(historyDispatcher) { history.await().delete(messageId) }
     }
 
     /** The pinned messages, newest first; none for the scheduled ones. */
@@ -573,10 +578,11 @@ class ChatViewModel(
             emitAll(history.await().pinned())
         }
     }
+        .flowOn(historyDispatcher)
         .stateIn(viewModelScope, SharingStarted.Eagerly, ChatHistory.PinnedMessages())
 
     fun setPinned(messageId: Long, isPinned: Boolean) {
-        viewModelScope.launch { history.await().setPinned(messageId, isPinned) }
+        viewModelScope.launch(historyDispatcher) { history.await().setPinned(messageId, isPinned) }
     }
 
     /**
@@ -664,7 +670,7 @@ class ChatViewModel(
         }
 
     /** Every command of the bots here: the bot of a private chat, those added to a group. */
-    private val botCommands = viewModelScope.async {
+    private val botCommands = viewModelScope.async(Dispatchers.Default) {
         val client = client.await()
         val type = chatType.await()
         val bots = when (type) {
@@ -819,6 +825,7 @@ class ChatViewModel(
             else -> listOf()
         }
     }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, listOf())
 
     /** Send the result picked from an inline bot's, "via @bot" shown on it. */
@@ -834,7 +841,7 @@ class ChatViewModel(
 
     /** Back to the newest messages, reloading them when reading old ones. */
     fun showNewest() {
-        viewModelScope.launch { history.await().showNewest() }
+        viewModelScope.launch(historyDispatcher) { history.await().showNewest() }
     }
 
     /** The oldest unread mention, or message with unseen reactions; null for none. */
@@ -842,11 +849,11 @@ class ChatViewModel(
 
     /** Load the history around [messageId] to show it, unless it's loaded already. */
     fun loadAt(messageId: Long) {
-        viewModelScope.launch { history.await().loadAt(messageId) }
+        viewModelScope.launch(historyDispatcher) { history.await().loadAt(messageId) }
     }
 
     fun view(messageIds: LongArray) {
-        viewModelScope.launch { history.await().view(messageIds) }
+        viewModelScope.launch(historyDispatcher) { history.await().view(messageIds) }
     }
 
     companion object {

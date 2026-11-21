@@ -87,6 +87,7 @@ class GalleryPanelView @JvmOverloads constructor(
     private val adapter = Adapter()
 
     private var media = listOf<Uri>()
+    private var mediaJob: Job? = null
     private val selection = ArrayList<Uri>()
     private val thumbnails = LruCache<Uri, Bitmap>(THUMBNAIL_CACHE_SIZE)
 
@@ -125,6 +126,7 @@ class GalleryPanelView @JvmOverloads constructor(
 
     /** Release the camera, as the panel closes. */
     fun stop() {
+        mediaJob?.cancel()
         provider?.unbindAll()
         cameraOwner = null
         imageCapture = null
@@ -144,14 +146,26 @@ class GalleryPanelView @JvmOverloads constructor(
     /** List the gallery again, after the media permission was granted. */
     fun reload() {
         val owner = findViewTreeLifecycleOwner() ?: return
+        mediaJob?.cancel()
         if (!hasMediaPermission()) {
             media = listOf()
+            selection.clear()
             adapter.notifyDataSetChanged()
+            updateConfirm()
             return
         }
-        owner.lifecycleScope.launch {
-            media = withContext(Dispatchers.IO) { queryMedia() }
-            selection.retainAll(media.toSet())
+        mediaJob = owner.lifecycleScope.launch {
+            val (items, available) = withContext(Dispatchers.IO) {
+                val items = try {
+                    queryMedia()
+                } catch (e: SecurityException) {
+                    Log.w(LOG_TAG, "Media permission changed", e)
+                    emptyList()
+                }
+                items to items.toSet()
+            }
+            media = items
+            selection.retainAll(available)
             adapter.notifyDataSetChanged()
             updateConfirm()
         }
@@ -195,21 +209,27 @@ class GalleryPanelView @JvmOverloads constructor(
 
     private fun takePhoto() {
         val capture = imageCapture ?: return
-        val directory = File(context.cacheDir, "outgoing/${System.nanoTime()}").apply { mkdirs() }
-        val file = File(directory, "photo.jpg")
-        capture.takePicture(
-            ImageCapture.OutputFileOptions.Builder(file).build(),
-            ContextCompat.getMainExecutor(context),
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                    listener?.onPhotoTaken(file)
-                }
+        val owner = cameraOwner ?: return
+        owner.lifecycleScope.launch {
+            val file = withContext(Dispatchers.IO) {
+                val directory = File(context.cacheDir, "outgoing/${System.nanoTime()}").apply { mkdirs() }
+                File(directory, "photo.jpg")
+            }
+            if (imageCapture !== capture) return@launch
+            capture.takePicture(
+                ImageCapture.OutputFileOptions.Builder(file).build(),
+                ContextCompat.getMainExecutor(context),
+                object : ImageCapture.OnImageSavedCallback {
+                    override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                        listener?.onPhotoTaken(file)
+                    }
 
-                override fun onError(exception: ImageCaptureException) {
-                    Log.w(LOG_TAG, "Photo failed", exception)
-                }
-            },
-        )
+                    override fun onError(exception: ImageCaptureException) {
+                        Log.w(LOG_TAG, "Photo failed", exception)
+                    }
+                },
+            )
+        }
     }
 
     private fun hasMediaPermission() = mediaPermissions().any {

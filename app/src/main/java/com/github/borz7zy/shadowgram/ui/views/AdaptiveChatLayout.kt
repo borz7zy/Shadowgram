@@ -17,7 +17,12 @@ import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.content.edit
+import androidx.lifecycle.findViewTreeLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import com.github.borz7zy.shadowgram.ui.AdaptiveChatPanePolicy
+import com.github.borz7zy.shadowgram.ui.UiPreferences
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 /** The home NavHost, a divider and the chat NavHost, kept alive when the window changes size. */
 class AdaptiveChatLayout @JvmOverloads constructor(
@@ -56,15 +61,19 @@ class AdaptiveChatLayout @JvmOverloads constructor(
 
     private var panes = AdaptiveChatPanePolicy.Panes(0, 0, false)
     private var insetsNeedUpdate = true
-    private val preferences = context.getSharedPreferences("chat_panes", Context.MODE_PRIVATE)
-    private var preferredWidthDp = preferences.getFloat("list_width_dp", Float.NaN)
-        .takeIf { it.isFinite() }
-    var navigationRailHidden = preferences.getBoolean("navigation_rail_hidden", false)
+    private var preferencesJob: Job? = null
+    private var widthChanged = false
+    private var preferredWidthDp: Float? = null
+    private var railPreference: Boolean? = null
+    var navigationRailHidden: Boolean
+        get() = railPreference ?: false
         set(value) {
-            if (field == value) return
+            if (railPreference == value) return
             animatePaneBounds()
-            field = value
-            preferences.edit { putBoolean("navigation_rail_hidden", value) }
+            railPreference = value
+            UiPreferences.write(context, PREFERENCES) {
+                it.edit(commit = true) { putBoolean("navigation_rail_hidden", value) }
+            }
             requestLayout()
         }
     val isNavigationRailHidden get() = panes.navigationRailHidden
@@ -82,6 +91,24 @@ class AdaptiveChatLayout @JvmOverloads constructor(
         isChildrenDrawingOrderEnabled = true
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        preferencesJob = findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
+            val (width, railHidden) = UiPreferences.read(context, PREFERENCES) {
+                it.getFloat("list_width_dp", Float.NaN).takeIf(Float::isFinite) to
+                        it.getBoolean("navigation_rail_hidden", false)
+            }
+            if (!widthChanged) preferredWidthDp = width
+            if (railPreference == null) railPreference = railHidden
+            requestLayout()
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        preferencesJob?.cancel()
+        super.onDetachedFromWindow()
+    }
+
     override fun onFinishInflate() {
         super.onFinishInflate()
         divider.onResizeBy = resize@{ delta ->
@@ -90,6 +117,7 @@ class AdaptiveChatLayout @JvmOverloads constructor(
             val minimum = AdaptiveChatPanePolicy.MIN_LIST_WIDTH_DP
             val maximum = defaultPanes(width).listWidth / density
             val current = (preferredWidthDp ?: (panes.listWidth / density + railOffsetDp())).coerceIn(minimum, maximum)
+            widthChanged = true
             preferredWidthDp = (current + delta / density).coerceIn(minimum, maximum)
             requestLayout()
         }
@@ -124,9 +152,12 @@ class AdaptiveChatLayout @JvmOverloads constructor(
     }
 
     private fun saveWidth() {
-        preferences.edit {
-            val preferred = preferredWidthDp
-            if (preferred == null) remove("list_width_dp") else putFloat("list_width_dp", preferred)
+        widthChanged = true
+        val preferred = preferredWidthDp
+        UiPreferences.write(context, PREFERENCES) {
+            it.edit(commit = true) {
+                if (preferred == null) remove("list_width_dp") else putFloat("list_width_dp", preferred)
+            }
         }
     }
 
@@ -239,4 +270,8 @@ class AdaptiveChatLayout @JvmOverloads constructor(
 
     override fun generateDefaultLayoutParams() = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
     override fun generateLayoutParams(attrs: AttributeSet?) = LayoutParams(context, attrs)
+
+    private companion object {
+        const val PREFERENCES = "chat_panes"
+    }
 }

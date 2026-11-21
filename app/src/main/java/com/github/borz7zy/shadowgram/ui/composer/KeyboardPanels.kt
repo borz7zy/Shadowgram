@@ -5,7 +5,6 @@
 
 package com.github.borz7zy.shadowgram.ui.composer
 
-import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
@@ -20,6 +19,9 @@ import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import com.github.borz7zy.shadowgram.ui.UiPreferences
+import kotlinx.coroutines.launch
 
 /**
  * Panels that take the keyboard's place under the composer, like VK's sticker keyboard: a panel
@@ -43,8 +45,9 @@ class KeyboardPanels(
 ) {
     enum class Panel { STICKERS, GALLERY, ATTACH }
 
-    private val preferences = fragment.requireContext()
-        .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+    private val context = fragment.requireContext().applicationContext
+    private val keyboardHeightKey = "height_${fragment.resources.configuration.orientation}"
+    private var keyboardHeight: Int? = null
 
     private val containerPaddingBottom = container.paddingBottom
     private val minHeight = dp(MIN_HEIGHT_DP)
@@ -60,6 +63,13 @@ class KeyboardPanels(
     }
 
     init {
+        fragment.viewLifecycleOwner.lifecycleScope.launch {
+            val saved = UiPreferences.read(context, PREFERENCES) { it.getInt(keyboardHeightKey, 0) }
+            if (keyboardHeight == null) {
+                keyboardHeight = saved
+                if (current != null) updatePanelHeight(ViewCompat.getRootWindowInsets(container))
+            }
+        }
         fragment.requireActivity().onBackPressedDispatcher
             .addCallback(fragment.viewLifecycleOwner, backCallback)
 
@@ -110,14 +120,7 @@ class KeyboardPanels(
 
     fun show(target: Panel) {
         val insets = ViewCompat.getRootWindowInsets(container)
-        val navigationBar = insets?.getInsets(WindowInsetsCompat.Type.systemBars())?.bottom ?: 0
-        val keyboard = preferences.getInt(heightKey(), 0)
-        val rootHeight = container.rootView.height
-        panel.updateLayoutParams {
-            height = (keyboard - navigationBar)
-                .coerceAtLeast(minHeight)
-                .coerceAtMost(rootHeight * 2 / 3)
-        }
+        updatePanelHeight(insets)
 
         // Typing goes back to the message, not a search field of another panel
         panel.findFocus()?.clearFocus()
@@ -131,6 +134,15 @@ class KeyboardPanels(
         WindowInsetsControllerCompat(fragment.requireActivity().window, editText)
             .hide(WindowInsetsCompat.Type.ime())
         insets?.let(::apply)
+    }
+
+    private fun updatePanelHeight(insets: WindowInsetsCompat?) {
+        val navigationBar = insets?.getInsets(WindowInsetsCompat.Type.systemBars())?.bottom ?: 0
+        panel.updateLayoutParams {
+            height = ((keyboardHeight ?: 0) - navigationBar)
+                .coerceAtLeast(minHeight)
+                .coerceAtMost(container.rootView.height * 2 / 3)
+        }
     }
 
     /** Bring the keyboard back, the panel goes once it's in. */
@@ -159,7 +171,14 @@ class KeyboardPanels(
         val isTypingInPanel = panel.findFocus() != null
 
         if (isImeVisible && !isImeAnimating && ime.bottom > minHeight && !isTypingInPanel) {
-            preferences.edit { putInt(heightKey(), ime.bottom) }
+            if (keyboardHeight != ime.bottom) {
+                keyboardHeight = ime.bottom
+                val height = ime.bottom
+                val key = keyboardHeightKey
+                UiPreferences.write(context, PREFERENCES) { preferences ->
+                    preferences.edit(commit = true) { putInt(key, height) }
+                }
+            }
             // The keyboard is in: it took the panel's place
             if (current != null) {
                 panel.isVisible = false
@@ -176,9 +195,6 @@ class KeyboardPanels(
             }
         )
     }
-
-    /** Keyboards differ between orientations. */
-    private fun heightKey() = "height_${fragment.resources.configuration.orientation}"
 
     private fun dp(value: Int) = (value * fragment.resources.displayMetrics.density).toInt()
 

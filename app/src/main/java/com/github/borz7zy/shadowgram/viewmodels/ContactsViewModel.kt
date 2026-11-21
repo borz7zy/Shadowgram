@@ -5,6 +5,7 @@
 
 package com.github.borz7zy.shadowgram.viewmodels
 
+import com.github.borz7zy.shadowgram.ui.UiPreferences
 import android.app.Application
 import android.content.SharedPreferences
 import androidx.lifecycle.AndroidViewModel
@@ -19,6 +20,7 @@ import com.github.borz7zy.shadowgram.models.ContactRow
 import com.github.borz7zy.shadowgram.models.ContactRow.Companion.toContactRows
 import com.github.borz7zy.shadowgram.models.FlowResult
 import com.github.borz7zy.shadowgram.models.SortingRule
+import com.github.borz7zy.shadowgram.models.SortingStrategy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -51,7 +53,7 @@ class ContactsViewModel(application: Application) : AndroidViewModel(application
         .stateIn(
             viewModelScope,
             SharingStarted.Eagerly,
-            sharedPreferences.contactsSortingRule,
+            SortingRule(SortingStrategy.NAME),
         )
 
     private val contacts = flow {
@@ -78,6 +80,6 @@ class ContactsViewModel(application: Application) : AndroidViewModel(application
         )
 
     fun setSortingRule(sortingRule: SortingRule) {
-        sharedPreferences.contactsSortingRule = sortingRule
+        UiPreferences.write(getApplication<Application>()) { it.contactsSortingRule = sortingRule }
     }
 }

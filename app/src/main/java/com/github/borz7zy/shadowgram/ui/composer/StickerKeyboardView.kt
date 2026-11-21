@@ -23,9 +23,12 @@ import androidx.viewpager2.widget.ViewPager2
 import coil3.dispose
 import coil3.load
 import com.github.borz7zy.shadowgram.R
+import com.github.borz7zy.shadowgram.emoji.EmojiData
 import com.github.borz7zy.shadowgram.telegram.StickersStore
 import com.github.borz7zy.shadowgram.ui.views.StickerView
 import com.google.android.material.color.MaterialColors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -93,41 +96,73 @@ class StickerKeyboardView @JvmOverloads constructor(
      * @param snapshot The account's stickers, null while loading
      * @param foundGifs GIFs found for the search, null while it's empty
      */
-    fun setStickers(snapshot: StickersStore.Snapshot?, foundGifs: List<StickersStore.Gif>?) {
+    suspend fun setStickers(snapshot: StickersStore.Snapshot?, foundGifs: List<StickersStore.Gif>?) {
         val adapter = pagesAdapter ?: return
-        val recentTitle = context.getString(R.string.keyboard_recent)
-        val favoriteTitle = context.getString(R.string.keyboard_favorite)
-
-        val recentItems = ArrayList<GridItem>()
-        snapshot?.favorite?.takeIf { it.isNotEmpty() }?.let { favorite ->
-            recentItems.add(GridItem.Header(favoriteTitle))
-            favorite.mapTo(recentItems) { GridItem.Sticker(it, 0) }
-        }
-        snapshot?.recent?.takeIf { it.isNotEmpty() }?.let { recent ->
-            recentItems.add(GridItem.Header(recentTitle))
-            recent.mapTo(recentItems) { GridItem.Sticker(it, 1) }
-        }
-
-        val packs = snapshot?.packs.orEmpty()
-        val pages = listOf(
-            KeyboardPage.Emoji(snapshot?.emojiPacks?.takeIf { snapshot.isPremium }.orEmpty()),
-            KeyboardPage.Stickers(KeyboardPage.RECENT_ID, recentItems),
-            KeyboardPage.Gifs(snapshot?.gifs.orEmpty(), foundGifs),
-        ) + packs.map { pack ->
-            KeyboardPage.Stickers(
-                pack.id,
-                listOf(GridItem.Header(pack.title)) + pack.stickers.map { GridItem.Sticker(it) },
+        val resources = resources
+        val recentEmoji = RecentEmoji.get(context.applicationContext)
+        val (pages, tabs) = withContext(Dispatchers.Default) {
+            val emoji = buildEmojiPage(
+                resources.getStringArray(R.array.emoji_categories),
+                recentEmoji,
+                snapshot?.emojiPacks?.takeIf { snapshot.isPremium }.orEmpty(),
             )
-        }
-        adapter.submitList(pages)
+            val recentItems = buildList {
+                snapshot?.favorite?.takeIf { it.isNotEmpty() }?.let { favorite ->
+                    add(GridItem.Header(resources.getString(R.string.keyboard_favorite)))
+                    favorite.mapTo(this) { GridItem.Sticker(it, 0) }
+                }
+                snapshot?.recent?.takeIf { it.isNotEmpty() }?.let { recent ->
+                    add(GridItem.Header(resources.getString(R.string.keyboard_recent)))
+                    recent.mapTo(this) { GridItem.Sticker(it, 1) }
+                }
+            }
 
-        tabsAdapter.submitList(
-            listOf(
+            val packs = snapshot?.packs.orEmpty()
+            val pages = listOf(
+                emoji,
+                KeyboardPage.Stickers(KeyboardPage.RECENT_ID, recentItems),
+                KeyboardPage.Gifs((foundGifs ?: snapshot?.gifs.orEmpty()).map { GridItem.Gif(it) }),
+            ) + packs.map { pack ->
+                KeyboardPage.Stickers(
+                    pack.id,
+                    listOf(GridItem.Header(pack.title)) + pack.stickers.map { GridItem.Sticker(it) },
+                )
+            }
+            val tabs = listOf(
                 Tab.Icon(KeyboardPage.EMOJI_ID, R.drawable.ic_mood),
                 Tab.Icon(KeyboardPage.RECENT_ID, R.drawable.ic_schedule),
-                Tab.Icon(KeyboardPage.Gifs(listOf(), null).id, R.drawable.ic_gif),
+                Tab.Icon(KeyboardPage.GIFS_ID, R.drawable.ic_gif),
             ) + packs.map { Tab.Pack(it.id, it.stickers.firstOrNull()) }
-        )
+            pages to tabs
+        }
+        if (adapter !== pagesAdapter) return
+        adapter.submitList(pages)
+        tabsAdapter.submitList(tabs)
+    }
+
+    private fun buildEmojiPage(
+        titles: Array<String>,
+        recent: List<String>,
+        customPacks: List<StickersStore.Pack>,
+    ): KeyboardPage.Emoji {
+        val headers = mutableMapOf<Int, Int>()
+        val items = buildList {
+            if (recent.isNotEmpty()) {
+                headers[0] = size
+                add(GridItem.Header(titles[0]))
+                recent.mapTo(this) { GridItem.EmojiCell(it) }
+            }
+            EmojiData.dataColored.forEachIndexed { index, codes ->
+                headers[index + 1] = size
+                add(GridItem.Header(titles[index + 1]))
+                codes.mapTo(this) { GridItem.EmojiCell(it) }
+            }
+            customPacks.forEach { pack ->
+                add(GridItem.Header(pack.title))
+                pack.stickers.mapTo(this) { GridItem.Sticker(it, section = 2) }
+            }
+        }
+        return KeyboardPage.Emoji(items, headers)
     }
 
     private fun onPageScrolled(dy: Int) {
