@@ -793,6 +793,14 @@ class ChatViewModel(
         (client.await().send(TdApi.GetMe()) as? Result.Success)?.data?.id ?: 0L
     }
 
+    val voiceCallUserId = flow {
+        if (isScheduled || topicId != 0) return@flow
+        val userId = (chatType.await() as? TdApi.ChatTypePrivate)?.userId ?: return@flow
+        if (userId == myUserId.await()) return@flow
+        val full = client.await().send(TdApi.GetUserFullInfo(userId)) as? Result.Success
+        if (full?.data?.canBeCalled == true) emit(userId)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /**
      * The members matching [mentionQuery], all of them for an empty one, this account left out.
      *

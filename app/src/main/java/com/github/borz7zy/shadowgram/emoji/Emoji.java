@@ -2,7 +2,7 @@
  * Adapted from Telegram for Android (DrKLO/Telegram), GPL v2+.
  * Original: org.telegram.messenger.Emoji.java
  * Stripped: animated/restricted/compound/recent-history paths, telegram-specific deps.
- * Copied into Shadowgram from Telegram M (borz7zy), context taken from init().
+ * Copied into Shadowgram from Shadowgram (borz7zy), context taken from init().
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */

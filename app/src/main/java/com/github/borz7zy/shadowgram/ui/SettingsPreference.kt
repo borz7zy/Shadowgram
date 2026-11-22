@@ -26,7 +26,7 @@ class SettingsActionPreference(context: Context, attrs: AttributeSet? = null) : 
     }
 }
 
-class SettingsSwitchPreference(context: Context, attrs: AttributeSet) : SwitchPreference(context, attrs) {
+class SettingsSwitchPreference(context: Context, attrs: AttributeSet? = null) : SwitchPreference(context, attrs) {
     override fun onBindViewHolder(holder: PreferenceViewHolder) {
         super.onBindViewHolder(holder)
         bindSettingsRow(holder)
@@ -34,9 +34,10 @@ class SettingsSwitchPreference(context: Context, attrs: AttributeSet) : SwitchPr
 }
 
 private fun Preference.bindSettingsRow(holder: PreferenceViewHolder) {
-    val group = requireNotNull(parent)
+    // The adapter can bind a removed preference before it processes the hierarchy change.
+    val group = parent ?: return
+    val row = holder.findViewById(R.id.settings_preference_surface) ?: return
     val visibleRows = (0 until group.preferenceCount).map(group::getPreference).filter(Preference::isVisible)
-    val row = holder.findViewById(R.id.settings_preference_surface)
     val density = row.resources.displayMetrics.density
     val top = (if (visibleRows.firstOrNull() == this) 20f else 4f) * density
     val bottom = (if (visibleRows.lastOrNull() == this) 20f else 4f) * density
@@ -55,7 +56,7 @@ private fun Preference.bindSettingsRow(holder: PreferenceViewHolder) {
             MaterialR.attr.colorTertiaryContainer to MaterialR.attr.colorOnTertiaryContainer
         else -> MaterialR.attr.colorPrimaryContainer to MaterialR.attr.colorOnPrimaryContainer
     }
-    val icon = holder.findViewById(android.R.id.icon) as ImageView
+    val icon = holder.findViewById(android.R.id.icon) as? ImageView ?: return
     icon.imageTintList = ColorStateList.valueOf(MaterialColors.getColor(icon, foregroundAttr))
     icon.background = GradientDrawable().apply {
         shape = GradientDrawable.OVAL

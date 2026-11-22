@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="call_voice">Voice call</string>
+    <string name="call_incoming">Incoming voice call</string>
+    <string name="call_incoming_channel">Incoming calls</string>
+    <string name="call_active_channel">Ongoing calls</string>
+    <string name="call_dialing">Calling…</string>
+    <string name="call_ringing">Ringing…</string>
+    <string name="call_connecting">Connecting…</string>
+    <string name="call_connected">Connected</string>
+    <string name="call_reconnecting">Reconnecting…</string>
+    <string name="call_ended">Call ended</string>
+    <string name="call_no_answer">No answer</string>
+    <string name="call_declined">Call declined</string>
+    <string name="call_failed">Couldn’t connect the call</string>
+    <string name="call_unavailable">This call is unavailable</string>
+    <string name="call_incompatible">The other client uses a different call protocol</string>
+    <string name="call_microphone_required">Allow microphone access to make or answer a call</string>
+    <string name="call_answer">Answer</string>
+    <string name="call_decline">Decline</string>
+    <string name="call_hang_up">Hang up</string>
+    <string name="call_close">Close</string>
+    <string name="call_mute">Mute</string>
+    <string name="call_unmute">Unmute</string>
+    <string name="call_speaker">Speaker</string>
+    <string name="call_auto_audio_route">Automatic output</string>
+    <string name="call_remote_muted">The other person muted their microphone</string>
+</resources>

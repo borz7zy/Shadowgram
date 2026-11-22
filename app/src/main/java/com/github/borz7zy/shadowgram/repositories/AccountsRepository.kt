@@ -24,7 +24,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import com.github.borz7zy.shadowgram.BuildConfig
 import com.github.borz7zy.shadowgram.models.Result
 import com.github.borz7zy.shadowgram.models.Result.Companion.getOrNull
-import com.github.borz7zy.shadowgram.telegram.ChatsStore
 import com.github.borz7zy.shadowgram.telegram.DatabaseKey
 import com.github.borz7zy.shadowgram.telegram.TelegramClient
 import org.drinkless.tdlib.Client
@@ -42,7 +41,8 @@ class AccountsRepository(
     private val context: Context,
     private val coroutineScope: CoroutineScope,
     private val onAccountsChanged: () -> Unit,
-    private val onNotificationUpdate: (Int, TdApi.Object, ChatsStore) -> Unit,
+    private val onCallUpdate: (TdApi.Object, TelegramClient) -> Unit = { _, _ -> },
+    private val onNotificationUpdate: (Int, TdApi.Object, TelegramClient) -> Unit,
 ) {
     private val sharedPreferences by lazy {
         context.getSharedPreferences("accounts", Context.MODE_PRIVATE)
@@ -62,6 +62,8 @@ class AccountsRepository(
 
     private val clientsMutex = Mutex()
     private val clients = mutableMapOf<Int, TelegramClient>()
+    private var foreground = false
+    private var onlineClient: TelegramClient? = null
 
     private val accountIds: Set<Int>
         get() = sharedPreferences.getStringSet(ACCOUNT_IDS_KEY, null).orEmpty()
@@ -82,6 +84,27 @@ class AccountsRepository(
      * none. Loads TDLib when needed.
      */
     suspend fun activeClient() = client { activeAccountId ?: newAccountId }
+
+    internal suspend fun setForeground(value: Boolean) = withContext(Dispatchers.IO) {
+        clientsMutex.withLock {
+            foreground = value
+            updatePresence()
+        }
+    }
+
+    // Called with clientsMutex held so account and foreground changes are applied in order.
+    private fun updatePresence() {
+        val active = if (foreground) activeAccountId?.let(clients::get) else null
+        val next = active?.takeIf { it.authorizationState.value is TdApi.AuthorizationStateReady }
+        if (onlineClient === next) return
+        onlineClient?.setOnline(false)
+        onlineClient = next
+        next?.setOnline(true)
+    }
+
+    internal suspend fun idFor(client: TelegramClient): Int? = withContext(Dispatchers.IO) {
+        clientsMutex.withLock { clients.entries.firstOrNull { it.value === client }?.key }
+    }
 
     /**
      * Get the client of the account to sign in. Loads TDLib when needed.
@@ -146,7 +169,10 @@ class AccountsRepository(
                 return@withLock null
             }
             val changed = activeAccountId != accountId
-            if (changed) sharedPreferences.edit { putInt(ACTIVE_ACCOUNT_ID_KEY, accountId) }
+            if (changed) {
+                sharedPreferences.edit { putInt(ACTIVE_ACCOUNT_ID_KEY, accountId) }
+                updatePresence()
+            }
             changed
         }
     }
@@ -199,8 +225,8 @@ class AccountsRepository(
         val parameters = buildParameters(accountId)
         val isEncrypted = parameters.databaseEncryptionKey.isNotEmpty()
         val fallbackKey = if (isEncrypted) ByteArray(0) else databaseKey
-        TelegramClient(parameters, context, fallbackKey) { update, chats ->
-            onNotificationUpdate(accountId, update, chats)
+        TelegramClient(parameters, context, fallbackKey, onCallUpdate) { update, client ->
+            onNotificationUpdate(accountId, update, client)
         }.also { client ->
             if (!isEncrypted) coroutineScope.launch(Dispatchers.IO) { encrypt(accountId, client) }
             coroutineScope.launch(Dispatchers.IO) {
@@ -210,16 +236,17 @@ class AccountsRepository(
 
                 if (state is TdApi.AuthorizationStateReady) {
                     val added = clientsMutex.withLock {
-                        if (clients[accountId] === client && accountId !in accountIds) {
+                        if (clients[accountId] !== client) return@withLock false
+                        val newAccount = accountId !in accountIds
+                        if (newAccount) {
                             val ids = accountIds + accountId
                             sharedPreferences.edit(commit = true) {
                                 putStringSet(ACCOUNT_IDS_KEY, ids.map(Int::toString).toSet())
                                 putInt(ACTIVE_ACCOUNT_ID_KEY, accountId)
                             }
-                            true
-                        } else {
-                            false
                         }
+                        updatePresence()
+                        newAccount
                     }
                     if (added) onAccountsChanged()
                 }

@@ -9,4 +9,6 @@ extern crate camera_pipeline;
 
 mod bitmap;
 mod cache;
+mod call;
 mod decode;
+mod haptics;

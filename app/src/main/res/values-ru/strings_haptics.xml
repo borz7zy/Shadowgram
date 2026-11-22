@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="haptics_title">Вибрация в такт звуку</string>
+    <string name="haptics_overview">Вибрация для уведомлений и выбранного аудио</string>
+    <string name="haptics_playback_title">Воспроизведение</string>
+    <string name="haptics_notifications">Вибрация уведомлений</string>
+    <string name="haptics_media">Вибрация медиаконтента</string>
+    <string name="haptics_profile">Профиль вибрации</string>
+    <string name="haptics_profile_soft">Мягкий</string>
+    <string name="haptics_profile_balanced">Сбалансированный</string>
+    <string name="haptics_profile_dynamic">Динамичный</string>
+    <string name="haptics_intensity">Интенсивность</string>
+    <string name="haptics_offset">Задержка вибрации</string>
+    <string name="haptics_offset_ms">%1$d мс</string>
+    <string name="haptics_preparation">Подготовка</string>
+    <string name="haptics_automatic">Автоматически готовить звуки уведомлений</string>
+    <string name="haptics_import">Выбрать аудиофайл</string>
+    <string name="haptics_current">Подготовить текущий трек</string>
+    <string name="haptics_cancel">Отменить подготовку</string>
+    <string name="haptics_status">Выбранное аудио</string>
+    <string name="haptics_notification_status">Звук уведомлений по умолчанию</string>
+    <string name="haptics_sound_settings">Настройки уведомлений Android</string>
+    <string name="haptics_storage_title">Хранилище</string>
+    <string name="haptics_stats">База вибропаттернов</string>
+    <string name="haptics_stats_summary">%1$s · %2$d паттернов · %3$d источников · %4$d в очереди · %5$d с ошибкой</string>
+    <string name="haptics_limit">Лимит хранилища</string>
+    <string name="haptics_clean">Удалить незакреплённые паттерны</string>
+    <string name="haptics_clean_summary">Подготовленные звуки уведомлений сохранятся.</string>
+    <string name="haptics_rebuild">Пересоздать паттерны</string>
+    <string name="haptics_rebuild_summary">Паттерны будут подготовлены заново для файлов, к которым у Shadowgram сохранился доступ.</string>
+    <string name="haptics_pick_summary">Выберите файл или текущий трек</string>
+    <string name="haptics_track_unavailable">Аудио недоступно или ещё загружается</string>
+    <string name="haptics_notification_fallback">Стандартная вибрация, если она доступна</string>
+    <string name="haptics_queued">Ожидает обработки</string>
+    <string name="haptics_preparing">Подготовка</string>
+    <string name="haptics_ready">Готово</string>
+    <string name="haptics_error">Ошибка подготовки или хранилища</string>
+    <string name="haptics_cancelled">Отменено</string>
+    <string name="haptics_notification_channel">%1$s · Вибрация в такт</string>
+    <string-array name="haptics_limit_names">
+        <item>4 МБ</item><item>16 МБ</item><item>32 МБ</item><item>64 МБ</item><item>128 МБ</item><item>256 МБ</item>
+    </string-array>
+</resources>

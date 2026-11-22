@@ -55,7 +55,7 @@ val cargoBuildNative = tasks.register<Exec>("cargoBuildNative") {
 
     workingDir = rustDir
     inputs.files(fileTree(rustDir) {
-        include("Cargo.toml", "*/Cargo.toml", "*/build.rs", "*/src/**")
+        include("Cargo.lock", "Cargo.toml", "*/Cargo.toml", "*/build.rs", "*/src/**")
     })
     outputs.dir(rustJniLibsDir)
 
@@ -65,7 +65,7 @@ val cargoBuildNative = tasks.register<Exec>("cargoBuildNative") {
         add("-P"); add("29")
         rustAbis.forEach { add("-t"); add(it) }
         add("-o"); add(outPath)
-        add("build"); add("--release"); add("-p"); add("rustcore")
+        add("build"); add("--locked"); add("--release"); add("-p"); add("rustcore")
     })
 }
 

@@ -28,6 +28,9 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
+import com.github.borz7zy.shadowgram.ShadowgramApplication
+import com.github.borz7zy.shadowgram.haptics.HapticAudioSource
+import com.github.borz7zy.shadowgram.haptics.HapticPlayback
 import com.github.borz7zy.shadowgram.ext.applicationContext
 import com.github.borz7zy.shadowgram.ext.availableCommandsFlow
 import com.github.borz7zy.shadowgram.ext.eventsFlow
@@ -86,6 +89,10 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
             )
         )
         .build()
+
+    private val hapticPlayback = HapticPlayback((application as ShadowgramApplication).audioHaptics, exoPlayer) { item ->
+        item.localConfiguration?.uri?.let { HapticAudioSource.media(application, it) }
+    }
 
     private val eventsFlow = exoPlayer.eventsFlow()
         .flowOn(Dispatchers.Main)
@@ -185,6 +192,7 @@ class LocalPlayerViewModel(application: Application) : AndroidViewModel(applicat
         )
 
     override fun onCleared() {
+        hapticPlayback.close()
         exoPlayer.release()
 
         super.onCleared()

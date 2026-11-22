@@ -14,9 +14,16 @@ import com.github.borz7zy.shadowgram.models.Result as TelegramResult
 import com.github.borz7zy.shadowgram.models.Result.Companion.getOrNull
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.Client
@@ -86,41 +93,91 @@ class TelegramPushRegistrationWorker(context: Context, parameters: WorkerParamet
 class TelegramPushWorker(context: Context, parameters: WorkerParameters) :
     CoroutineWorker(context, parameters) {
 
-    override suspend fun doWork(): Result = withTimeoutOrNull(WORK_TIMEOUT_MS) {
+    override suspend fun doWork(): Result {
+        logNotificationDelivery { "FCM worker started attempt=$runAttemptCount" }
         val app = applicationContext as ShadowgramApplication
-        val payload = inputData.getString(PAYLOAD)
-        val receiver = if (payload == null) 0L else try {
-            Client.execute(TdApi.GetPushReceiverId(payload)).id
-        } catch (error: Client.ExecutionException) {
-            Log.w(LOG_TAG, "Invalid FCM payload (TDLib ${error.error.code})")
-            return@withTimeoutOrNull Result.failure()
+        val delivered = app.telegramPushProcessor.resume(id, inputData.getString(PAYLOAD))
+        return when {
+            delivered -> Result.success()
+            runAttemptCount < 3 -> Result.retry()
+            else -> Result.failure()
         }
-
-        val clients = app.accountsRepository.signedInClients(receiver).values
-        coroutineScope {
-            clients.map { client ->
-                async {
-                    if (!client.isAuthorized() || !client.awaitNotificationSetup()) return@async
-                    if (payload == null) {
-                        client.awaitNotificationSync()
-                        return@async
-                    }
-                    when (val result = client.send(TdApi.ProcessPushNotification(payload))) {
-                        is TelegramResult.Success -> Unit
-                        is TelegramResult.Failure -> {
-                            if (result.error.code == 406) client.awaitNotificationSync()
-                            else Log.w(LOG_TAG, "FCM push processing failed (TDLib ${result.error.code})")
-                        }
-                    }
-                }
-            }.awaitAll()
-        }
-        app.telegramNotifications.flush()
-        Result.success()
-    } ?: if (runAttemptCount < 3) Result.retry() else Result.failure()
+    }
 
     companion object {
         const val PAYLOAD = "telegram_push_payload"
+    }
+}
+
+/** Starts delivery in the Firebase callback and lets durable work continue the same request. */
+internal class TelegramPushProcessor(private val app: ShadowgramApplication) {
+    private val handoffs = ConcurrentHashMap<UUID, Deferred<Boolean>>()
+
+    fun start(payload: String?) = app.backgroundScope.async(Dispatchers.IO) { deliver(payload) }
+
+    fun handoff(workId: UUID, delivery: Deferred<Boolean>) {
+        handoffs[workId] = delivery
+        app.backgroundScope.launch {
+            delivery.join()
+            // Keep the result briefly so a worker which starts just afterwards can still reuse it.
+            delay(WORK_TIMEOUT_MS)
+            handoffs.remove(workId, delivery)
+        }
+    }
+
+    suspend fun resume(workId: UUID, payload: String?): Boolean {
+        val initial = handoffs[workId] ?: return deliver(payload)
+        val delivered = initial.await()
+        handoffs.remove(workId, initial)
+        return delivered
+    }
+
+    private suspend fun deliver(payload: String?): Boolean = try {
+        withTimeoutOrNull(WORK_TIMEOUT_MS) { process(payload) } ?: false
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Log.w(LOG_TAG, "Push delivery failed (${error.javaClass.simpleName})")
+        false
+    }
+
+    private suspend fun process(payload: String?): Boolean {
+        logNotificationDelivery { "Processing Telegram push payload=${payload != null}" }
+        val receiver = if (payload == null) null else try {
+            Client.execute(TdApi.GetPushReceiverId(payload)).id
+        } catch (error: Client.ExecutionException) {
+            Log.w(LOG_TAG, "Invalid FCM payload (TDLib ${error.error.code})")
+            null
+        }
+
+        val clients = app.accountsRepository.signedInClients(receiver ?: 0L).values
+        val delivered = coroutineScope {
+            clients.map { client ->
+                async {
+                    if (!client.isAuthorized()) return@async true
+                    if (!client.awaitNotificationSetup()) return@async false
+                    if (payload != null && receiver != null) {
+                        when (val result = client.send(TdApi.ProcessPushNotification(payload))) {
+                            is TelegramResult.Success -> return@async true
+                            is TelegramResult.Failure -> {
+                                if (result.error.code == 401) return@async true
+                                logNotificationDelivery { "TDLib push requires sync code=${result.error.code}" }
+                            }
+                        }
+                    }
+                    // A cached Ready state does not verify that the server connection is alive.
+                    when (val sync = client.send(TdApi.GetCountryCode())) {
+                        is TelegramResult.Failure -> sync.error.code == 401
+                        is TelegramResult.Success -> {
+                            client.awaitNotificationSync()
+                            true
+                        }
+                    }
+                }
+            }.awaitAll().all { it }
+        }
+        app.telegramNotifications.flush()
+        return delivered
     }
 }
 

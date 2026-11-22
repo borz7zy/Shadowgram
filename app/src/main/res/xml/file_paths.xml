@@ -11,4 +11,7 @@
     <files-path
         name="tdlib"
         path="accounts/" />
+    <files-path
+        name="notification_sounds"
+        path="notification_sounds/" />
 </paths>

@@ -68,6 +68,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ShadowgramApplication
+import com.github.borz7zy.shadowgram.calls.CallActivity
 import com.github.borz7zy.shadowgram.models.MessageSelectionActions
 import com.github.borz7zy.shadowgram.models.selectedMessagesText
 import com.github.borz7zy.shadowgram.emoji.Emoji
@@ -478,6 +479,11 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         }
         toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
+                R.id.chat_voice_call -> {
+                    val userId = viewModel.voiceCallUserId.value ?: return@setOnMenuItemClickListener false
+                    val name = viewModel.header.value?.chat?.title ?: getString(R.string.call_voice)
+                    startActivity(CallActivity.outgoing(requireContext(), userId, name))
+                }
                 R.id.selection_forward, R.id.selection_forward_more -> forwardSelection()
                 R.id.selection_copy -> copySelection()
                 R.id.selection_edit -> viewModel.selectedMessages.value.keys.singleOrNull()?.let {
@@ -627,6 +633,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         }
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch { viewModel.voiceCallUserId.collect { renderMessageSelection() } }
                 launch {
                     viewModel.header.collectLatest {
                         it ?: return@collectLatest
@@ -1102,10 +1109,18 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         channelMuteButton.setText(if (chat?.isMuted == true) R.string.chat_unmute else R.string.chat_mute)
         messageEditText.setHint(if (chat?.isChannel == true && chat.canPostMessages) R.string.chat_publication else R.string.chat_message_hint)
         if (!selecting) {
-            toolbar.menu.clear()
+            val call = toolbar.menu.findItem(R.id.chat_voice_call)
+            val canCall = viewModel.voiceCallUserId.value != null
+            if (call == null || !canCall) {
+                toolbar.menu.clear()
+                if (canCall) toolbar.inflateMenu(R.menu.chat_voice_call)
+            }
             return
         }
-        if (toolbar.menu.findItem(R.id.selection_forward) == null) toolbar.inflateMenu(R.menu.chat_message_selection)
+        if (toolbar.menu.findItem(R.id.selection_forward) == null) {
+            toolbar.menu.clear()
+            toolbar.inflateMenu(R.menu.chat_message_selection)
+        }
         val actions = MessageSelectionActions.of(selected.values, viewModel.selectionProperties.value,
             chat?.hasProtectedContent == true, !readOnlyChannel && !viewModel.isScheduled)
         toolbar.menu.findItem(R.id.selection_forward).isVisible = actions.forward

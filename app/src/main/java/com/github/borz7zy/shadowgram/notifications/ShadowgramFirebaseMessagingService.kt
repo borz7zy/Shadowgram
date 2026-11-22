@@ -14,9 +14,12 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -26,8 +29,12 @@ class ShadowgramFirebaseMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) = scheduleRegistration(this, refresh = true)
 
     override fun onMessageReceived(message: RemoteMessage) {
+        logNotificationDelivery {
+            val age = message.sentTime.takeIf { it > 0 }?.let { System.currentTimeMillis() - it }
+            "FCM received ageMs=$age highPriority=${message.priority == RemoteMessage.PRIORITY_HIGH}"
+        }
         if (message.data.isEmpty()) {
-            if (message.notification == null) schedulePush(payload = null, highPriority = false)
+            if (message.notification == null) processPush(payload = null, highPriority = false)
             return
         }
         val payload = JSONObject()
@@ -45,24 +52,35 @@ class ShadowgramFirebaseMessagingService : FirebaseMessagingService() {
         }
         payload.put("google.sent_time", message.sentTime)
         message.notification?.sound?.let { payload.put("google.notification.sound", it) }
-        val encoded = payload.toString().takeIf { it.toByteArray().size <= MAX_WORK_PAYLOAD_BYTES }
-        schedulePush(encoded, message.priority == RemoteMessage.PRIORITY_HIGH)
+        processPush(payload.toString(), message.priority == RemoteMessage.PRIORITY_HIGH)
     }
 
-    override fun onDeletedMessages() = schedulePush(payload = null, highPriority = false)
+    override fun onDeletedMessages() = processPush(payload = null, highPriority = false)
 
-    private fun schedulePush(payload: String?, highPriority: Boolean) {
+    private fun processPush(payload: String?, highPriority: Boolean) {
+        // Firebase calls this on a worker thread. Start TDLib immediately and keep the callback short.
+        val app = applicationContext as ShadowgramApplication
+        val processor = app.telegramPushProcessor
+        val delivery = processor.start(payload)
+        val delivered = runBlocking { withTimeoutOrNull(DIRECT_WAIT_MS) { delivery.await() } }
+        if (delivered == true) return
+
+        val savedPayload = payload?.takeIf { it.toByteArray().size <= MAX_WORK_PAYLOAD_BYTES }
         val request = OneTimeWorkRequestBuilder<TelegramPushWorker>()
-        if (payload == null) request.setConstraints(connectedNetwork)
-        else request.setInputData(workDataOf(TelegramPushWorker.PAYLOAD to payload))
+        if (savedPayload == null) request.setConstraints(connectedNetwork)
+        else request.setInputData(workDataOf(TelegramPushWorker.PAYLOAD to savedPayload))
         if (highPriority && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             request.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
         }
-        WorkManager.getInstance(applicationContext).enqueue(request.build())
+        val work = request.build()
+        if (delivered == null) processor.handoff(work.id, delivery)
+        logNotificationDelivery { "FCM delivery handed to WorkManager" }
+        WorkManager.getInstance(app).enqueue(work)
     }
 
     companion object {
         private const val MAX_WORK_PAYLOAD_BYTES = 8_000
+        private const val DIRECT_WAIT_MS = 1_500L
         private const val REGISTER_WORK = "telegram_fcm_registration"
         private val connectedNetwork = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)

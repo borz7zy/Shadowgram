@@ -33,8 +33,9 @@ internal class TelegramNetworkMonitor(context: Context, private val send: (TdApi
     @Synchronized private fun update(network: Network?, capabilities: NetworkCapabilities?) {
         if (closed) return
         val next = when {
+            // Android's validation probe can fail on a route that still reaches Telegram.
             network == null || capabilities == null || !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
-                !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) -> TdApi.NetworkTypeNone()
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL) -> TdApi.NetworkTypeNone()
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> TdApi.NetworkTypeWiFi()
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> TdApi.NetworkTypeMobile()
             else -> TdApi.NetworkTypeOther()

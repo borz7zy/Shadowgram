@@ -4,7 +4,7 @@
  * You should have received a copy of the license in this archive (see LICENSE).
  *
  * Copyright Nikolai Kudashov, 2013-2018.
- * Copied into Shadowgram from Telegram M (borz7zy).
+ * Copied into Shadowgram from Shadowgram (borz7zy).
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */

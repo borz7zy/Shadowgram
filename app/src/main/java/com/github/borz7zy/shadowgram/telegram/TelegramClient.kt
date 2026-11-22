@@ -7,7 +7,9 @@ package com.github.borz7zy.shadowgram.telegram
 
 import android.content.Context
 import android.util.Log
+import com.github.borz7zy.shadowgram.notifications.logNotificationDelivery
 import com.github.borz7zy.shadowgram.videonote.VideoNoteGenerator
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.combine
@@ -32,7 +34,8 @@ class TelegramClient(
     private val parameters: TdApi.SetTdlibParameters,
     context: Context,
     private var fallbackKey: ByteArray? = null,
-    private val onNotificationUpdate: (TdApi.Object, ChatsStore) -> Unit = { _, _ -> },
+    private val onCallUpdate: (TdApi.Object, TelegramClient) -> Unit = { _, _ -> },
+    private val onNotificationUpdate: (TdApi.Object, TelegramClient) -> Unit = { _, _ -> },
 ) {
     private val _initError = MutableStateFlow<TdApi.Error?>(null)
 
@@ -49,6 +52,11 @@ class TelegramClient(
     private val notificationOptionsReady = CompletableDeferred<Boolean>()
     private val connectionState = MutableStateFlow<TdApi.ConnectionState?>(null)
     private val havePendingNotifications = MutableStateFlow(false)
+    private val _reactionNotificationSettings = MutableStateFlow<TdApi.ReactionNotificationSettings?>(null)
+    internal val reactionNotificationSettings = _reactionNotificationSettings.asStateFlow()
+    private val communityNames = ConcurrentHashMap<Long, String>()
+
+    internal fun communityName(id: Long): String? = communityNames[id]
 
     internal suspend fun isAuthorized(): Boolean =
         combine(authorizationState, initError, ::Pair).first { (state, error) ->
@@ -61,6 +69,12 @@ class TelegramClient(
         combine(connectionState, havePendingNotifications) { connection, pending ->
             connection is TdApi.ConnectionStateReady && !pending
         }.first { it }
+    }
+
+    internal fun setOnline(online: Boolean) {
+        send(TdApi.SetOption("online", TdApi.OptionValueBoolean(online))) { result ->
+            logNotificationDelivery { "TDLib presence online=$online accepted=${result is TdApi.Ok}" }
+        }
     }
 
     /**
@@ -125,19 +139,41 @@ class TelegramClient(
         contacts.onUpdate(update)
         videoNotes.onUpdate(update)
         stickers.onUpdate(update)
-        updateListeners.forEach { it(update) }
-
         when (update) {
-            is TdApi.UpdateConnectionState -> connectionState.value = update.state
+            is TdApi.UpdateCommunity -> {
+                if (update.community.haveAccess) communityNames[update.community.id] = update.community.name
+                else communityNames.remove(update.community.id)
+            }
+            is TdApi.UpdateReactionNotificationSettings -> {
+                _reactionNotificationSettings.value = update.notificationSettings
+            }
+            is TdApi.UpdateConnectionState -> {
+                connectionState.value = update.state
+                logNotificationDelivery { "TDLib connection ready=${update.state is TdApi.ConnectionStateReady}" }
+            }
+            is TdApi.UpdateNewMessage -> if (!update.message.isOutgoing) {
+                logNotificationDelivery {
+                    "TDLib incoming message ageMs=${System.currentTimeMillis() - update.message.date * 1_000L}"
+                }
+            }
             is TdApi.UpdateHavePendingNotifications -> {
                 havePendingNotifications.value = update.haveDelayedNotifications ||
                     update.haveUnreceivedNotifications
+                logNotificationDelivery {
+                    "TDLib notifications pending delayed=${update.haveDelayedNotifications} " +
+                        "unreceived=${update.haveUnreceivedNotifications}"
+                }
             }
             is TdApi.UpdateAuthorizationState,
             is TdApi.UpdateActiveNotifications,
             is TdApi.UpdateNotificationGroup,
-            is TdApi.UpdateNotification -> onNotificationUpdate(update, chats)
+            is TdApi.UpdateNotification -> onNotificationUpdate(update, this)
         }
+        when (update) {
+            is TdApi.UpdateCall, is TdApi.UpdateNewCallSignalingData, is TdApi.UpdateAuthorizationState ->
+                onCallUpdate(update, this)
+        }
+        updateListeners.forEach { it(update) }
 
         if (update !is TdApi.UpdateAuthorizationState) {
             return
@@ -158,8 +194,14 @@ class TelegramClient(
         client.send(parameters) { result ->
             if (result !is TdApi.Error) {
                 Log.i(LOG_TAG, "TDLib parameters accepted")
-                client.send(TdApi.SetOption("notification_group_count_max", TdApi.OptionValueInteger(20L))) {
-                    notificationOptionsReady.complete(it is TdApi.Ok)
+                client.send(TdApi.GetOption(NOTIFICATION_GROUP_COUNT)) { option ->
+                    if (option is TdApi.OptionValueEmpty) {
+                        client.send(TdApi.SetOption(NOTIFICATION_GROUP_COUNT, TdApi.OptionValueInteger(20L))) {
+                            notificationOptionsReady.complete(it is TdApi.Ok)
+                        }
+                    } else {
+                        notificationOptionsReady.complete(option is TdApi.OptionValueInteger)
+                    }
                 }
                 return@send
             }
@@ -176,6 +218,7 @@ class TelegramClient(
     }
 
     companion object {
+        internal const val NOTIFICATION_GROUP_COUNT = "notification_group_count_max"
         private val LOG_TAG = TelegramClient::class.simpleName!!
     }
 }

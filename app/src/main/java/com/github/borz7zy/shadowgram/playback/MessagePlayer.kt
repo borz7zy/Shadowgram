@@ -28,7 +28,10 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ShadowgramApplication
+import com.github.borz7zy.shadowgram.haptics.HapticAudioSource
+import com.github.borz7zy.shadowgram.haptics.HapticPlayback
 import com.github.borz7zy.shadowgram.models.Result
+import com.github.borz7zy.shadowgram.models.Result.Companion.getOrNull
 import com.github.borz7zy.shadowgram.services.PlaybackService
 import com.github.borz7zy.shadowgram.services.TwelveRenderersFactory
 import com.github.borz7zy.shadowgram.telegram.TelegramClient
@@ -138,7 +141,16 @@ object MessagePlayer {
             .setAudioAttributes(audioAttributes(false), true)
             .setHandleAudioBecomingNoisy(true)
             .build()
-            .apply { addListener(playerListener) }
+            .apply {
+                addListener(playerListener)
+                HapticPlayback(application.audioHaptics, this) { item ->
+                    val track = item.track ?: return@HapticPlayback null
+                    val local = client().send(TdApi.GetFile(track.fileId)).getOrNull()?.local
+                        ?.takeIf { it.isDownloadingCompleted && it.path.isNotBlank() }
+                        ?: return@HapticPlayback null
+                    HapticAudioSource.media(application, Uri.fromFile(File(local.path)))
+                }
+            }
     }
 
     private val playerListener = object : Player.Listener {

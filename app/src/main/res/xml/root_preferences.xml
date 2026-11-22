@@ -65,6 +65,115 @@
     </PreferenceScreen>
 
     <PreferenceScreen
+        app:icon="@drawable/ic_notifications"
+        app:key="settings_notifications"
+        app:summary="@string/notifications_summary"
+        app:title="@string/notifications_header">
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_person"
+            app:key="notifications_private"
+            app:title="@string/notifications_private" />
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_notifications"
+            app:key="notifications_groups"
+            app:title="@string/notifications_groups" />
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_notifications"
+            app:key="notifications_channels"
+            app:title="@string/notifications_channels" />
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_notifications"
+            app:key="notifications_stories"
+            app:title="@string/notifications_stories" />
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_notifications"
+            app:key="notifications_reactions"
+            app:title="@string/notifications_reactions" />
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_notifications"
+            app:key="notifications_exceptions"
+            app:title="@string/notifications_exceptions" />
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_notifications"
+            app:key="notifications_story_exceptions"
+            app:title="@string/notifications_story_exceptions" />
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_notifications"
+            app:key="notifications_communities"
+            app:title="@string/notifications_communities" />
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_headphones"
+            app:key="notifications_sounds"
+            app:summary="@string/notifications_sounds_summary"
+            app:title="@string/notifications_sounds">
+
+            <com.github.borz7zy.shadowgram.ui.SettingsActionPreference
+                app:icon="@drawable/ic_notifications"
+                app:key="notifications_app_sound"
+                app:persistent="false"
+                app:summary="@string/notifications_app_sound_summary"
+                app:title="@string/notifications_app_sound"
+                app:widgetLayout="@layout/settings_section_arrow" />
+
+            <com.github.borz7zy.shadowgram.ui.SettingsActionPreference
+                app:icon="@drawable/ic_headphones"
+                app:key="notifications_app_sound_preview"
+                app:persistent="false"
+                app:title="@string/notifications_app_sound_preview" />
+
+            <PreferenceCategory
+                app:key="notifications_telegram_sounds"
+                app:title="@string/notifications_telegram_sounds" />
+
+        </PreferenceScreen>
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_settings"
+            app:key="notifications_other"
+            app:title="@string/notifications_other" />
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_notifications"
+            app:isPreferenceVisible="false"
+            app:key="notifications_chat"
+            app:title="@string/notifications_header" />
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_notifications"
+            app:isPreferenceVisible="false"
+            app:key="notifications_story_chat"
+            app:title="@string/notifications_stories" />
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_notifications"
+            app:isPreferenceVisible="false"
+            app:key="notifications_topics"
+            app:title="@string/notifications_header" />
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_notifications"
+            app:isPreferenceVisible="false"
+            app:key="notifications_topic"
+            app:title="@string/notifications_header" />
+
+        <PreferenceScreen
+            app:icon="@drawable/ic_notifications"
+            app:isPreferenceVisible="false"
+            app:key="notifications_community"
+            app:title="@string/notifications_header" />
+
+    </PreferenceScreen>
+
+    <PreferenceScreen
         app:icon="@drawable/ic_headphones"
         app:key="settings_audio"
         app:summary="@string/settings_audio_summary"
@@ -130,6 +239,116 @@
                 app:key="split_local_devices"
                 app:summary="@string/split_local_devices_summary"
                 app:title="@string/split_local_devices" />
+
+        </PreferenceCategory>
+
+    </PreferenceScreen>
+
+
+    <PreferenceScreen
+        app:icon="@drawable/ic_audiofx"
+        app:key="settings_haptics"
+        app:summary="@string/haptics_overview"
+        app:title="@string/haptics_title">
+
+        <PreferenceCategory app:title="@string/haptics_playback_title">
+
+            <com.github.borz7zy.shadowgram.ui.SettingsSwitchPreference
+                app:defaultValue="false"
+                app:key="audio_haptics_enabled"
+                app:title="@string/haptics_title" />
+
+            <com.github.borz7zy.shadowgram.ui.SettingsSwitchPreference
+                app:defaultValue="true"
+                app:dependency="audio_haptics_enabled"
+                app:key="audio_haptics_notifications"
+                app:title="@string/haptics_notifications" />
+
+            <com.github.borz7zy.shadowgram.ui.SettingsSwitchPreference
+                app:defaultValue="true"
+                app:dependency="audio_haptics_enabled"
+                app:key="audio_haptics_media"
+                app:title="@string/haptics_media" />
+
+            <ListPreference
+                app:defaultValue="1"
+                app:entries="@array/haptics_profile_names"
+                app:entryValues="@array/haptics_profile_values"
+                app:key="audio_haptics_profile"
+                app:title="@string/haptics_profile" />
+
+            <SeekBarPreference
+                android:max="100"
+                app:defaultValue="75"
+                app:key="audio_haptics_intensity"
+                app:showSeekBarValue="true"
+                app:title="@string/haptics_intensity" />
+
+            <SeekBarPreference
+                android:max="400"
+                app:defaultValue="200"
+                app:key="audio_haptics_offset"
+                app:seekBarIncrement="10"
+                app:title="@string/haptics_offset" />
+
+        </PreferenceCategory>
+
+        <PreferenceCategory app:title="@string/haptics_preparation">
+
+            <com.github.borz7zy.shadowgram.ui.SettingsSwitchPreference
+                app:defaultValue="true"
+                app:key="audio_haptics_automatic"
+                app:title="@string/haptics_automatic" />
+
+            <com.github.borz7zy.shadowgram.ui.SettingsActionPreference
+                app:key="haptics_import"
+                app:title="@string/haptics_import" />
+
+            <com.github.borz7zy.shadowgram.ui.SettingsActionPreference
+                app:key="haptics_current"
+                app:title="@string/haptics_current" />
+
+            <Preference
+                app:key="haptics_status"
+                app:selectable="false"
+                app:title="@string/haptics_status" />
+
+            <Preference
+                app:key="haptics_notification_status"
+                app:selectable="false"
+                app:title="@string/haptics_notification_status" />
+
+            <com.github.borz7zy.shadowgram.ui.SettingsActionPreference
+                app:key="haptics_cancel"
+                app:title="@string/haptics_cancel" />
+
+            <com.github.borz7zy.shadowgram.ui.SettingsActionPreference
+                app:key="haptics_sound_settings"
+                app:title="@string/haptics_sound_settings" />
+
+        </PreferenceCategory>
+
+        <PreferenceCategory app:title="@string/haptics_storage_title">
+
+            <Preference
+                app:key="haptics_stats"
+                app:selectable="false"
+                app:title="@string/haptics_stats" />
+
+            <ListPreference
+                app:defaultValue="32"
+                app:entries="@array/haptics_limit_names"
+                app:entryValues="@array/haptics_limit_values"
+                app:key="audio_haptics_limit"
+                app:title="@string/haptics_limit" />
+
+            <com.github.borz7zy.shadowgram.ui.SettingsActionPreference
+                app:key="haptics_clean"
+                app:title="@string/haptics_clean" />
+
+            <com.github.borz7zy.shadowgram.ui.SettingsActionPreference
+                app:key="haptics_rebuild"
+                app:title="@string/haptics_rebuild" />
 
         </PreferenceCategory>
 

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="haptics_title">Audio-to-Haptics</string>
+    <string name="haptics_overview">Vibration for notifications and selected audio</string>
+    <string name="haptics_playback_title">Playback</string>
+    <string name="haptics_notifications">Notification vibration</string>
+    <string name="haptics_media">Media vibration</string>
+    <string name="haptics_profile">Vibration profile</string>
+    <string name="haptics_profile_soft">Soft</string>
+    <string name="haptics_profile_balanced">Balanced</string>
+    <string name="haptics_profile_dynamic">Dynamic</string>
+    <string name="haptics_intensity">Intensity</string>
+    <string name="haptics_offset">Vibration delay</string>
+    <string name="haptics_offset_ms">%1$d ms</string>
+    <string name="haptics_preparation">Preparation</string>
+    <string name="haptics_automatic">Automatically prepare notification sounds</string>
+    <string name="haptics_import">Choose an audio file</string>
+    <string name="haptics_current">Prepare current track</string>
+    <string name="haptics_cancel">Cancel preparation</string>
+    <string name="haptics_status">Selected audio</string>
+    <string name="haptics_notification_status">Default notification sound</string>
+    <string name="haptics_sound_settings">Android notification settings</string>
+    <string name="haptics_storage_title">Storage</string>
+    <string name="haptics_stats">Pattern database</string>
+    <string name="haptics_stats_summary">%1$s · %2$d patterns · %3$d sources · %4$d pending · %5$d failed</string>
+    <string name="haptics_limit">Storage limit</string>
+    <string name="haptics_clean">Remove unpinned patterns</string>
+    <string name="haptics_clean_summary">Prepared notification sounds are kept.</string>
+    <string name="haptics_rebuild">Rebuild patterns</string>
+    <string name="haptics_rebuild_summary">Prepare patterns again for files that Shadowgram can still access.</string>
+    <string name="haptics_pick_summary">Choose a file or prepare the current track</string>
+    <string name="haptics_track_unavailable">Audio is unavailable or has not finished downloading</string>
+    <string name="haptics_notification_fallback">Standard vibration when available</string>
+    <string name="haptics_queued">Waiting for preparation</string>
+    <string name="haptics_preparing">Preparing</string>
+    <string name="haptics_ready">Ready</string>
+    <string name="haptics_error">Preparation or storage error</string>
+    <string name="haptics_cancelled">Cancelled</string>
+    <string name="haptics_notification_channel">%1$s · Audio-to-Haptics</string>
+    <string-array name="haptics_profile_names">
+        <item>@string/haptics_profile_soft</item>
+        <item>@string/haptics_profile_balanced</item>
+        <item>@string/haptics_profile_dynamic</item>
+    </string-array>
+    <string-array name="haptics_profile_values" translatable="false">
+        <item>0</item><item>1</item><item>2</item>
+    </string-array>
+    <string-array name="haptics_limit_names">
+        <item>4 MB</item><item>16 MB</item><item>32 MB</item><item>64 MB</item><item>128 MB</item><item>256 MB</item>
+    </string-array>
+    <string-array name="haptics_limit_values" translatable="false">
+        <item>4</item><item>16</item><item>32</item><item>64</item><item>128</item><item>256</item>
+    </string-array>
+</resources>

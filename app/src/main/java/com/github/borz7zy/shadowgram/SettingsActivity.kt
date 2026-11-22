@@ -12,6 +12,7 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.ViewGroupCompat
@@ -34,6 +35,9 @@ import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreference
 import com.github.borz7zy.shadowgram.ext.ENABLE_OFFLOAD_KEY
 import com.github.borz7zy.shadowgram.ext.SKIP_SILENCE_KEY
+import com.github.borz7zy.shadowgram.haptics.HapticSettingsPage
+import com.github.borz7zy.shadowgram.notifications.NotificationSettingsPage
+import com.github.borz7zy.shadowgram.notifications.logNotificationDelivery
 import com.github.borz7zy.shadowgram.playback.MessagePlayer
 import com.github.borz7zy.shadowgram.repositories.AccountsRepository
 import com.github.borz7zy.shadowgram.ui.SettingsActionPreference
@@ -80,6 +84,14 @@ class SettingsActivity : AppCompatActivity(R.layout.activity_settings) {
         private val sectionKey get() = arguments?.getString(ARG_PREFERENCE_ROOT)
         private var openingSection = false
         private var accountSwitchJob: Job? = null
+        private var hapticsPage: HapticSettingsPage? = null
+        private val pickHapticAudio = registerForActivityResult(ActivityResultContracts.OpenDocument()) {
+            it?.let { uri -> hapticsPage?.import(uri) }
+        }
+        private var notificationPage: NotificationSettingsPage? = null
+        private val pickNotificationSound = registerForActivityResult(ActivityResultContracts.OpenDocument()) {
+            it?.let { uri -> notificationPage?.importSound(uri) }
+        }
 
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
@@ -118,12 +130,30 @@ class SettingsActivity : AppCompatActivity(R.layout.activity_settings) {
             when (sectionKey) {
                 null -> bindSearch(view, appBar)
                 SECTION_ACCOUNTS -> bindAccounts()
+                SECTION_HAPTICS -> hapticsPage?.bind(viewLifecycleOwner)
+                else -> notificationPage?.bind(viewLifecycleOwner)
             }
         }
 
         override fun onPause() {
             accountSwitchJob?.cancel()
             super.onPause()
+        }
+
+        override fun onStart() {
+            super.onStart()
+            val section = sectionKey ?: return
+            if (section == SECTION_NOTIFICATIONS || section.startsWith("notifications_")) {
+                logNotificationDelivery { "Notification settings started section=$section" }
+            }
+        }
+
+        override fun onStop() {
+            val section = sectionKey
+            if (section != null && (section == SECTION_NOTIFICATIONS || section.startsWith("notifications_"))) {
+                logNotificationDelivery { "Notification settings stopped section=$section" }
+            }
+            super.onStop()
         }
 
         private fun bindSearch(view: View, appBar: AppBarLayout) {
@@ -149,6 +179,26 @@ class SettingsActivity : AppCompatActivity(R.layout.activity_settings) {
             when (rootKey) {
                 null -> buildOverview()
                 SECTION_AUDIO -> bindAudioActions()
+                SECTION_HAPTICS -> hapticsPage = HapticSettingsPage(requireActivity(), preferenceScreen) {
+                    pickHapticAudio.launch(arrayOf("audio/*"))
+                }
+                SECTION_NOTIFICATIONS -> {
+                    val screen = preferenceScreen
+                    for (section in screen.children().filterIsInstance<PreferenceScreen>().filter { it.isVisible }) {
+                        screen.removePreference(section)
+                        screen.addPreference(navigationRow(section, section.key).apply { key = section.key })
+                    }
+                }
+                else -> if (rootKey.startsWith("notifications_")) {
+                    preferenceScreen.isVisible = true
+                    notificationPage = NotificationSettingsPage(
+                        requireActivity(), preferenceScreen, rootKey,
+                        arguments?.getLong(ARG_NOTIFICATION_ID) ?: 0L,
+                        arguments?.getInt(ARG_NOTIFICATION_TOPIC) ?: 0,
+                        { screen, id, topic -> openSection(screen, null, id, topic) },
+                        { pickNotificationSound.launch(arrayOf("audio/*")) },
+                    )
+                }
             }
         }
 
@@ -169,6 +219,12 @@ class SettingsActivity : AppCompatActivity(R.layout.activity_settings) {
                 }
                 root.addPreference(results)
                 searchGroups.add(results)
+                for (subgroup in section.children().filterIsInstance<PreferenceScreen>().filter { it.isVisible }) {
+                    val result = navigationRow(subgroup, subgroup.key).apply { isVisible = false }
+                    results.addPreference(result)
+                    searchableText[result] = listOfNotNull(section.title, subgroup.title, subgroup.summary)
+                        .joinToString(" ")
+                }
                 for (category in section.children().filterIsInstance<PreferenceCategory>()) {
                     for (setting in category.children()) {
                         val result = navigationRow(setting, screenKey, setting.key).apply {
@@ -196,7 +252,7 @@ class SettingsActivity : AppCompatActivity(R.layout.activity_settings) {
                 }
             }
 
-        private fun openSection(screenKey: String, destinationKey: String?) {
+        private fun openSection(screenKey: String, destinationKey: String?, id: Long = 0, topic: Int = 0) {
             if (openingSection || parentFragmentManager.isStateSaved) return
             openingSection = true
             val activity = requireActivity()
@@ -207,6 +263,8 @@ class SettingsActivity : AppCompatActivity(R.layout.activity_settings) {
                     arguments = Bundle().apply {
                         putString(ARG_PREFERENCE_ROOT, screenKey)
                         putString(ARG_SCROLL_TO, destinationKey)
+                        putLong(ARG_NOTIFICATION_ID, id)
+                        putInt(ARG_NOTIFICATION_TOPIC, topic)
                     }
                 })
                 addToBackStack(null)
@@ -374,7 +432,11 @@ class SettingsActivity : AppCompatActivity(R.layout.activity_settings) {
         private companion object {
             const val SECTION_ACCOUNTS = "settings_accounts"
             const val SECTION_AUDIO = "settings_audio"
+            const val SECTION_HAPTICS = "settings_haptics"
+            const val SECTION_NOTIFICATIONS = "settings_notifications"
             const val ARG_SCROLL_TO = "settings_scroll_to"
+            const val ARG_NOTIFICATION_ID = "notification_id"
+            const val ARG_NOTIFICATION_TOPIC = "notification_topic"
         }
     }
 }

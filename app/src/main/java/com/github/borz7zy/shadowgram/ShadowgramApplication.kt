@@ -6,6 +6,9 @@
 
 package com.github.borz7zy.shadowgram
 
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -15,10 +18,15 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import com.github.borz7zy.shadowgram.emoji.Emoji
+import com.github.borz7zy.shadowgram.calls.TelegramVoiceCalls
+import com.github.borz7zy.shadowgram.haptics.AudioHaptics
+import com.github.borz7zy.rustcore.RustHaptics
 import com.github.borz7zy.shadowgram.notifications.ShadowgramFirebaseMessagingService
 import com.github.borz7zy.shadowgram.notifications.TelegramNotifications
+import com.github.borz7zy.shadowgram.notifications.TelegramPushProcessor
 import com.github.borz7zy.shadowgram.playback.MessagePlayer
 import com.github.borz7zy.shadowgram.repositories.AccountsRepository
 import com.github.borz7zy.shadowgram.repositories.MediaRepository
@@ -37,12 +45,17 @@ class ShadowgramApplication : ApertureApplication(), SingletonImageLoader.Factor
     internal val emojiReady = backgroundScope.async(start = CoroutineStart.LAZY) {
         Emoji.init(this@ShadowgramApplication)
     }
+    internal val audioHaptics by lazy { AudioHaptics(this) }
     internal val telegramNotifications by lazy { TelegramNotifications(this, backgroundScope) }
+    internal val telegramPushProcessor by lazy { TelegramPushProcessor(this) }
+    private val foreground = MutableStateFlow(false)
+    internal val voiceCalls by lazy { TelegramVoiceCalls(this) { foreground.value } }
     val accountsRepository by lazy {
         AccountsRepository(
             applicationContext,
             backgroundScope,
             onAccountsChanged = { ShadowgramFirebaseMessagingService.scheduleRegistration(this, refresh = true) },
+            onCallUpdate = voiceCalls::onUpdate,
             onNotificationUpdate = telegramNotifications::onUpdate,
         )
     }
@@ -56,6 +69,13 @@ class ShadowgramApplication : ApertureApplication(), SingletonImageLoader.Factor
         super.onCreate()
 
         emojiReady.start()
+        audioHaptics.init()
+
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onResume(owner: LifecycleOwner) { foreground.value = true }
+            override fun onPause(owner: LifecycleOwner) { foreground.value = false }
+        })
+        backgroundScope.launch { foreground.collect { accountsRepository.setForeground(it) } }
 
         // Voice and video messages, one at a time for the whole app
         MessagePlayer.init(this)
@@ -64,7 +84,10 @@ class ShadowgramApplication : ApertureApplication(), SingletonImageLoader.Factor
     /** RustCache drops its RAM tier (decoded sticker frames etc.); disk stays. */
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        backgroundScope.launch { RustCache.trimMemory() }
+        backgroundScope.launch {
+            RustCache.trimMemory()
+            RustHaptics.trim()
+        }
     }
 
     override fun newImageLoader(context: PlatformContext) = ImageLoader.Builder(this)
