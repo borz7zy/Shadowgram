@@ -102,9 +102,12 @@
                     android:transitionGroup="true">
 
                     <LinearLayout
+                        android:id="@+id/profileActions"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="24dp"
+                        android:visibility="gone"
+                        tools:visibility="visible"
                         android:orientation="horizontal">
 
                         <LinearLayout style="@style/Theme.Shadowgram.ProfileFragment.Action">
@@ -145,34 +148,13 @@
 
                             <com.google.android.material.button.MaterialButton
                                 style="@style/Theme.Shadowgram.ProfileFragment.ActionButton"
+                                android:id="@+id/profileCallButton"
                                 android:contentDescription="@string/profile_call"
-                                android:enabled="false"
                                 app:icon="@drawable/ic_call" />
 
                             <TextView
                                 style="@style/Theme.Shadowgram.ProfileFragment.ActionLabel"
-                                android:enabled="false"
                                 android:text="@string/profile_call"
-                                android:textColor="?attr/colorOnSurfaceVariant" />
-
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:id="@+id/videoCallLinearLayout"
-                            style="@style/Theme.Shadowgram.ProfileFragment.Action"
-                            android:visibility="gone"
-                            tools:visibility="visible">
-
-                            <com.google.android.material.button.MaterialButton
-                                style="@style/Theme.Shadowgram.ProfileFragment.ActionButton"
-                                android:contentDescription="@string/profile_video_call"
-                                android:enabled="false"
-                                app:icon="@drawable/ic_videocam" />
-
-                            <TextView
-                                style="@style/Theme.Shadowgram.ProfileFragment.ActionLabel"
-                                android:enabled="false"
-                                android:text="@string/profile_video_call"
                                 android:textColor="?attr/colorOnSurfaceVariant" />
 
                         </LinearLayout>
@@ -280,6 +262,60 @@
 
                             </LinearLayout>
 
+                            <LinearLayout
+                                android:id="@+id/profileBirthdayRow"
+                                style="@style/Theme.Shadowgram.ProfileFragment.InfoRow"
+                                android:visibility="gone">
+
+                                <ImageView
+                                    style="@style/Theme.Shadowgram.ProfileFragment.InfoIcon"
+                                    android:src="@drawable/ic_emoji_events" />
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        android:id="@+id/profileBirthdayValue"
+                                        style="@style/Theme.Shadowgram.ProfileFragment.InfoValue" />
+
+                                    <TextView
+                                        style="@style/Theme.Shadowgram.ProfileFragment.InfoLabel"
+                                        android:text="@string/profile_birthday" />
+
+                                </LinearLayout>
+
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:id="@+id/profilePersonalChannelRow"
+                                style="@style/Theme.Shadowgram.ProfileFragment.InfoRow"
+                                android:visibility="gone"
+                                android:focusable="true"
+                                android:background="?attr/selectableItemBackground">
+
+                                <ImageView
+                                    style="@style/Theme.Shadowgram.ProfileFragment.InfoIcon"
+                                    android:src="@drawable/ic_campaign" />
+
+                                <LinearLayout
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        android:id="@+id/profilePersonalChannelValue"
+                                        style="@style/Theme.Shadowgram.ProfileFragment.InfoValue" />
+
+                                    <TextView
+                                        style="@style/Theme.Shadowgram.ProfileFragment.InfoLabel"
+                                        android:text="@string/profile_personal_channel" />
+
+                                </LinearLayout>
+
+                            </LinearLayout>
+
                         </LinearLayout>
 
                     </com.google.android.material.card.MaterialCardView>
@@ -301,6 +337,8 @@
 
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/tabLayout"
+            android:visibility="gone"
+            tools:visibility="visible"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="?attr/colorSurface"

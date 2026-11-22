@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item type="id" name="profileEditorFirst" />
+    <item type="id" name="profileEditorSecond" />
+    <item type="id" name="profileEditorThird" />
+
+    <string name="chat_saved_messages">Saved Messages</string>
+    <string name="profile_more">Profile actions</string>
+    <string name="profile_new_photo">New photo</string>
+    <string name="profile_photo_failed">Couldn’t read the selected photo.</string>
+    <string name="profile_edit">Edit profile</string>
+    <string name="profile_edit_name">Name</string>
+    <string name="profile_edit_username">Change username</string>
+    <string name="profile_edit_color">Change profile color</string>
+    <string name="profile_color_premium">Changing the profile color requires Telegram Premium.</string>
+    <string name="profile_color_default">Default color</string>
+    <string name="profile_color_number">Color %1$d</string>
+    <string name="profile_link_copied">Link copied</string>
+    <string name="profile_birthday">Birthday</string>
+    <string name="profile_day">Day</string>
+    <string name="profile_month">Month</string>
+    <string name="profile_year_optional">Year (optional)</string>
+    <string name="profile_invalid_birthday">Enter a valid date.</string>
+    <string name="profile_first_name_required">Enter your first name.</string>
+    <string name="profile_personal_channel">Personal channel</string>
+    <string name="profile_no_channels">No eligible channels</string>
+    <string name="profile_no_channel">No channel</string>
+    <string name="profile_number_telegram">Change your phone number in the official Telegram app. Select the same account there.</string>
+    <string name="profile_open_telegram">Open Telegram</string>
+    <string name="profile_telegram_missing">Install the official Telegram app to change your number.</string>
+    <string name="profile_story_unavailable">This story is unavailable.</string>
+    <string name="profile_tab_archived_posts">Post archive</string>
+    <string name="profile_save">Save</string>
+    <string name="profile_remove">Remove</string>
+    <string name="profile_loading">Loading profile…</string>
+</resources>

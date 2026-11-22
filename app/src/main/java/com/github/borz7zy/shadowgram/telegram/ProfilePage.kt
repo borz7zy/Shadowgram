@@ -47,6 +47,7 @@ class ProfilePage(
     enum class Kind(val isGrid: Boolean, val filter: TdApi.SearchMessagesFilter?) {
         MEMBERS(false, null),
         POSTS(true, null),
+        ARCHIVED_POSTS(true, null),
         SAVED(false, null),
         GIFTS(true, null),
         MEDIA(true, TdApi.SearchMessagesFilterPhotoAndVideo()),
@@ -146,26 +147,35 @@ class ProfilePage(
         }
     }
 
-    /**
-     * The next page as keyed entries, and whether it's the last one.
-     */
-    private suspend fun fetch(): Pair<List<Pair<String, TdApi.Object>>, Boolean>? {
-        val chat = (client.send(TdApi.GetChat(chatId)) as? Result.Success)?.data
+    /** Check visibility with the same TDLib query used to display the tab. */
+    suspend fun hasItems(chat: TdApi.Chat) = fetch(limit = 1, knownChat = chat)?.first?.isNotEmpty() == true
+
+    /** The next page as keyed entries, and whether it's the last one. */
+    private suspend fun fetch(
+        limit: Int = PAGE_SIZE,
+        knownChat: TdApi.Chat? = null,
+    ): Pair<List<Pair<String, TdApi.Object>>, Boolean>? {
+        val chat = knownChat ?: (client.send(TdApi.GetChat(chatId)) as? Result.Success)?.data
             ?: return if (kind == Kind.GIFTS) null else emptyList<Pair<String, TdApi.Object>>() to true
 
         return when (kind) {
-            Kind.POSTS -> client.send(
-                TdApi.GetChatPostedToChatPageStories(chatId, nextStoryId, PAGE_SIZE)
-            ).page { stories ->
-                // Starts from the given story, the last one comes again
-                nextStoryId = stories.stories.lastOrNull()?.id ?: 0
-                stories.stories.map { "${it.id}" to it } to (nextStoryId == 0)
+            Kind.POSTS, Kind.ARCHIVED_POSTS -> {
+                val request = if (kind == Kind.POSTS) {
+                    TdApi.GetChatPostedToChatPageStories(chatId, nextStoryId, limit)
+                } else {
+                    TdApi.GetChatArchivedStories(chatId, nextStoryId, limit)
+                }
+                client.send(request).page { stories ->
+                    val previous = nextStoryId
+                    nextStoryId = stories.stories.lastOrNull()?.id ?: 0
+                    stories.stories.map { "${it.id}" to it } to (nextStoryId == 0 || nextStoryId == previous)
+                }
             }
 
             Kind.SAVED -> client.send(
                 // ponytail: a Saved Messages topic of a chat has the chat id as its id in TDLib,
                 // look it up in updateSavedMessagesTopic if that ever changes
-                TdApi.GetSavedMessagesTopicHistory(chatId, nextMessageId, 0, PAGE_SIZE)
+                TdApi.GetSavedMessagesTopicHistory(chatId, nextMessageId, 0, limit)
             ).page { messages ->
                 nextMessageId = messages.messages.lastOrNull()?.id ?: 0L
                 messages.messages.map { "${it.id}" to it } to (nextMessageId == 0L)
@@ -173,13 +183,13 @@ class ProfilePage(
 
             Kind.GIFTS -> {
                 val owner = chat.giftOwner() ?: return emptyList<Pair<String, TdApi.Object>>() to true
-                fetchGifts(owner)
+                fetchGifts(owner, limit)
             }
 
             Kind.GROUPS -> {
                 val userId = (chat.type as? TdApi.ChatTypePrivate)?.userId
                     ?: return listOf<Pair<String, TdApi.Object>>() to true
-                client.send(TdApi.GetGroupsInCommon(userId, nextGroupId, PAGE_SIZE)).page { chats ->
+                client.send(TdApi.GetGroupsInCommon(userId, nextGroupId, limit)).page { chats ->
                     nextGroupId = chats.chatIds.lastOrNull() ?: 0L
                     chats.chatIds.map { "$it" to TdApi.MessageSenderChat(it) } to (nextGroupId == 0L)
                 }
@@ -193,7 +203,7 @@ class ProfilePage(
                 is TdApi.ChatTypeSupergroup -> client.send(
                     TdApi.GetSupergroupMembers(
                         type.supergroupId, TdApi.SupergroupMembersFilterRecent(),
-                        nextMemberOffset, PAGE_SIZE,
+                        nextMemberOffset, limit,
                     )
                 ).page { members ->
                     nextMemberOffset += members.members.size
@@ -206,7 +216,7 @@ class ProfilePage(
 
             else -> client.send(
                 TdApi.SearchChatMessages(
-                    chatId, null, "", null, nextMessageId, 0, PAGE_SIZE, kind.filter
+                    chatId, null, "", null, nextMessageId, 0, limit, kind.filter
                 )
             ).page { found ->
                 nextMessageId = found.nextFromMessageId
@@ -215,7 +225,7 @@ class ProfilePage(
         }
     }
 
-    private suspend fun fetchGifts(owner: TdApi.MessageSender): Pair<List<Pair<String, TdApi.Object>>, Boolean>? {
+    private suspend fun fetchGifts(owner: TdApi.MessageSender, pageLimit: Int): Pair<List<Pair<String, TdApi.Object>>, Boolean>? {
         while (true) {
             val offset = nextOffset
             val response = client.send(TdApi.GetReceivedGifts().apply {
@@ -223,7 +233,7 @@ class ProfilePage(
                 ownerId = owner
                 collectionId = giftCollectionId
                 this.offset = offset
-                limit = PAGE_SIZE
+                limit = pageLimit
             })
             val gifts = (response as? Result.Success)?.data ?: return null
             val page = gifts.gifts.mapIndexed { index, gift ->

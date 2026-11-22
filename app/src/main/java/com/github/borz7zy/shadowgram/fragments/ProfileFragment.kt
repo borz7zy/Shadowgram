@@ -5,6 +5,10 @@
 
 package com.github.borz7zy.shadowgram.fragments
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Rect
 import android.os.Bundle
@@ -13,6 +17,10 @@ import android.transition.TransitionInflater
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.os.bundleOf
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -33,6 +41,9 @@ import com.github.borz7zy.rustcore.RustMedia
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.MainActivity
 import com.github.borz7zy.shadowgram.ProfileActivity
+import com.github.borz7zy.shadowgram.SettingsActivity
+import com.github.borz7zy.shadowgram.calls.CallActivity
+import com.github.borz7zy.shadowgram.models.Result
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.navigateSafe
 import com.github.borz7zy.shadowgram.ext.navigateBackInPane
@@ -57,6 +68,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.drinkless.tdlib.TdApi
 import java.io.File
 
 /**
@@ -91,8 +103,26 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
     private val usernameLabelTextView by getViewProperty<TextView>(R.id.usernameLabelTextView)
     private val usernameLinearLayout by getViewProperty<LinearLayout>(R.id.usernameLinearLayout)
     private val usernameTextView by getViewProperty<TextView>(R.id.usernameTextView)
-    private val videoCallLinearLayout by getViewProperty<LinearLayout>(R.id.videoCallLinearLayout)
     private val viewPager2 by getViewProperty<ViewPager2>(R.id.viewPager2)
+
+    private val actions by getViewProperty<View>(R.id.profileActions)
+    private val callButton by getViewProperty<MaterialButton>(R.id.profileCallButton)
+    private val birthdayRow by getViewProperty<View>(R.id.profileBirthdayRow)
+    private val birthdayValue by getViewProperty<TextView>(R.id.profileBirthdayValue)
+    private val channelRow by getViewProperty<View>(R.id.profilePersonalChannelRow)
+    private val channelValue by getViewProperty<TextView>(R.id.profilePersonalChannelValue)
+
+    private var tabMediator: TabLayoutMediator? = null
+
+    private val pickPhoto = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) viewLifecycleOwner.lifecycleScope.launch {
+            when (val result = viewModel.setPhoto(uri)) {
+                is Result.Success -> Unit
+                is Result.Failure -> showError(result.error.message)
+                null -> showError(getString(R.string.profile_photo_failed))
+            }
+        }
+    }
 
     private val startTransition = Runnable {
         if (activity is MainActivity) startPostponedEnterTransition()
@@ -109,7 +139,7 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        if (activity is MainActivity) {
+        if (!viewModel.isOwnTab && activity is MainActivity) {
             postponeEnterTransition()
             enterTransition = TransitionInflater.from(requireContext()).inflateTransition(R.transition.profile_window)
             returnTransition = TransitionInflater.from(requireContext()).inflateTransition(R.transition.profile_window)
@@ -129,8 +159,10 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
             windowInsets
         }
 
-        toolbar.setNavigationOnClickListener {
-            navigateBackInPane()
+        if (viewModel.isOwnTab) {
+            toolbar.navigationIcon = null
+        } else {
+            toolbar.setNavigationOnClickListener { navigateBackInPane() }
         }
 
         // The name moves to the top bar once the header is scrolled away
@@ -159,25 +191,44 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         }
 
         avatarView.setOnClickListener { openPhotos() }
-        parentFragmentManager.setFragmentResultListener(
+        val viewerManager = if (viewModel.isOwnTab) requireParentFragment().parentFragmentManager
+            else parentFragmentManager
+        viewerManager.setFragmentResultListener(
             PhotoViewerDialogFragment.REQUEST_KEY_PROFILE_SHOWN, viewLifecycleOwner,
         ) { _, _ -> avatarView.alpha = 0f }
-        parentFragmentManager.setFragmentResultListener(
+        viewerManager.setFragmentResultListener(
             PhotoViewerDialogFragment.REQUEST_KEY_PROFILE_CLOSED, viewLifecycleOwner,
         ) { _, _ -> avatarView.alpha = 1f }
 
         messageMaterialButton.setOnClickListener {
             when (requireArguments().getBoolean(ARG_IS_FROM_CHAT)) {
                 true -> navigateBackInPane()
-                false -> (activity as? MainActivity)?.openChat(ChatFragment.createBundle(viewModel.chatId))
-                    ?: findNavController().navigateSafe(
-                        R.id.action_profileFragment_to_chatActivity,
-                        ChatFragment.createBundle(viewModel.chatId),
-                    )
+                false -> openChat(viewModel.chatId)
             }
         }
 
         muteMaterialButton.setOnClickListener { viewModel.toggleMute() }
+        callButton.setOnClickListener {
+            val id = viewModel.info.value?.callUserId ?: return@setOnClickListener
+            startActivity(CallActivity.outgoing(requireContext(), id, titleTextView.text.toString()))
+        }
+        channelRow.setOnClickListener {
+            viewModel.info.value?.personalChannel?.let { openChat(it.id) }
+        }
+        toolbar.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                R.id.profile_new_photo -> pickPhoto.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+                R.id.profile_edit -> ProfileEditorDialog.show(this, ProfileEditorDialog.Page.OVERVIEW)
+                R.id.profile_settings -> startActivity(Intent(requireContext(), SettingsActivity::class.java))
+                R.id.profile_edit_color -> ProfileEditorDialog.show(this, ProfileEditorDialog.Page.COLOR)
+                R.id.profile_edit_username -> ProfileEditorDialog.show(this, ProfileEditorDialog.Page.USERNAME)
+                R.id.profile_copy_link -> copyLink()
+                else -> return@setOnMenuItemClickListener false
+            }
+            true
+        }
 
         // Don't hold the opening animation forever if the chat never shows up
         view.postDelayed(startTransition, TRANSITION_TIMEOUT_MS)
@@ -185,26 +236,31 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
-                    combine(viewModel.header, viewModel.photoPath, viewModel.animationFileId, ::Triple)
-                        .collectLatest { (header, photoPath, animationFileId) ->
+                    combine(viewModel.header, viewModel.avatar, viewModel.info, ::Triple)
+                        .collectLatest { (header, photo, info) ->
                             header ?: return@collectLatest
 
                             // The big photo and its big animation, the small ones until they're there
                             avatarView.setChat(
                                 header.chat.copy(
-                                    photoPath = photoPath ?: header.chat.photoPath,
-                                    animationFileId = animationFileId.takeIf { it != 0 }
+                                    photoPath = photo.path ?: header.chat.photoPath,
+                                    animationFileId = photo.animationId.takeIf { it != 0 }
                                         ?: header.chat.animationFileId,
                                 )
                             )
-                            titleTextView.text = header.chat.title
+                            val name = info?.ownUser?.let {
+                                listOf(it.firstName, it.lastName).filter(String::isNotBlank).joinToString(" ")
+                            }
+                            titleTextView.text = name?.takeIf { it.isNotEmpty() } ?: header.chat.title
+                            if (isCollapsed) toolbar.title = titleTextView.text
                             emojiStatusView.setEmojiStatus(header.emojiStatusId, header.isPremium)
                             // Without one the name stays centered
                             emojiStatusView.isVisible = header.emojiStatusId != 0L || header.isPremium
                             profileCoverView.setColors(header.profileColors, header.profilePatternColor)
                             bindCoverColors()
 
-                            val subtitle = requireContext().subtitleText(header.subtitle)
+                            val subtitle = if (info?.ownUser != null || viewModel.isOwnTab) null
+                            else requireContext().subtitleText(header.subtitle)
                             subtitleTextView.text = subtitle
                             subtitleTextView.isVisible = subtitle != null
 
@@ -228,6 +284,10 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
                 }
 
                 launch {
+                    viewModel.tabs.collect { it?.let(::setTabs) }
+                }
+
+                launch {
                     viewModel.header.mapNotNull { it?.profileEmojiId }.distinctUntilChanged()
                         .collectLatest(::loadCoverEmoji)
                 }
@@ -245,7 +305,9 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         )
         titleTextView.setTextColor(if (isOnCover) Color.WHITE else onSurface)
         subtitleTextView.setTextColor(if (isOnCover) COVER_SUBTITLE_COLOR else onSurfaceVariant)
-        toolbar.setNavigationIconTint(if (isOnCover && !isCollapsed) Color.WHITE else onSurface)
+        val iconColor = if (isOnCover && !isCollapsed) Color.WHITE else onSurface
+        toolbar.setNavigationIconTint(iconColor)
+        toolbar.menu.findItem(R.id.profile_more)?.iconTintList = ColorStateList.valueOf(iconColor)
         // An inline profile shares the window with the main pane; its cover must not recolor
         // the system status bar of that entire window.
         if (activity is ProfileActivity) {
@@ -272,7 +334,7 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
 
     /** The profile photos, from the avatar: the current one first, the older ones after it. */
     private fun openPhotos() {
-        if (!viewModel.hasPhoto) {
+        if (!viewModel.avatar.value.hasPhoto) {
             return
         }
         val navController = findNavController()
@@ -307,6 +369,9 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
 
     override fun onDestroyView() {
         view?.removeCallbacks(startTransition)
+        tabMediator?.detach()
+        tabMediator = null
+        viewPager2.adapter = null
         isCollapsed = false
         view?.takeIf { activity is ProfileActivity }?.let {
             WindowCompat.getInsetsController(requireActivity().window, it).isAppearanceLightStatusBars =
@@ -317,8 +382,13 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
     }
 
     private fun setInfo(info: ProfileViewModel.Info) {
-        callLinearLayout.isVisible = info.isPrivate
-        videoCallLinearLayout.isVisible = info.isPrivate
+        val own = info.ownUser != null
+        actions.isVisible = !viewModel.isOwnTab && !own
+        callLinearLayout.isVisible = info.callUserId != null
+        if (own && toolbar.menu.findItem(R.id.profile_more) == null) {
+            toolbar.inflateMenu(R.menu.own_profile)
+            bindCoverColors()
+        }
 
         phoneLinearLayout.isVisible = info.phoneNumber != null
         phoneTextView.text = info.phoneNumber?.let {
@@ -339,29 +409,59 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
             if (info.isPrivate) R.string.profile_bio else R.string.profile_description
         )
 
-        infoCardView.isVisible = info.phoneNumber != null || info.username != null
-                || info.about != null
+        birthdayRow.isVisible = info.birthdate != null
+        birthdayValue.text = info.birthdate?.let(::formatBirthdate)
+        channelRow.isVisible = info.personalChannel != null
+        channelValue.text = info.personalChannel?.title
+        infoCardView.isVisible = listOf(
+            phoneLinearLayout, usernameLinearLayout, aboutLinearLayout, birthdayRow, channelRow
+        ).any { it.isVisible }
+    }
 
-        // Each tab is its own page with its own list, set up once per view
-        if (viewPager2.adapter == null) {
-            val tabs = info.tabs
-            viewPager2.adapter = object : FragmentStateAdapter(this) {
-                override fun getItemCount() = tabs.size
+    private fun setTabs(tabs: List<ProfilePage.Kind>) {
+        tabLayout.isVisible = tabs.isNotEmpty()
+        if (tabs.isEmpty() || viewPager2.adapter != null) return
+        viewPager2.adapter = object : FragmentStateAdapter(this) {
+            override fun getItemCount() = tabs.size
 
-                override fun createFragment(position: Int) = ProfilePageFragment().apply {
-                    arguments = ProfilePageFragment.createBundle(viewModel.chatId, tabs[position])
-                }
+            override fun createFragment(position: Int) = ProfilePageFragment().apply {
+                arguments = ProfilePageFragment.createBundle(viewModel.chatId, tabs[position])
             }
-            TabLayoutMediator(tabLayout, viewPager2) { tab, position ->
-                tab.setText(tabs[position].titleResId)
-            }.attach()
+        }
+        tabMediator = TabLayoutMediator(tabLayout, viewPager2) { tab, position ->
+            tab.setText(tabs[position].titleResId)
+        }.also { it.attach() }
+    }
+
+    private fun openChat(chatId: Long) {
+        val arguments = ChatFragment.createBundle(chatId)
+        (activity as? MainActivity)?.openChat(arguments)
+            ?: findNavController().navigateSafe(R.id.action_profileFragment_to_chatActivity, arguments)
+    }
+
+    private fun copyLink() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            when (val result = viewModel.request(TdApi.GetUserLink(false, false, false))) {
+                is Result.Success -> {
+                    val clipboard = requireContext().getSystemService(ClipboardManager::class.java)
+                    clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.profile_link), result.data.url))
+                    if (android.os.Build.VERSION.SDK_INT < 33) {
+                        Toast.makeText(requireContext(), R.string.profile_link_copied, Toast.LENGTH_SHORT).show()
+                    }
+                }
+                is Result.Failure -> showError(result.error.message)
+            }
         }
     }
+
+    private fun showError(message: String) =
+        Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
 
     private val ProfilePage.Kind.titleResId
         get() = when (this) {
             ProfilePage.Kind.MEMBERS -> R.string.profile_tab_members
             ProfilePage.Kind.POSTS -> R.string.profile_tab_posts
+            ProfilePage.Kind.ARCHIVED_POSTS -> R.string.profile_tab_archived_posts
             ProfilePage.Kind.SAVED -> R.string.profile_tab_saved
             ProfilePage.Kind.GIFTS -> R.string.profile_tab_gifts
             ProfilePage.Kind.MEDIA -> R.string.profile_tab_media
@@ -375,6 +475,10 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         }
 
     companion object {
+        fun createOwnProfile() = ProfileFragment().apply {
+            arguments = bundleOf(ProfileViewModel.ARG_OWN_TAB to true)
+        }
+
         private const val ARG_IS_FROM_CHAT = "is_from_chat"
 
         private const val TRANSITION_TIMEOUT_MS = 500L

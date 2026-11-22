@@ -121,7 +121,7 @@ class ChatListItemView @JvmOverloads constructor(
         onlineView.isVisible = chat.isOnline && !row.isSelected
         // The hidden title/counters must remain available to TalkBack in the avatar rail.
         contentDescription = if (compact) listOfNotNull(
-            chat.title,
+            chat.displayTitle(),
             if (chat.isOnline) context.getString(R.string.last_seen_online) else null,
             if (chat.isMuted) context.getString(R.string.chat_notifications_muted) else null,
             if (chat.unreadCount > 0) context.getString(R.string.chat_unread_count, chat.unreadCount)
@@ -129,9 +129,12 @@ class ChatListItemView @JvmOverloads constructor(
         ).joinToString(", ") else null
     }
 
+    private fun ChatItem.displayTitle() =
+        if (isSavedMessages) context.getString(R.string.chat_saved_messages) else title
+
     private fun setChat(chat: ChatItem, old: ChatItem?, isSelectionMode: Boolean) {
-        if (old?.title != chat.title) {
-            titleTextView.text = chat.title
+        if (old?.title != chat.title || old?.isSavedMessages != chat.isSavedMessages) {
+            titleTextView.text = chat.displayTitle()
         }
 
         avatarView.setChat(chat)

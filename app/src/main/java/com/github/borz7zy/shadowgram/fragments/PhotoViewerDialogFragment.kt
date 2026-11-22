@@ -268,6 +268,12 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.state.collectLatest { state ->
+                    if (state.storyUnavailable) {
+                        Toast.makeText(requireContext(), R.string.profile_story_unavailable, Toast.LENGTH_SHORT).show()
+                        close()
+                        return@collectLatest
+                    }
+                    if (state.photos.isNotEmpty()) viewModel.setStoryOpen(true)
                     adapter.submitList(state.photos) {
                         if (!isPositioned) {
                             val index = state.photos.indexOfFirst { it.messageId == viewModel.messageId }
@@ -294,6 +300,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
     override fun onStop() {
         player?.pause()
 
+        viewModel.setStoryOpen(false)
         super.onStop()
     }
 
@@ -902,10 +909,16 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
          * @param messageId The photo or video opened
          * @param messageIds The photos and videos to page through, in this order: an album's or a profile's
          */
-        fun createBundle(chatId: Long, messageId: Long, messageIds: LongArray) = bundleOf(
+        fun createBundle(
+            chatId: Long,
+            messageId: Long,
+            messageIds: LongArray,
+            isStory: Boolean = false,
+        ) = bundleOf(
             PhotoViewerViewModel.ARG_CHAT_ID to chatId,
             PhotoViewerViewModel.ARG_MESSAGE_ID to messageId,
             PhotoViewerViewModel.ARG_MESSAGE_IDS to messageIds,
+            PhotoViewerViewModel.ARG_STORY to isStory,
         )
 
         /**

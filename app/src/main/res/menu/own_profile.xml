@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/profile_more"
+        android:icon="@drawable/ic_more_vert"
+        android:title="@string/profile_more"
+        app:showAsAction="always">
+        <menu>
+            <item android:id="@+id/profile_new_photo" android:title="@string/profile_new_photo" />
+            <item android:id="@+id/profile_edit" android:title="@string/profile_edit" />
+            <item android:id="@+id/profile_settings" android:title="@string/title_activity_settings" />
+            <item android:id="@+id/profile_edit_color" android:title="@string/profile_edit_color" />
+            <item android:id="@+id/profile_edit_username" android:title="@string/profile_edit_username" />
+            <item android:id="@+id/profile_copy_link" android:title="@string/message_copy_link" />
+        </menu>
+    </item>
+</menu>

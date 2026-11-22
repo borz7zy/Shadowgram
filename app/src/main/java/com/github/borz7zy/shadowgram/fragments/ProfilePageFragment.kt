@@ -95,6 +95,18 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
             )
 
             ProfilePage.Kind.MEDIA -> openViewer(item, image)
+            ProfilePage.Kind.POSTS, ProfilePage.Kind.ARCHIVED_POSTS -> {
+                val storyId = item.key.toLongOrNull() ?: return@ProfileItemAdapter
+                findNavController().navigateSafe(
+                    R.id.action_profileFragment_to_photoViewerDialogFragment,
+                    PhotoViewerDialogFragment.createBundle(
+                        requireArguments().getLong(ProfilePageViewModel.ARG_CHAT_ID),
+                        storyId,
+                        longArrayOf(storyId),
+                        isStory = true,
+                    ),
+                )
+            }
 
             // ponytail: links don't open yet
             else -> {}

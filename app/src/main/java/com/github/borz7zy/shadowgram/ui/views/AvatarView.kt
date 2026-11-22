@@ -22,6 +22,7 @@ import com.github.borz7zy.shadowgram.models.ChatItem
 import com.github.borz7zy.shadowgram.playback.TdFileDataSource
 import com.github.borz7zy.shadowgram.ui.text.initials
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.color.MaterialColors
 import java.io.File
 
 /**
@@ -103,7 +104,7 @@ class AvatarView @JvmOverloads constructor(
     fun setChat(chat: ChatItem) {
         val old = this.chat
         this.chat = chat
-        setAnimation(chat.animationFileId)
+        setAnimation(if (chat.isSavedMessages) 0 else chat.animationFileId)
 
         if (old?.title != chat.title || old.topicIconColor != chat.topicIconColor) {
             initialsTextView.text = when (chat.topicIconColor) {
@@ -113,9 +114,22 @@ class AvatarView @JvmOverloads constructor(
         }
 
         if (old != null && old.topicIconColor == chat.topicIconColor
+            && old.isSavedMessages == chat.isSavedMessages
             && old.accentColorId == chat.accentColorId && old.photoPath == chat.photoPath
             && old.minithumbnail === chat.minithumbnail
         ) {
+            return
+        }
+
+        if (chat.isSavedMessages) {
+            setCardBackgroundColor(MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary))
+            photoImageView.dispose()
+            photoImageView.setImageResource(R.drawable.ic_bookmark)
+            photoImageView.imageTintList = ColorStateList.valueOf(
+                MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnPrimary)
+            )
+            photoImageView.scaleType = ImageView.ScaleType.CENTER_INSIDE
+            initialsTextView.isVisible = false
             return
         }
 

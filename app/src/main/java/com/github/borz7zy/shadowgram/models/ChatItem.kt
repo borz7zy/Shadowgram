@@ -61,6 +61,7 @@ data class ChatItem(
     val canPostMessages: Boolean = true,
     /** Broadcast channels and public supergroups offer cache clearing instead of history deletion. */
     val clearsCacheOnly: Boolean = false,
+    val isSavedMessages: Boolean = false,
 ) : UniqueItem<ChatItem> {
     /**
      * @param senderName The name of the sender, null if it shouldn't be shown

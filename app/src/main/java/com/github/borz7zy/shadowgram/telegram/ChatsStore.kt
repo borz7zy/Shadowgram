@@ -83,6 +83,12 @@ class ChatsStore(
 
     /** Telegram's profile colors, by id: the light and the dark theme's backgrounds. */
     private val profileColors = HashMap<Int, ChatHeader.ProfileColors>()
+    private var availableProfileColors = emptyList<TdApi.ProfileAccentColor>()
+    private var myUserId = 0L
+
+    fun profileAccentColors(): List<TdApi.ProfileAccentColor> = synchronized(lock) {
+        availableProfileColors
+    }
 
     private val version = MutableStateFlow(0L)
 
@@ -228,11 +234,20 @@ class ChatsStore(
                 }
             }
 
-            is TdApi.UpdateProfileAccentColors -> update.colors.forEach {
-                profileColors[it.id] = ChatHeader.ProfileColors(
-                    it.lightThemeColors.backgroundColors.map { color -> color or OPAQUE },
-                    it.darkThemeColors.backgroundColors.map { color -> color or OPAQUE },
-                )
+            is TdApi.UpdateProfileAccentColors -> {
+                val colors = update.colors.associateBy { it.id }
+                availableProfileColors = update.availableAccentColorIds.asSequence().mapNotNull(colors::get).toList()
+                update.colors.forEach {
+                    profileColors[it.id] = ChatHeader.ProfileColors(
+                        it.lightThemeColors.backgroundColors.map { color -> color or OPAQUE },
+                        it.darkThemeColors.backgroundColors.map { color -> color or OPAQUE },
+                    )
+                }
+            }
+
+            is TdApi.UpdateOption -> {
+                if (update.name != "my_id") return false
+                myUserId = (update.value as? TdApi.OptionValueInteger)?.value ?: 0L
             }
 
             is TdApi.UpdateChatLastMessage -> chat(update.chatId) {
@@ -691,7 +706,10 @@ class ChatsStore(
     private fun snapshot(key: ChatListKey) = synchronized(lock) {
         val items = chats.values.mapNotNull { chat ->
             chat.positions.firstOrNull { ChatListKey.of(it.list) == key }?.let { position ->
-                chat.toChatItem(position)
+                val item = chat.toChatItem(position)
+                val ownChat = myUserId != 0L && (chat.type as? TdApi.ChatTypePrivate)?.userId == myUserId
+                if (ownChat) item.copy(isSavedMessages = true, isOnline = false, emojiStatusId = 0, isPremium = false)
+                else item
             }
         }.sortedWith(compareByDescending<ChatItem> { it.order }.thenByDescending { it.id })
 

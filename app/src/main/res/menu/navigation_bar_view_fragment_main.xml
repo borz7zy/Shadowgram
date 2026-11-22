@@ -14,13 +14,13 @@
 
     <item
         android:id="@+id/contactsFragment"
-        android:icon="@drawable/ic_person"
+        android:icon="@drawable/ic_contacts"
         android:title="@string/main_fragment_section_contacts"
         app:tint="?attr/colorOnSurface" />
 
     <item
         android:id="@+id/libraryFragment"
-        android:icon="@drawable/ic_lineage_library"
+        android:icon="@drawable/ic_person"
         android:title="@string/main_fragment_section_profile"
         app:tint="?attr/colorOnSurface" />
 

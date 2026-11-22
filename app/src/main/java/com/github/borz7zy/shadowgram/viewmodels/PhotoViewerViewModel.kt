@@ -14,6 +14,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.models.Result
+import com.github.borz7zy.shadowgram.models.Result.Companion.getOrNull
+import com.github.borz7zy.shadowgram.telegram.TelegramClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,7 +34,7 @@ class PhotoViewerViewModel(
     private val chatId = savedStateHandle.get<Long>(ARG_CHAT_ID) ?: 0L
     val messageId = savedStateHandle.get<Long>(ARG_MESSAGE_ID) ?: 0L
 
-    private var readyClient: com.github.borz7zy.shadowgram.telegram.TelegramClient? = null
+    private var readyClient: TelegramClient? = null
 
     private val client = viewModelScope.async {
         getApplication<ShadowgramApplication>().accountsRepository.activeClient().also { readyClient = it }
@@ -96,6 +98,7 @@ class PhotoViewerViewModel(
         val photos: List<Photo> = listOf(),
         val total: Int = 0,
         val firstNumber: Int = 1,
+        val storyUnavailable: Boolean = false,
     )
 
     private val _state = MutableStateFlow(State())
@@ -107,12 +110,20 @@ class PhotoViewerViewModel(
     /** The chat's profile photos rather than messages'. */
     val isProfile = savedStateHandle.get<Boolean>(ARG_PROFILE) ?: false
 
+    val isStory = savedStateHandle.get<Boolean>(ARG_STORY) == true
+
     init {
         viewModelScope.launch(Dispatchers.Default) {
             val client = client.await()
             if (isProfile) {
                 val photos = profilePhotos(client)
                 _state.value = State(photos = photos, total = photos.size)
+                return@launch
+            }
+            if (isStory) {
+                val story = client.send(TdApi.GetStory(chatId, messageId.toInt(), false)).getOrNull()
+                val photos = listOfNotNull(story?.toPhoto())
+                _state.value = State(photos = photos, total = photos.size, storyUnavailable = photos.isEmpty())
                 return@launch
             }
             val messages = (client.send(TdApi.GetMessages(chatId, messageIds)) as? Result.Success)
@@ -130,7 +141,7 @@ class PhotoViewerViewModel(
      *
      * ponytail: the newest [PROFILE_PHOTOS_LIMIT] only, page if someone has more
      */
-    private suspend fun profilePhotos(client: com.github.borz7zy.shadowgram.telegram.TelegramClient): List<Photo> {
+    private suspend fun profilePhotos(client: TelegramClient): List<Photo> {
         val chat = (client.send(TdApi.GetChat(chatId)) as? Result.Success)?.data ?: return listOf()
         suspend fun changes() = (client.send(
             TdApi.SearchChatMessages(
@@ -172,7 +183,7 @@ class PhotoViewerViewModel(
         }
     }
 
-    private suspend fun userPhotos(client: com.github.borz7zy.shadowgram.telegram.TelegramClient, userId: Long) =
+    private suspend fun userPhotos(client: TelegramClient, userId: Long) =
         (client.send(TdApi.GetUserProfilePhotos(userId, 0, PROFILE_PHOTOS_LIMIT)) as? Result.Success)
             ?.data?.photos.orEmpty().toList()
 
@@ -194,6 +205,47 @@ class PhotoViewerViewModel(
 
     /** Who sent it, for the top bar. */
     fun senderName(sender: TdApi.MessageSender): String? = readyClient?.chats?.sender(sender)?.name
+
+    private var storyOpen = false
+
+    fun setStoryOpen(open: Boolean) {
+        if (!isStory || open == storyOpen) return
+        storyOpen = open
+        val request = if (open) TdApi.OpenStory(chatId, messageId.toInt())
+            else TdApi.CloseStory(chatId, messageId.toInt())
+        readyClient?.send(request) {}
+    }
+
+    private fun TdApi.Story.toPhoto(): Photo? {
+        val sender = posterId ?: TdApi.MessageSenderChat(posterChatId)
+        val text = caption?.text?.takeIf { it.isNotBlank() }
+        return when (val content = content) {
+            is TdApi.StoryContentPhoto -> {
+                val size = content.photo.sizes.maxByOrNull { it.width } ?: return null
+                Photo(
+                    id.toLong(), size.photo.id,
+                    size.photo.local.takeIf { it.isDownloadingCompleted }?.path,
+                    size.width, size.height, content.photo.minithumbnail?.data, text, date, sender,
+                )
+            }
+
+            is TdApi.StoryContentVideo -> {
+                val video = content.video
+                val thumbnail = video.thumbnail?.takeIf {
+                    it.format is TdApi.ThumbnailFormatJpeg || it.format is TdApi.ThumbnailFormatWebp ||
+                        it.format is TdApi.ThumbnailFormatPng
+                }
+                Photo(
+                    id.toLong(), thumbnail?.file?.id ?: 0,
+                    thumbnail?.file?.local?.takeIf { it.isDownloadingCompleted }?.path,
+                    video.width, video.height, video.minithumbnail?.data, text, date, sender,
+                    video = Video(video.video.id, video.duration.toInt()),
+                )
+            }
+
+            else -> null
+        }
+    }
 
     private fun TdApi.Message.toPhoto(): Photo? {
         val content = content
@@ -261,6 +313,7 @@ class PhotoViewerViewModel(
         const val ARG_CHAT_ID = "chat_id"
         const val ARG_MESSAGE_ID = "message_id"
         const val ARG_MESSAGE_IDS = "message_ids"
+        const val ARG_STORY = "profile_stories"
         const val ARG_PROFILE = "profile"
         private const val PROFILE_PHOTOS_LIMIT = 100
 

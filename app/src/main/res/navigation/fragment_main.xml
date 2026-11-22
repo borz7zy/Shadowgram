@@ -43,6 +43,10 @@
         tools:layout="@layout/fragment_main">
 
         <action
+            android:id="@id/action_profileFragment_to_photoViewerDialogFragment"
+            app:destination="@id/photoViewerDialogFragment" />
+
+        <action
             android:id="@+id/action_mainFragment_to_fragment_album"
             app:destination="@+id/fragment_album"
             app:enterAnim="@anim/nav_default_enter_anim"
@@ -124,6 +128,10 @@
             app:popExitAnim="@anim/nav_default_pop_exit_anim" />
 
     </fragment>
+
+    <dialog
+        android:id="@id/photoViewerDialogFragment"
+        android:name="com.github.borz7zy.shadowgram.fragments.PhotoViewerDialogFragment" />
 
     <activity
         android:id="@+id/chatActivity"

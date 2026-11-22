@@ -8,6 +8,7 @@ package com.github.borz7zy.shadowgram.telegram
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -32,6 +33,7 @@ object InputContents {
     private const val MAX_PHOTO_RATIO = 20
 
     private const val THUMBNAIL_SIDE = 320
+    private const val PROFILE_PHOTO_SIDE = 960
 
     /** Telegram's limit of an album. */
     private const val MAX_ALBUM = 10
@@ -115,6 +117,36 @@ object InputContents {
 
             else -> document(local, text)
         }
+    }
+
+    /** TDLib expects a JPEG for a static profile photo. Decode to a bounded, square image. */
+    suspend fun profilePhoto(context: Context, uri: Uri): File? = withContext(Dispatchers.IO) {
+        runCatching {
+            val decoded = ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) {
+                    decoder, info, _ ->
+                val side = maxOf(info.size.width, info.size.height)
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                if (side > PROFILE_PHOTO_SIDE) {
+                    decoder.setTargetSize(
+                        (info.size.width.toLong() * PROFILE_PHOTO_SIDE / side).toInt().coerceAtLeast(1),
+                        (info.size.height.toLong() * PROFILE_PHOTO_SIDE / side).toInt().coerceAtLeast(1),
+                    )
+                }
+            }
+            val side = minOf(decoded.width, decoded.height)
+            val square = Bitmap.createBitmap(decoded, (decoded.width - side) / 2, (decoded.height - side) / 2, side, side)
+            val file = File.createTempFile("profile-", ".jpg", context.cacheDir)
+            try {
+                check(file.outputStream().use { square.compress(Bitmap.CompressFormat.JPEG, 92, it) })
+                file
+            } catch (error: Exception) {
+                file.delete()
+                throw error
+            } finally {
+                if (square !== decoded) square.recycle()
+                decoded.recycle()
+            }
+        }.getOrNull()
     }
 
     private fun document(local: TdApi.InputFile, text: TdApi.FormattedText?) =

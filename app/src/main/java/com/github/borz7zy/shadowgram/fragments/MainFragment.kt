@@ -115,9 +115,11 @@ class MainFragment : Fragment(R.layout.fragment_main) {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        selectedPage = Page.entries.firstOrNull {
-            it.name == savedInstanceState?.getString(STATE_SELECTED_PAGE)
-        } ?: Page.ACTIVITY
+        val section = savedInstanceState?.getString(STATE_SELECTED_PAGE)
+        selectedPage = when (section) {
+            "LIBRARY" -> Page.PROFILE
+            else -> Page.entries.firstOrNull { it.name == section } ?: Page.ACTIVITY
+        }
     }
 
     // System services
@@ -458,7 +460,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         // Discard pages saved by the old top-level ViewPager2 before they create their views.
         // Their dynamically generated page containers no longer exist after an app update.
         val legacyPages = childFragmentManager.fragments.filter { fragment ->
-            Page.entries.any { fragment.tag == "f${it.ordinal}" }
+            fragment.tag == "main_section_LIBRARY" || Page.entries.any { fragment.tag == "f${it.ordinal}" }
         }
         if (legacyPages.isNotEmpty()) childFragmentManager.commitNow {
             legacyPages.forEach(::remove)
@@ -577,6 +579,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         (activity as? MainActivity)?.onMainSectionSelected(page == Page.ACTIVITY)
         setForumHeader(chatsViewModel.forumHeader.value.takeIf { page == Page.ACTIVITY })
         renderChatSelection()
+        updateCompactPane()
         ViewCompat.requestApplyInsets(mainSectionContainer)
         return true
     }
@@ -639,9 +642,10 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         val compact = (activity as? MainActivity)?.isAvatarChatPane == true
         val hidden = compact && (activity as? MainActivity)?.isNavigationRailHidden == true
         val selecting = selectedPage == Page.ACTIVITY && chatsViewModel.chatSelection.value != null
-        requireView().findViewById<View>(R.id.appBarLayout).isVisible = !compact || selecting
-        fabMenuFloatingActionButton.isVisible = !compact && !selecting
-        if (compact && isFabMenuOpen) setFabMenuOpen(false)
+        val profile = selectedPage == Page.PROFILE
+        requireView().findViewById<View>(R.id.appBarLayout).isVisible = !profile && (!compact || selecting)
+        fabMenuFloatingActionButton.isVisible = !profile && !compact && !selecting
+        if ((profile || compact) && isFabMenuOpen) setFabMenuOpen(false)
         val rail = requireView().findViewById<View>(R.id.navigationRailContainer)
         val header = requireView().findViewById<View>(R.id.compactNavigationHeader)
         if (rail != null && header != null) {
@@ -808,7 +812,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
     ) {
         ACTIVITY(R.id.activityFragment, ::ChatsFragment),
         CONTACTS(R.id.contactsFragment, ::ContactsFragment),
-        LIBRARY(R.id.libraryFragment, ::LibraryFragment),
+        PROFILE(R.id.libraryFragment, ProfileFragment::createOwnProfile),
     }
 
     companion object {
