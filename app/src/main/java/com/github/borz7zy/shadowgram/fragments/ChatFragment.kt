@@ -21,7 +21,6 @@ import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.transition.TransitionInflater
 import android.os.CancellationSignal
 import android.provider.ContactsContract
 import android.text.Spanned
@@ -66,6 +65,7 @@ import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.FragmentNavigatorExtras
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.transition.TransitionInflater
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.models.MessageSelectionActions

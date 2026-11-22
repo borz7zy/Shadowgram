@@ -11,11 +11,10 @@ import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.os.Handler
-import android.os.HandlerThread
 import android.os.Looper
-import android.os.SystemClock
 import android.text.Spannable
 import android.text.Spanned
 import android.text.style.ReplacementSpan
@@ -25,8 +24,11 @@ import com.github.borz7zy.rustcore.RustMedia
 import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.emoji.Emoji
 import com.github.borz7zy.shadowgram.telegram.EmojiStickers
+import com.github.borz7zy.shadowgram.ui.views.AnimatedStickerPlayback
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
@@ -82,7 +84,8 @@ class CustomEmojiDrawable private constructor(
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
 
     /** The texts showing it, invalidated on every frame. */
-    private val hosts = WeakHashMap<View, Unit>()
+    private val hosts = WeakHashMap<TextView, CustomEmojiSpan>()
+    private val visibleBounds = Rect()
 
     // Main thread
     private var current: Bitmap? = null
@@ -90,20 +93,17 @@ class CustomEmojiDrawable private constructor(
 
     /** TDLib had no file for it: not asked again on every draw. */
     private var isFailed = false
-    private var isRunning = false
     private var file: EmojiStickers.File? = null
+    private var playback: AnimatedStickerPlayback? = null
 
-    // Decoder thread
-    private var sticker: RustMedia.AnimatedSticker? = null
-    private var bitmaps = arrayOf<Bitmap?>(null, null)
-
-    fun attach(host: View, context: Context) {
+    fun attach(host: TextView, span: CustomEmojiSpan) {
+        val context = host.context
         appContext = context.applicationContext
-        hosts[host] = Unit
+        hosts[host] = span
         val file = file
         when {
             file == null -> load(context)
-            file.isAnimated && !isRunning -> play()
+            file.isAnimated -> play()
         }
     }
 
@@ -113,7 +113,7 @@ class CustomEmojiDrawable private constructor(
         val context = appContext ?: return
         when {
             file == null -> if (!isFailed) main.post { load(context) }
-            file.isAnimated && !isRunning -> main.post { if (!isRunning) play() }
+            file.isAnimated && playback == null -> main.post { play() }
         }
     }
 
@@ -132,76 +132,50 @@ class CustomEmojiDrawable private constructor(
                 return@launch
             }
             this@CustomEmojiDrawable.file = file
-            when (file.isAnimated) {
-                true -> play()
-                false -> decoder.post {
-                    val bitmap = RustMedia.decode(File(file.path), size, size)
-                    main.post {
-                        current = bitmap
-                        invalidateHosts()
-                    }
+            if (file.isAnimated) {
+                play()
+            } else {
+                current = withContext(Dispatchers.IO) {
+                    RustMedia.decode(File(file.path), size, size)
                 }
+                invalidateHosts()
             }
         }
     }
 
     private fun play() {
         val file = file ?: return
-        isRunning = true
-        decoder.post {
-            if (sticker == null) {
-                val sticker = RustMedia.AnimatedSticker.open(File(file.path), size, size) ?: return@post
-                this.sticker = sticker
-                bitmaps = arrayOf(sticker.newBitmap(), sticker.newBitmap())
-            }
-            frame(0, 0)
-        }
-    }
-
-    // Decoder thread
-    private fun frame(index: Int, slot: Int) {
-        val sticker = sticker ?: return
-        val bitmap = bitmaps[slot] ?: return
-        val start = SystemClock.uptimeMillis()
-        if (!sticker.frame(index, bitmap)) {
-            return
-        }
-        val frameMs = when (sticker.frameCount) {
-            0 -> DEFAULT_FRAME_MS
-            else -> (sticker.durationMs / sticker.frameCount).toLong().coerceAtLeast(1)
-        }
-        main.post {
+        if (playback != null) return
+        playback = AnimatedStickerPlayback(File(file.path), size) { bitmap ->
             current = bitmap
-            // Nothing shows it any more: pause until a text attaches it again
-            if (!invalidateHosts()) {
-                isRunning = false
-                return@post
-            }
-            val delay = (frameMs - (SystemClock.uptimeMillis() - start)).coerceAtLeast(0)
-            main.postDelayed({
-                decoder.post { frame((index + 1) % sticker.frameCount.coerceAtLeast(1), 1 - slot) }
-            }, delay)
-        }
+            val isShown = invalidateHosts()
+            if (!isShown) playback = null
+            isShown
+        }.also { it.start() }
     }
 
     /** Redraw the texts still showing it on screen, false when there are none. */
     private fun invalidateHosts(): Boolean {
         var isShown = false
-        hosts.keys.toList().forEach { host ->
-            val hasIt = ((host as? TextView)?.text as? Spanned)
-                ?.getSpans(0, host.text.length, CustomEmojiSpan::class.java)
-                ?.any { it.drawable === this } == true
-            when {
-                // Detached ones too (a list row bound before it's attached, or kept aside while
-                // scrolling): they draw again when they're back, not what they drew before
-                hasIt -> {
-                    host.invalidate()
-                    if (host.isAttachedToWindow && host.windowVisibility == View.VISIBLE) {
-                        isShown = true
-                    }
+        val iterator = hosts.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            val host = entry.key
+            val text = host.text as? Spanned
+            if (text == null || text.getSpanStart(entry.value) < 0) {
+                val replacement = text?.getSpans(0, text.length, CustomEmojiSpan::class.java)
+                    ?.firstOrNull { it.drawable === this }
+                if (replacement == null) {
+                    iterator.remove()
+                    continue
                 }
-
-                else -> hosts.remove(host)
+                entry.setValue(replacement)
+            }
+            if (host.isAttachedToWindow && host.windowVisibility == View.VISIBLE &&
+                host.isShown && host.getGlobalVisibleRect(visibleBounds)
+            ) {
+                host.invalidate()
+                isShown = true
             }
         }
         return isShown
@@ -223,19 +197,11 @@ class CustomEmojiDrawable private constructor(
     override fun getOpacity() = PixelFormat.TRANSLUCENT
 
     companion object {
-        private const val DEFAULT_FRAME_MS = 33L
-
         private val scope = MainScope()
 
         /** For loading from [resume], set by the first [attach]. */
         private var appContext: Context? = null
         private val main = Handler(Looper.getMainLooper())
-
-        // ponytail: one thread for every custom emoji on screen, like StickerView's; a pool if
-        // screens full of them stutter
-        private val decoder by lazy {
-            Handler(HandlerThread("CustomEmojiDecoder").apply { start() }.looper)
-        }
 
         // Main thread
         private val drawables = HashMap<Pair<Long, Int>, WeakReference<CustomEmojiDrawable>>()
@@ -286,6 +252,6 @@ fun Spannable.removeEmojiUnderCustom() {
 fun TextView.attachCustomEmoji() {
     val text = text as? Spanned ?: return
     text.getSpans(0, text.length, CustomEmojiSpan::class.java).forEach {
-        it.drawable.attach(this, context)
+        it.drawable.attach(this, it)
     }
 }

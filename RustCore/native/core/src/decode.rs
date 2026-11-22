@@ -151,7 +151,9 @@ fn open_tgs(path: &str, data: &[u8], max_w: u32, max_h: u32) -> Option<Player> {
     CACHE.call_once(|| dec_tgs::set_model_cache_size(64));
     let a = dec_tgs::Animation::new(data, path).ok()?;
     let (w, h) = media::fit(a.width, a.height, max_w, max_h);
-    Some(Player { frame_count: a.frame_count, duration_ms: a.duration_ms(), src: Source::Tgs(a), w, h })
+    // rlottie includes the exclusive Lottie out-point in totalFrame().
+    let frame_count = (a.frame_count - 1).max(1);
+    Some(Player { frame_count, duration_ms: a.duration_ms(), src: Source::Tgs(a), w, h })
 }
 
 /// Open a WebM or TGS sticker for playback at most `max_w×max_h`; 0 on failure.

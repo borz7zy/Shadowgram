@@ -135,22 +135,25 @@ class ProfileViewModel(
             }
 
             launch {
-                _tabs.value = if (own) OWN_TABS else {
-                    val candidates = when (type) {
-                        is TdApi.ChatTypePrivate -> USER_TABS
-                        is TdApi.ChatTypeSecret -> MEDIA_TABS
-                        is TdApi.ChatTypeBasicGroup, is TdApi.ChatTypeSupergroup -> CHAT_TABS
-                        else -> emptyList()
-                    }
-                    candidates.map { kind ->
-                        async {
-                            val present = hasItems(client, chat, kind) ||
-                                kind == ProfilePage.Kind.VOICE_NOTES &&
-                                hasItems(client, chat, ProfilePage.Kind.VIDEO_NOTES)
-                            kind.takeIf { present }
-                        }
-                    }.awaitAll().filterNotNull()
+                if (isOwnTab) {
+                    _tabs.value = OWN_TABS
+                    return@launch
                 }
+                val candidates = when (type) {
+                    is TdApi.ChatTypePrivate -> if (own) MEDIA_TABS else USER_TABS
+                    is TdApi.ChatTypeSecret -> MEDIA_TABS
+                    is TdApi.ChatTypeBasicGroup, is TdApi.ChatTypeSupergroup -> CHAT_TABS
+                    else -> emptyList()
+                }
+                val availableTabs = candidates.map { kind ->
+                    async {
+                        val present = hasItems(client, chat, kind) ||
+                            kind == ProfilePage.Kind.VOICE_NOTES &&
+                            hasItems(client, chat, ProfilePage.Kind.VIDEO_NOTES)
+                        kind.takeIf { present }
+                    }
+                }.awaitAll().filterNotNull()
+                _tabs.value = if (own) OWN_TABS + availableTabs else availableTabs
             }
         }
     }

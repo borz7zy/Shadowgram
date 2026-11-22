@@ -90,6 +90,7 @@ dependencies {
     implementation(libs.androidx.navigation.ui.ktx)
     implementation(libs.androidx.preference)
     implementation(libs.androidx.recyclerview)
+    implementation(libs.androidx.transition)
     implementation(libs.androidx.viewpager2)
     implementation(libs.androidx.window)
     implementation(libs.androidx.work.runtime)

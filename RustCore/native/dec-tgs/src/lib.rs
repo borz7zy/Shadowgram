@@ -51,7 +51,7 @@ unsafe impl Send for Animation {}
 impl Animation {
     /// `data` is a TGS (gzip) or plain Lottie JSON. Animations loaded with
     /// the same non-empty `key` share one parsed model (rlottie's cache), so
-    /// pass something unique to the content, like the file path.
+    /// pass something unique to the content, like the file path. An empty key bypasses the cache.
     pub fn new(data: &[u8], key: &str) -> Result<Self> {
         let json = if data.starts_with(&[0x1F, 0x8B]) {
             let opts = zune_inflate::DeflateOptions::default().set_limit(MAX_JSON).set_size_hint(data.len() * 8);
@@ -138,6 +138,17 @@ mod tests {
         assert!(opaque > 128 * 128 / 10, "sticker must draw something, got {opaque} px");
         assert!(f0.rgba.chunks_exact(4).all(|p| p[0] <= p[3] && p[1] <= p[3] && p[2] <= p[3]), "premultiplied");
         assert_ne!(f0.rgba, mid.rgba, "frames must differ");
+    }
+
+    #[test]
+    fn still_images_from_different_animations_do_not_share_a_model() {
+        let composition = |size: u32| {
+            format!(r#"{{"v":"5.8.1","w":{size},"h":{size},"fr":60,"ip":0,"op":2,"layers":[]}}"#)
+        };
+        for size in [32, 16, 32] {
+            let image = decode(composition(size).as_bytes(), 0, 0).unwrap();
+            assert_eq!((image.width, image.height), (size, size));
+        }
     }
 
     /// rlottie 34465a9 charged each animated path 1024 points of a 15000 budget,

@@ -13,11 +13,12 @@ import android.graphics.Color
 import android.graphics.Rect
 import android.os.Bundle
 import android.telephony.PhoneNumberUtils
-import android.transition.TransitionInflater
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.BackEventCompat
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.os.bundleOf
@@ -31,10 +32,13 @@ import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
+import androidx.transition.TransitionInflater
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import androidx.viewpager2.widget.ViewPager2
 import com.github.borz7zy.rustcore.RustMedia
@@ -65,11 +69,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.drinkless.tdlib.TdApi
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * The profile of a user, group or channel, laid out like the contacts app: the big avatar, the
@@ -140,11 +145,13 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         super.onViewCreated(view, savedInstanceState)
 
         if (!viewModel.isOwnTab && activity is MainActivity) {
-            postponeEnterTransition()
-            enterTransition = TransitionInflater.from(requireContext()).inflateTransition(R.transition.profile_window)
-            returnTransition = TransitionInflater.from(requireContext()).inflateTransition(R.transition.profile_window)
-            sharedElementEnterTransition = TransitionInflater.from(requireContext()).inflateTransition(android.R.transition.move)
-            sharedElementReturnTransition = TransitionInflater.from(requireContext()).inflateTransition(android.R.transition.move)
+            postponeEnterTransition(TRANSITION_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            val inflater = TransitionInflater.from(requireContext())
+            enterTransition = inflater.inflateTransition(R.transition.profile_window)
+            returnTransition = inflater.inflateTransition(R.transition.profile_window)
+            sharedElementEnterTransition = inflater.inflateTransition(android.R.transition.move)
+            sharedElementReturnTransition = inflater.inflateTransition(android.R.transition.move)
+            handleBackWhileOpening()
         }
 
         // Insets: the header scrolls away under the status bar
@@ -162,7 +169,7 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         if (viewModel.isOwnTab) {
             toolbar.navigationIcon = null
         } else {
-            toolbar.setNavigationOnClickListener { navigateBackInPane() }
+            toolbar.setNavigationOnClickListener { goBack() }
         }
 
         // The name moves to the top bar once the header is scrolled away
@@ -202,7 +209,7 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
 
         messageMaterialButton.setOnClickListener {
             when (requireArguments().getBoolean(ARG_IS_FROM_CHAT)) {
-                true -> navigateBackInPane()
+                true -> goBack()
                 false -> openChat(viewModel.chatId)
             }
         }
@@ -230,8 +237,8 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
             true
         }
 
-        // Don't hold the opening animation forever if the chat never shows up
-        view.postDelayed(startTransition, TRANSITION_TIMEOUT_MS)
+        // The separate activity postpones its window transition instead of the fragment's.
+        if (activity is ProfileActivity) view.postDelayed(startTransition, TRANSITION_TIMEOUT_MS)
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -288,13 +295,50 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
                 }
 
                 launch {
-                    viewModel.header.mapNotNull { it?.profileEmojiId }.distinctUntilChanged()
+                    viewModel.header.map { it?.profileEmojiId ?: 0L }.distinctUntilChanged()
                         .collectLatest(::loadCoverEmoji)
                 }
             }
         }
     }
 
+    private fun goBack() {
+        startPostponedEnterTransition()
+        navigateBackInPane()
+    }
+
+    private fun handleBackWhileOpening() {
+        val navController = findNavController()
+        val owner = viewLifecycleOwner
+        // Pop the profile explicitly while its entry transition is still being applied. A gesture
+        // started during that transition keeps this callback until it commits or is cancelled.
+        val callback = object : OnBackPressedCallback(true), DefaultLifecycleObserver {
+            private var gesturing = false
+
+            override fun onResume(owner: LifecycleOwner) {
+                if (!gesturing) isEnabled = false
+            }
+
+            override fun handleOnBackStarted(backEvent: BackEventCompat) {
+                gesturing = true
+            }
+
+            override fun handleOnBackCancelled() {
+                gesturing = false
+                if (owner.lifecycle.currentState == Lifecycle.State.RESUMED) isEnabled = false
+            }
+
+            override fun handleOnBackPressed() {
+                gesturing = false
+                if (navController.currentBackStackEntry?.id == tag) {
+                    startPostponedEnterTransition()
+                    navController.popBackStack()
+                }
+            }
+        }
+        owner.lifecycle.addObserver(callback)
+        requireActivity().onBackPressedDispatcher.addCallback(owner, callback)
+    }
 
     /** White over the profile's colors, the theme's own over the surface. */
     private fun bindCoverColors() {

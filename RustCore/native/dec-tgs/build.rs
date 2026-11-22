@@ -5,9 +5,8 @@
 //! with the same configuration TelegramM used via rlottie's CMake:
 //! LOTTIE_THREAD + LOTTIE_CACHE on, LOTTIE_MODULE off (stb_image linked in),
 //! no exceptions/RTTI. Unlike TelegramM, SIMD stays on everywhere rlottie
-//! has it: SSE2 draw helpers on x86, the pixman NEON asm on armv7. Two files
-//! are patched on the way into OUT_DIR (the submodule stays clean): see
-//! [`patched_lottieitem`] and [`neon_asm`].
+//! has it: SSE2 draw helpers on x86, the pixman NEON asm on armv7. Sources
+//! patched on the way into OUT_DIR leave the submodule clean.
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -87,7 +86,11 @@ fn main() {
         .include(root.join("inc"))
         .include(&out)
         .includes(INCLUDES.iter().map(|d| src.join(d)))
-        .files(SOURCES.iter().map(|f| if *f == "lottie/lottieitem.cpp" { patched_lottieitem(&src, &out) } else { src.join(f) }))
+        .files(SOURCES.iter().map(|f| match *f {
+            "binding/c/lottieanimation_capi.cpp" => patched_capi(&src, &out),
+            "lottie/lottieitem.cpp" => patched_lottieitem(&src, &out),
+            _ => src.join(f),
+        }))
         .flag("-std=c++14")
         .flag("-fno-exceptions")
         .flag("-fno-rtti")
@@ -111,6 +114,18 @@ fn main() {
         println!("cargo:rustc-link-lib=static:-bundle=c++_static");
         println!("cargo:rustc-link-lib=static:-bundle=c++abi");
     }
+}
+
+/// The C binding enables caching by default, even for an empty key. Use the C++
+/// cache policy so callers without a cache key each parse their own JSON.
+fn patched_capi(src: &Path, out: &Path) -> PathBuf {
+    let path = src.join("binding/c/lottieanimation_capi.cpp");
+    let text = std::fs::read_to_string(path).unwrap();
+    let call = "Animation::loadFromData(data, key, resourcePath)";
+    assert!(text.contains(call), "dec-tgs: rlottie changed, re-check the C binding cache policy");
+    let dst = out.join("lottieanimation_capi.cpp");
+    std::fs::write(&dst, text.replace(call, "Animation::loadFromData(data, key, resourcePath, key[0] != '\\0')")).unwrap();
+    dst
 }
 
 /// lottieitem.cpp with upstream 34465a9 ("shape-content budget") fixed. It
