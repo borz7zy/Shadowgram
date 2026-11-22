@@ -121,6 +121,12 @@
             tools:visibility="visible" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/profileAudioMaterialButton"
+            style="@style/Theme.Shadowgram.MessageMenu.Action"
+            android:text="@string/message_add_profile_audio"
+            app:icon="@drawable/ic_music_note" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/forwardMaterialButton"
             style="@style/Theme.Shadowgram.MessageMenu.Action"
             android:text="@string/message_forward"

@@ -14,6 +14,7 @@ package com.github.borz7zy.shadowgram.models
 data class ChatFolder(
     val key: ChatListKey,
     val title: String?,
+    val iconName: String? = null,
 ) : UniqueItem<ChatFolder> {
     override fun areItemsTheSame(other: ChatFolder) = key == other.key
 

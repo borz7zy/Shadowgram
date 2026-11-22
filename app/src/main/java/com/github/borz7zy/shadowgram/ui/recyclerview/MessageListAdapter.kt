@@ -318,7 +318,7 @@ class MessageListAdapter(
         private val smallCorner = view.toPx(4).toFloat()
         private val avatarSpace = view.toPx(SenderAvatarDecoration.AVATAR_SPACE_DP)
         private val stickerSize = view.toPx(STICKER_SIZE_DP)
-        private val videoNoteSize = view.toPx(VIDEO_NOTE_SIZE_DP)
+        private val videoNoteSize = view.resources.getDimensionPixelSize(R.dimen.video_note_size)
         private val iconSize = view.toPx(14)
 
         // Like Google Messages: bubbles leave a quarter of the row to the other side
@@ -1106,7 +1106,6 @@ class MessageListAdapter(
         const val TYPE_SEPARATOR = 1
 
         const val STICKER_SIZE_DP = 160
-        const val VIDEO_NOTE_SIZE_DP = 200
         const val PHOTO_MAX_WIDTH_DP = 420
         const val PHOTO_MIN_HEIGHT_DP = 80
         const val PHOTO_MIN_WIDTH_DP = 120

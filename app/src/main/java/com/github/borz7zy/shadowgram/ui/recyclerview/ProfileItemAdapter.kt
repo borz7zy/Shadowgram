@@ -31,6 +31,7 @@ import java.io.File
  * views whose content changed, so a finished download doesn't make the others flicker.
  */
 class ProfileItemAdapter(
+    private val onLongClick: (ProfileItem) -> Boolean,
     /** Tapped, with its picture to open a media viewer from. */
     private val onClick: (ProfileItem, ImageView) -> Unit,
 ) : ListAdapter<ProfileItem, ProfileItemAdapter.ViewHolder>(diffCallback) {
@@ -52,6 +53,7 @@ class ProfileItemAdapter(
     inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val imageView = view.findViewById<ShapeableImageView>(R.id.imageView)
         private val stickerView = view.findViewById<StickerView?>(R.id.stickerView)
+        private val pinnedBadge = view.findViewById<View?>(R.id.profilePinnedBadge)
         private val badgeTextView = view.findViewById<TextView?>(R.id.badgeTextView)
         private val iconImageView = view.findViewById<ImageView?>(R.id.iconImageView)
         private val avatarView = view.findViewById<AvatarView?>(R.id.avatarView)
@@ -67,11 +69,14 @@ class ProfileItemAdapter(
 
         init {
             view.setOnClickListener { item?.let { onClick(it, imageView) } }
+            view.setOnLongClickListener { item?.let(onLongClick) ?: false }
         }
 
         fun bind(item: ProfileItem, kind: ProfilePage.Kind) {
             val old = this.item?.takeIf { it.key == item.key && this.kind == kind }
             this.item = item
+            itemView.isLongClickable = item.profileAction != null
+            pinnedBadge?.isVisible = item.isPinned
 
             if (this.kind != kind) {
                 this.kind = kind

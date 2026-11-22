@@ -30,11 +30,23 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
 
-        <androidx.fragment.app.FragmentContainerView
-            android:id="@+id/chatPane"
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:visibility="gone" />
+            android:visibility="gone">
+
+            <androidx.fragment.app.FragmentContainerView
+                android:id="@+id/chatPane"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <androidx.fragment.app.FragmentContainerView
+                android:id="@+id/settingsDetailPane"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone" />
+
+        </FrameLayout>
 
     </com.github.borz7zy.shadowgram.ui.views.AdaptiveChatLayout>
 

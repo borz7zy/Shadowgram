@@ -37,6 +37,16 @@ class AdaptiveChatLayout @JvmOverloads constructor(
             requestLayout()
         }
 
+    var settingsDetailOpen = false
+        set(value) {
+            if (field == value) return
+            animatePaneBounds()
+            field = value
+            requestLayout()
+        }
+
+    private val detailOpen get() = chatOpen || settingsDetailOpen
+
     var isChatListSelected = true
         set(value) {
             if (field == value) return
@@ -175,12 +185,13 @@ class AdaptiveChatLayout @JvmOverloads constructor(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
-        val height = MeasureSpec.getSize(heightMeasureSpec)
+        val height = (MeasureSpec.getSize(heightMeasureSpec) - paddingBottom).coerceAtLeast(0)
+        val paneHeightSpec = MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY)
         val location = IntArray(2)
         getLocationInWindow(location)
         val hinge = separatingHinge
         val nextPanes = AdaptiveChatPanePolicy.calculate(
-            width, resources.displayMetrics.density, chatOpen,
+            width, resources.displayMetrics.density, detailOpen,
             hinge?.left?.minus(location[0]), hinge?.right?.minus(location[0]),
             preferredWidthDp,
             isChatListSelected,
@@ -193,7 +204,7 @@ class AdaptiveChatLayout @JvmOverloads constructor(
             // On phones the chat overlays the full-size home screen. Never measure the
             // preserved folder pager at zero width: that changes its selected page/rail mode
             // and forces a complete re-layout as Back reveals it again.
-            val covered = chatOpen && !panes.isSplit
+            val covered = detailOpen && !panes.isSplit
             visibility = VISIBLE
             if (primaryAccessibility == null) primaryAccessibility = importantForAccessibility
             importantForAccessibility = if (covered) View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
@@ -202,13 +213,13 @@ class AdaptiveChatLayout @JvmOverloads constructor(
                 if (primaryFocusability == null) primaryFocusability = primary.descendantFocusability
                 primary.descendantFocusability = if (covered) ViewGroup.FOCUS_BLOCK_DESCENDANTS else primaryFocusability!!
             }
-            measure(MeasureSpec.makeMeasureSpec(if (covered) width else panes.listWidth, MeasureSpec.EXACTLY), heightMeasureSpec)
+            measure(MeasureSpec.makeMeasureSpec(if (covered) width else panes.listWidth, MeasureSpec.EXACTLY), paneHeightSpec)
         }
         getChildAt(1).apply {
             visibility = if (panes.isSplit) VISIBLE else GONE
             isEnabled = panes.isResizable
             val gap = (panes.chatLeft - panes.listWidth).coerceAtLeast((48 * resources.displayMetrics.density).toInt())
-            measure(MeasureSpec.makeMeasureSpec(gap, MeasureSpec.EXACTLY), heightMeasureSpec)
+            measure(MeasureSpec.makeMeasureSpec(gap, MeasureSpec.EXACTLY), paneHeightSpec)
         }
         val minimum = AdaptiveChatPanePolicy.MIN_LIST_WIDTH_DP * resources.displayMetrics.density
         val maximum = defaultPanes(width).listWidth
@@ -216,19 +227,20 @@ class AdaptiveChatLayout @JvmOverloads constructor(
             ((panes.listWidth + railOffsetDp() * resources.displayMetrics.density - minimum) /
                 (maximum - minimum)).coerceIn(0f, 1f) else 1f
         getChildAt(2).apply {
-            visibility = if (chatOpen) VISIBLE else GONE
-            isClickable = chatOpen && !panes.isSplit
+            visibility = if (detailOpen) VISIBLE else GONE
+            isClickable = detailOpen && !panes.isSplit
             measure(
                 MeasureSpec.makeMeasureSpec(width - panes.chatLeft, MeasureSpec.EXACTLY),
-                heightMeasureSpec,
+                paneHeightSpec,
             )
         }
-        setMeasuredDimension(width, height)
+        setMeasuredDimension(width, height + paddingBottom)
     }
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        val height = height - paddingBottom
         // Chats stay physically on the left, including when the content language is RTL.
-        getChildAt(0).layout(0, 0, if (chatOpen && !panes.isSplit) width else panes.listWidth, height)
+        getChildAt(0).layout(0, 0, if (detailOpen && !panes.isSplit) width else panes.listWidth, height)
         getChildAt(1).let {
             val middle = (panes.listWidth + panes.chatLeft) / 2
             it.layout(middle - it.measuredWidth / 2, 0, middle + it.measuredWidth / 2, height)
@@ -241,7 +253,7 @@ class AdaptiveChatLayout @JvmOverloads constructor(
     }
 
     override fun dispatchApplyWindowInsets(insets: WindowInsets): WindowInsets {
-        val original = WindowInsetsCompat.toWindowInsetsCompat(insets, this)
+        val original = WindowInsetsCompat.toWindowInsetsCompat(insets, this).inset(0, 0, 0, paddingBottom)
         listOf(0, 2).forEach { index ->
             val child = getChildAt(index)
             if (child.visibility != GONE) {

@@ -13,6 +13,7 @@ import com.github.borz7zy.shadowgram.models.ChatItem.Typing
 import com.github.borz7zy.shadowgram.models.ChatListKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
@@ -91,6 +92,8 @@ class ChatsStore(
     }
 
     private val version = MutableStateFlow(0L)
+    private val _folderUnread = MutableStateFlow<Map<ChatListKey, Pair<Int, Int>>>(emptyMap())
+    val folderUnread = _folderUnread.asStateFlow()
 
     /**
      * The chat lists to show as tabs, in order.
@@ -99,7 +102,7 @@ class ChatsStore(
         .map {
             synchronized(lock) {
                 val folders = chatFolders.map {
-                    ChatFolder(ChatListKey.Folder(it.id), it.name.text.text)
+                    ChatFolder(ChatListKey.Folder(it.id), it.name.text.text, it.icon?.name)
                 }.toMutableList()
 
                 folders.add(
@@ -368,6 +371,13 @@ class ChatsStore(
                 }
                 // Last message, order and unread count of the topic all change
                 refreshTopic(message.chatId, topicId)
+                return false
+            }
+
+            is TdApi.UpdateUnreadChatCount -> {
+                val key = ChatListKey.of(update.chatList)
+                _folderUnread.value = _folderUnread.value + (key to
+                    (update.unreadCount to update.unreadUnmutedCount))
                 return false
             }
 

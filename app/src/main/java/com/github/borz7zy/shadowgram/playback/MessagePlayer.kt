@@ -279,8 +279,21 @@ object MessagePlayer {
         player.setPlaybackSpeed(state.speed)
         player.playWhenReady = true
         player.prepare()
-        playlistJob = scope.launch { loadPlaylist(track) }
+        // Profile tracks have no chat message to use as the anchor for a playlist.
+        if (track.messageId > 0) playlistJob = scope.launch { loadPlaylist(track) }
     }
+
+    fun playProfileAudio(chatId: Long, audio: TdApi.Audio) = play(Track(
+        chatId = chatId,
+        messageId = -audio.audio.id.toLong(),
+        fileId = audio.audio.id,
+        isVideo = false,
+        title = audio.title.ifBlank { audio.fileName },
+        subtitle = audio.performer,
+        duration = audio.duration,
+        isMusic = true,
+        artworkPath = audio.albumCoverThumbnail?.file?.local?.takeIf { it.isDownloadingCompleted }?.path,
+    ))
 
     private fun connectSession() {
         if (sessionController == null) {

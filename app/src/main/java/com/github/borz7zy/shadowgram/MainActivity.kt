@@ -11,8 +11,10 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import android.view.animation.AnimationUtils
 import android.widget.FrameLayout
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -24,6 +26,7 @@ import androidx.core.util.Consumer
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import androidx.core.view.updatePadding
 import androidx.fragment.app.commitNow
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
@@ -71,6 +74,15 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
     private val frameLayout by lazy { findViewById<FrameLayout>(R.id.linearLayout) }
     private val nowPlayingBar by lazy { findViewById<NowPlayingBar>(R.id.nowPlayingBar) }
     private val chatPanes by lazy { findViewById<AdaptiveChatLayout>(R.id.chatPanes) }
+    private val settingsDetailPane by lazy { findViewById<FrameLayout>(R.id.settingsDetailPane) }
+    private val chatPane by lazy { findViewById<FrameLayout>(R.id.chatPane) }
+    private val settingsBack = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            val detail = supportFragmentManager.findFragmentByTag(SETTINGS_DETAIL_TAG)
+                as? SettingsActivity.SettingsPaneFragment
+            if (detail?.popSection() != true) closeSettingsDetail()
+        }
+    }
     private var chatArguments: Bundle? = null
     private var pendingChatArguments: Bundle? = null
     private var closingChat = false
@@ -98,9 +110,25 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
 
         chatArguments = savedInstanceState?.getBundle(STATE_CHAT_ARGUMENTS)
         chatPanes.chatOpen = chatArguments != null
+        val detailRestored = supportFragmentManager.findFragmentByTag(SETTINGS_DETAIL_TAG) != null
+        showSettingsDetailPane(detailRestored)
+        chatPanes.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            if (right - left != oldRight - oldLeft) {
+                ViewCompat.requestApplyInsets(frameLayout)
+                frameLayout.post(::updateMainPaneLifecycle)
+            }
+        }
 
         // Insets
         ViewCompat.setOnApplyWindowInsetsListener(frameLayout) { _, windowInsets ->
+            val navigation = windowInsets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val taskbar = windowInsets.getInsets(
+                WindowInsetsCompat.Type.tappableElement() or WindowInsetsCompat.Type.mandatorySystemGestures()
+            )
+            val bottom = if (chatPanes.isWideWindow &&
+                windowInsets.isVisible(WindowInsetsCompat.Type.navigationBars())
+            ) maxOf(navigation.bottom, taskbar.bottom) else 0
+            chatPanes.updatePadding(bottom = bottom)
             val insets = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
@@ -174,6 +202,7 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
     override fun onDestroy() {
         removeOnNewIntentListener(intentListener)
         if (closingChat) supportFragmentManager.findFragmentByTag(CHAT_HOST_TAG)?.view?.animate()?.cancel()
+        settingsBack.remove()
 
         super.onDestroy()
     }
@@ -188,6 +217,8 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
 
     override fun onPostResume() {
         super.onPostResume()
+        updateMainPaneLifecycle()
+        if (chatPanes.settingsDetailOpen) prioritizeSettingsBack()
         if (closeChatOnResume) {
             closeChatOnResume = false
             closeChat()
@@ -213,7 +244,9 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
         }
         navController.popBackStack(R.id.mainFragment, false)
         navHostFragment.childFragmentManager.executePendingTransactions()
-        (navHostFragment.childFragmentManager.primaryNavigationFragment as? MainFragment)?.showChats()
+        val main = navHostFragment.childFragmentManager.primaryNavigationFragment as? MainFragment
+        if (!chatPanes.isWideWindow || main?.isShowingSettings != true) main?.showChats()
+        closeSettingsDetail()
 
         val current = chatArguments
         if (current != null &&
@@ -233,9 +266,8 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
             if (chatPanes.isWideWindow) {
                 setCustomAnimations(R.animator.pane_content_enter, R.animator.pane_content_exit)
             }
-            // Visible lists still collect and accept taps at STARTED. Pausing them releases
-            // their forum/selection back handlers; the chat owns Back until it is closed.
-            setMaxLifecycle(navHostFragment, Lifecycle.State.STARTED)
+            // Keep the left pane interactive on wide screens and the phone's covered pane paused.
+            setMaxLifecycle(navHostFragment, if (chatPanes.isWideWindow) Lifecycle.State.RESUMED else Lifecycle.State.STARTED)
             replace(R.id.chatPane, host, CHAT_HOST_TAG)
             setPrimaryNavigationFragment(host)
         }
@@ -296,10 +328,74 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
         chatPanes.chatOpen = false
     }
 
+    internal val reservedNavigationBottom get() = chatPanes.paddingBottom
+
+    internal val canUseSettingsPanes get() = chatPanes.isWideWindow
+
+    internal fun openSettingsDetail(arguments: Bundle): Boolean {
+        if (!canUseSettingsPanes || supportFragmentManager.isStateSaved) return false
+        val current = supportFragmentManager.findFragmentByTag(SETTINGS_DETAIL_TAG)
+        val detail = SettingsActivity.SettingsPaneFragment().apply { this.arguments = Bundle(arguments) }
+        val chat = supportFragmentManager.findFragmentByTag(CHAT_HOST_TAG)
+        currentFocus?.let {
+            androidx.core.view.WindowCompat.getInsetsController(window, it).hide(WindowInsetsCompat.Type.ime())
+            it.clearFocus()
+        }
+        showSettingsDetailPane(true)
+        supportFragmentManager.commitNow {
+            setReorderingAllowed(true)
+            setCustomAnimations(R.animator.pane_content_enter, R.animator.pane_content_exit)
+            if (current != null) remove(current)
+            if (chat != null) setMaxLifecycle(chat, Lifecycle.State.STARTED)
+            add(R.id.settingsDetailPane, detail, SETTINGS_DETAIL_TAG)
+            setPrimaryNavigationFragment(detail)
+        }
+        prioritizeSettingsBack()
+        return true
+    }
+
+    internal fun closeSettingsDetail() {
+        val detail = supportFragmentManager.findFragmentByTag(SETTINGS_DETAIL_TAG) ?: return
+        if (supportFragmentManager.isStateSaved) return
+        val chat = supportFragmentManager.findFragmentByTag(CHAT_HOST_TAG)
+        showSettingsDetailPane(false)
+        supportFragmentManager.commitNow {
+            setReorderingAllowed(true)
+            remove(detail)
+            if (chat != null) setMaxLifecycle(chat, Lifecycle.State.RESUMED)
+            setPrimaryNavigationFragment(chat ?: navHostFragment)
+        }
+    }
+
+    private fun showSettingsDetailPane(open: Boolean) {
+        chatPanes.settingsDetailOpen = open
+        settingsDetailPane.isVisible = open
+        // Keep the chat view and its composer attached while the setting covers them.
+        chatPane.visibility = if (open) View.INVISIBLE else View.VISIBLE
+        if (!open) settingsBack.remove()
+    }
+
+    private fun prioritizeSettingsBack() {
+        settingsBack.remove()
+        settingsBack.isEnabled = true
+        onBackPressedDispatcher.addCallback(settingsBack)
+    }
+
+    private fun updateMainPaneLifecycle() {
+        if (isDestroyed || supportFragmentManager.isStateSaved ||
+            (!chatPanes.chatOpen && !chatPanes.settingsDetailOpen)
+        ) return
+        val covered = !chatPanes.isWideWindow
+        supportFragmentManager.commitNow {
+            setMaxLifecycle(navHostFragment, if (covered) Lifecycle.State.STARTED else Lifecycle.State.RESUMED)
+        }
+    }
+
     fun onMainSectionSelected(isChats: Boolean) {
         chatPanes.isChatListSelected = isChats
     }
 
+    internal val hasOpenChat get() = chatPanes.chatOpen
     val isAvatarChatPane get() = chatPanes.isAvatarOnly
     val isSplitChatLayout get() = chatPanes.isSplitChatLayout
     val isNavigationRailHidden get() = chatPanes.isNavigationRailHidden
@@ -445,6 +541,7 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
 
     companion object {
         private const val STATE_CHAT_ARGUMENTS = "open_chat_arguments"
+        private const val SETTINGS_DETAIL_TAG = "settings_detail_pane"
         private const val CHAT_HOST_TAG = "chat_pane_nav_host"
         private val LOG_TAG = MainActivity::class.simpleName!!
 

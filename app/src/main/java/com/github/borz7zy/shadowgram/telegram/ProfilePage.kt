@@ -81,6 +81,7 @@ class ProfilePage(
     private var giftLoadFailed = false
     private var nextMessageId = 0L
     private var nextStoryId = 0
+    private var pinnedStoryIds = emptySet<Int>()
     private var nextOffset = ""
     private val loadedGiftOffsets = HashSet<String>()
     private var nextMemberOffset = 0
@@ -167,8 +168,14 @@ class ProfilePage(
                 }
                 client.send(request).page { stories ->
                     val previous = nextStoryId
+                    if (kind == Kind.POSTS && previous == 0) pinnedStoryIds = stories.pinnedStoryIds.toSet()
                     nextStoryId = stories.stories.lastOrNull()?.id ?: 0
-                    stories.stories.map { "${it.id}" to it } to (nextStoryId == 0 || nextStoryId == previous)
+                    val ordered = if (kind == Kind.POSTS && previous == 0) {
+                        val byId = stories.stories.associateBy { it.id }
+                        stories.pinnedStoryIds.map { byId[it] }.filterNotNull() +
+                            stories.stories.filter { it.id !in pinnedStoryIds }
+                    } else stories.stories.toList()
+                    ordered.map { "${it.id}" to it } to (nextStoryId == 0 || nextStoryId == previous)
                 }
             }
 
@@ -271,17 +278,23 @@ class ProfilePage(
         val entries: List<Pair<String, TdApi.Object>>
         val isLoaded: Boolean
         val giftLoadFailed: Boolean
+        val pinned: Set<Int>
         synchronized(lock) {
             entries = this.entries.map { it.key to it.value }
             isLoaded = this.isLoaded
             giftLoadFailed = this.giftLoadFailed
+            pinned = pinnedStoryIds
         }
 
         // Senders take the chats store lock, never hold ours meanwhile
-        return Snapshot(entries.mapNotNull { (key, entry) -> entry.toItem(key) }, isLoaded, giftLoadFailed)
+        val items = entries.mapNotNull { (key, entry) -> entry.toItem(key, pinned) }
+        return Snapshot(
+            if (kind == Kind.GIFTS) items.sortedByDescending { it.isPinned } else items,
+            isLoaded, giftLoadFailed,
+        )
     }
 
-    private fun TdApi.Object.toItem(key: String): ProfileItem? = when (this) {
+    private fun TdApi.Object.toItem(key: String, pinned: Set<Int>): ProfileItem? = when (this) {
         is TdApi.Message -> toItem(key)
         is TdApi.Story -> when (val content = content) {
             is TdApi.StoryContentPhoto -> photoItem(key, content.photo)
@@ -291,13 +304,22 @@ class ProfilePage(
             }
 
             else -> ProfileItem(key)
-        }
+        }.copy(
+            isPinned = id in pinned,
+            profileAction = ProfileItem.ProfileAction.Story(id, canBeEdited, canToggleIsPostedToChatPage, isPostedToChatPage)
+                .takeIf { canBeEdited || canToggleIsPostedToChatPage },
+        )
 
         is TdApi.ReceivedGift -> when (val gift = gift) {
             is TdApi.SentGiftRegular -> stickerItem(key, gift.gift.sticker)
             is TdApi.SentGiftUpgraded -> stickerItem(key, gift.gift.model.sticker)
             else -> null
-        }
+        }?.copy(
+            isPinned = isPinned,
+            profileAction = receivedGiftId.takeIf { it.isNotEmpty() && !wasRefunded }?.let {
+                ProfileItem.ProfileAction.Gift(it, gift is TdApi.SentGiftUpgraded, isSaved)
+            },
+        )
 
         is TdApi.MessageSenderChat -> senderItem(key, this, null)
         is TdApi.ChatMember -> senderItem(

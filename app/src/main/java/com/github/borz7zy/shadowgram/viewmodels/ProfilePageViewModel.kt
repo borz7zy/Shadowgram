@@ -53,6 +53,13 @@ class ProfilePageViewModel(
     private data class PageKey(val kind: ProfilePage.Kind, val collectionId: Int)
 
     private val pages = HashMap<PageKey, Deferred<ProfilePage>>()
+    private val revision = MutableStateFlow(0)
+
+    fun refresh(contentRevision: Int) {
+        if (revision.value == contentRevision || kind.value !in MANAGED_PAGES) return
+        pages.clear()
+        revision.value = contentRevision
+    }
 
     private fun page(key: PageKey) = pages.getOrPut(key) {
         viewModelScope.async {
@@ -98,7 +105,7 @@ class ProfilePageViewModel(
     )
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val items = combine(kind, selectedGiftCollectionId, ::PageKey)
+    val items = combine(kind, selectedGiftCollectionId, revision) { kind, collection, _ -> PageKey(kind, collection) }
         .flatMapLatest { key ->
             flow { emitAll(page(key).await().snapshots()) }.map<_, FlowResult<Items, Nothing>> {
                 if (it.isLoaded || it.giftLoadFailed) {
@@ -126,6 +133,7 @@ class ProfilePageViewModel(
     companion object {
         const val ARG_CHAT_ID = "chat_id"
         const val ARG_KIND = "kind"
+        private val MANAGED_PAGES = setOf(ProfilePage.Kind.POSTS, ProfilePage.Kind.ARCHIVED_POSTS, ProfilePage.Kind.GIFTS)
         private const val ARG_GIFT_COLLECTION_ID = "gift_collection_id"
     }
 }

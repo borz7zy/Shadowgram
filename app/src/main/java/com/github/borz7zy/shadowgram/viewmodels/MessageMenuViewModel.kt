@@ -84,6 +84,7 @@ class MessageMenuViewModel(
         val areReactionsLoaded: Boolean = false,
         val properties: TdApi.MessageProperties? = null,
         val canEdit: Boolean = false,
+        val canAddProfileAudio: Boolean = false,
         /** The file "Save to Downloads" saves, null for none. */
         val saveable: Downloads.Saveable? = null,
         val topReactions: List<Reaction> = listOf(),
@@ -105,6 +106,7 @@ class MessageMenuViewModel(
                     isLoaded = true,
                     properties = properties,
                     canEdit = properties != null && message != null && MessageEdits.target(message, properties) != null,
+                    canAddProfileAudio = message?.content is TdApi.MessageAudio && properties?.canBeSaved == true,
                     saveable = message?.takeIf { properties?.canBeSaved == true }?.let(Downloads::saveableOf),
                 )
             }

@@ -20,6 +20,7 @@ import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import com.github.borz7zy.shadowgram.MainActivity
 import com.github.borz7zy.shadowgram.ui.UiPreferences
 import kotlinx.coroutines.launch
 
@@ -43,7 +44,7 @@ class KeyboardPanels(
     private val editText: EditText,
     private val onChanged: (Panel?) -> Unit,
 ) {
-    enum class Panel { STICKERS, GALLERY, ATTACH }
+    enum class Panel { STICKERS, ATTACH }
 
     private val context = fragment.requireContext().applicationContext
     private val keyboardHeightKey = "height_${fragment.resources.configuration.orientation}"
@@ -54,6 +55,8 @@ class KeyboardPanels(
 
     /** The keyboard is sliding, the composer follows it frame by frame. */
     private var isImeAnimating = false
+    private var appliedInsets: WindowInsetsCompat? = null
+    private var waitingForImeToHide = false
 
     var current: Panel? = null
         private set
@@ -67,13 +70,14 @@ class KeyboardPanels(
             val saved = UiPreferences.read(context, PREFERENCES) { it.getInt(keyboardHeightKey, 0) }
             if (keyboardHeight == null) {
                 keyboardHeight = saved
-                if (current != null) updatePanelHeight(ViewCompat.getRootWindowInsets(container))
+                if (current != null) updatePanelHeight(appliedInsets)
             }
         }
         fragment.requireActivity().onBackPressedDispatcher
             .addCallback(fragment.viewLifecycleOwner, backCallback)
 
         ViewCompat.setOnApplyWindowInsetsListener(container) { _, insets ->
+            appliedInsets = insets
             // While the keyboard slides the animation callback moves the composer
             if (!isImeAnimating) {
                 apply(insets)
@@ -95,7 +99,9 @@ class KeyboardPanels(
                     runningAnimations: List<WindowInsetsAnimationCompat>,
                 ): WindowInsetsCompat {
                     if (isImeAnimating) {
-                        apply(insets)
+                        val reserved = (fragment.activity as? MainActivity)
+                            ?.reservedNavigationBottom ?: 0
+                        apply(insets.inset(0, 0, 0, reserved))
                     }
                     return insets
                 }
@@ -103,7 +109,7 @@ class KeyboardPanels(
                 override fun onEnd(animation: WindowInsetsAnimationCompat) {
                     if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0) {
                         isImeAnimating = false
-                        ViewCompat.getRootWindowInsets(container)?.let(::apply)
+                        appliedInsets?.let(::apply)
                     }
                 }
             },
@@ -119,7 +125,7 @@ class KeyboardPanels(
     }
 
     fun show(target: Panel) {
-        val insets = ViewCompat.getRootWindowInsets(container)
+        val insets = appliedInsets
         updatePanelHeight(insets)
 
         // Typing goes back to the message, not a search field of another panel
@@ -130,7 +136,8 @@ class KeyboardPanels(
         backCallback.isEnabled = true
         onChanged(target)
 
-        // The keyboard slides out over the panel, the composer doesn't move
+        // Wait for the currently visible IME to hide before treating an IME as a new input request.
+        waitingForImeToHide = insets?.isVisible(WindowInsetsCompat.Type.ime()) == true
         WindowInsetsControllerCompat(fragment.requireActivity().window, editText)
             .hide(WindowInsetsCompat.Type.ime())
         insets?.let(::apply)
@@ -147,6 +154,7 @@ class KeyboardPanels(
 
     /** Bring the keyboard back, the panel goes once it's in. */
     fun showKeyboard() {
+        waitingForImeToHide = false
         editText.requestFocus()
         WindowInsetsControllerCompat(fragment.requireActivity().window, editText)
             .show(WindowInsetsCompat.Type.ime())
@@ -157,10 +165,11 @@ class KeyboardPanels(
             return
         }
         panel.isVisible = false
+        waitingForImeToHide = false
         current = null
         backCallback.isEnabled = false
         onChanged(null)
-        ViewCompat.getRootWindowInsets(container)?.let(::apply)
+        appliedInsets?.let(::apply)
     }
 
     private fun apply(insets: WindowInsetsCompat) {
@@ -170,7 +179,8 @@ class KeyboardPanels(
         // Typing in the panel (the GIF search): the panel stays, over the keyboard
         val isTypingInPanel = panel.findFocus() != null
 
-        if (isImeVisible && !isImeAnimating && ime.bottom > minHeight && !isTypingInPanel) {
+        if (!isImeVisible) waitingForImeToHide = false
+        if (isImeVisible && !waitingForImeToHide && !isImeAnimating && ime.bottom > minHeight && !isTypingInPanel) {
             if (keyboardHeight != ime.bottom) {
                 keyboardHeight = ime.bottom
                 val height = ime.bottom

@@ -76,6 +76,7 @@ class MessageMenuDialogFragment : DialogFragment() {
     private val copyMaterialButton by getViewProperty<MaterialButton>(R.id.copyMaterialButton)
     private val deleteMaterialButton by getViewProperty<MaterialButton>(R.id.deleteMaterialButton)
     private val sendNowMaterialButton by getViewProperty<MaterialButton>(R.id.sendNowMaterialButton)
+    private val profileAudioMaterialButton by getViewProperty<MaterialButton>(R.id.profileAudioMaterialButton)
     private val pinMaterialButton by getViewProperty<MaterialButton>(R.id.pinMaterialButton)
     private val forwardMaterialButton by getViewProperty<MaterialButton>(R.id.forwardMaterialButton)
     private val expandMaterialButton by getViewProperty<MaterialButton>(R.id.expandMaterialButton)
@@ -173,6 +174,7 @@ class MessageMenuDialogFragment : DialogFragment() {
             }
         }
         sendNowMaterialButton.setOnClickListener { close(bundleOf(KEY_ACTION to ACTION_SEND_NOW)) }
+        profileAudioMaterialButton.setOnClickListener { close(bundleOf(KEY_ACTION to ACTION_PROFILE_AUDIO)) }
         pinMaterialButton.setOnClickListener { close(bundleOf(KEY_ACTION to ACTION_PIN)) }
         forwardMaterialButton.setOnClickListener { close(bundleOf(KEY_ACTION to ACTION_FORWARD)) }
         saveMaterialButton.setOnClickListener {
@@ -237,6 +239,7 @@ class MessageMenuDialogFragment : DialogFragment() {
         copyLinkMaterialButton.isVisible = properties?.canGetLink == true
         forwardMaterialButton.isVisible = properties?.canBeForwarded == true
         val isPinned = requireArguments().getBoolean(ARG_IS_PINNED)
+        profileAudioMaterialButton.isVisible = !isScheduled && state.canAddProfileAudio
         pinMaterialButton.isVisible = !isScheduled && properties?.canBePinned == true
         pinMaterialButton.setText(if (isPinned) R.string.message_unpin else R.string.message_pin)
         saveMaterialButton.isVisible = state.saveable != null
@@ -245,7 +248,7 @@ class MessageMenuDialogFragment : DialogFragment() {
         actionsLinearLayout.isVisible = !isExpanded && (sendNowMaterialButton.isVisible
                 || replyMaterialButton.isVisible || editMaterialButton.isVisible || copyMaterialButton.isVisible
                 || copyLinkMaterialButton.isVisible || forwardMaterialButton.isVisible
-                || pinMaterialButton.isVisible
+                || pinMaterialButton.isVisible || profileAudioMaterialButton.isVisible
                 || saveMaterialButton.isVisible
                 || deleteMaterialButton.isVisible)
 
@@ -599,6 +602,7 @@ class MessageMenuDialogFragment : DialogFragment() {
         const val ACTION_FORWARD = "forward"
         const val ACTION_SEND_NOW = "send_now"
         const val ACTION_QUOTE = "quote"
+        const val ACTION_PROFILE_AUDIO = "profile_audio"
         const val ACTION_PIN = "pin"
         const val KEY_QUOTE = "quote"
         const val KEY_QUOTE_POSITION = "quote_position"

@@ -48,6 +48,7 @@ import com.github.borz7zy.shadowgram.ProfileActivity
 import com.github.borz7zy.shadowgram.SettingsActivity
 import com.github.borz7zy.shadowgram.calls.CallActivity
 import com.github.borz7zy.shadowgram.models.Result
+import com.github.borz7zy.shadowgram.playback.MessagePlayer
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.navigateSafe
 import com.github.borz7zy.shadowgram.ext.navigateBackInPane
@@ -63,6 +64,7 @@ import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.MaterialColors
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
 import kotlinx.coroutines.Dispatchers
@@ -91,6 +93,7 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
     private val appBarLayout by getViewProperty<AppBarLayout>(R.id.appBarLayout)
     private val avatarView by getViewProperty<AvatarView>(R.id.avatarView)
     private val callLinearLayout by getViewProperty<LinearLayout>(R.id.callLinearLayout)
+    private val profileMusic by getViewProperty<MaterialButton>(R.id.profileMusic)
     private val infoCardView by getViewProperty<MaterialCardView>(R.id.infoCardView)
     private val messageMaterialButton by getViewProperty<MaterialButton>(R.id.messageMaterialButton)
     private val muteMaterialButton by getViewProperty<MaterialButton>(R.id.muteMaterialButton)
@@ -118,6 +121,16 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
     private val channelValue by getViewProperty<TextView>(R.id.profilePersonalChannelValue)
 
     private var tabMediator: TabLayoutMediator? = null
+
+    private val pickProfileAudio = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewLifecycleOwner.lifecycleScope.launch {
+            when (val result = viewModel.addProfileAudio(uri)) {
+                is Result.Success -> showProfileMusic()
+                is Result.Failure -> showError(result.error.message)
+                null -> showError(getString(R.string.profile_music_invalid))
+            }
+        }
+    }
 
     private val pickPhoto = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewLifecycleOwner.lifecycleScope.launch {
@@ -152,6 +165,19 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
             sharedElementEnterTransition = inflater.inflateTransition(android.R.transition.move)
             sharedElementReturnTransition = inflater.inflateTransition(android.R.transition.move)
             handleBackWhileOpening()
+        }
+
+        view.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            if (right - left != oldRight - oldLeft) {
+                val density = resources.displayMetrics.density
+                val paneWidthDp = (right - left) / density
+                val avatarDp = (paneWidthDp * .29f).coerceIn(76f, 128f)
+                val size = (avatarDp * density).toInt()
+                if (avatarView.layoutParams.width != size) avatarView.updateLayoutParams {
+                    width = size
+                    height = size
+                }
+            }
         }
 
         // Insets: the header scrolls away under the status bar
@@ -198,6 +224,7 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         }
 
         avatarView.setOnClickListener { openPhotos() }
+        profileMusic.setOnClickListener { showProfileMusic() }
         val viewerManager = if (viewModel.isOwnTab) requireParentFragment().parentFragmentManager
             else parentFragmentManager
         viewerManager.setFragmentResultListener(
@@ -228,7 +255,8 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                 )
                 R.id.profile_edit -> ProfileEditorDialog.show(this, ProfileEditorDialog.Page.OVERVIEW)
-                R.id.profile_settings -> startActivity(Intent(requireContext(), SettingsActivity::class.java))
+                R.id.profile_settings -> (parentFragment as? MainFragment)?.showSettings()
+                    ?: startActivity(Intent(requireContext(), SettingsActivity::class.java))
                 R.id.profile_edit_color -> ProfileEditorDialog.show(this, ProfileEditorDialog.Page.COLOR)
                 R.id.profile_edit_username -> ProfileEditorDialog.show(this, ProfileEditorDialog.Page.USERNAME)
                 R.id.profile_copy_link -> copyLink()
@@ -434,6 +462,10 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
             bindCoverColors()
         }
 
+        profileMusic.isVisible = own || info.firstProfileAudio != null
+        profileMusic.text = info.firstProfileAudio?.let(::profileAudioLabel)
+            ?: getString(R.string.profile_music)
+
         phoneLinearLayout.isVisible = info.phoneNumber != null
         phoneTextView.text = info.phoneNumber?.let {
             PhoneNumberUtils.formatNumber("+$it", null) ?: "+$it"
@@ -462,8 +494,71 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         ).any { it.isVisible }
     }
 
+    private fun profileAudioLabel(audio: TdApi.Audio): String =
+        listOf(audio.performer, audio.title.ifBlank { audio.fileName })
+            .filter(String::isNotBlank).joinToString(" · ").ifBlank { getString(R.string.profile_music) }
+
+    private fun showProfileMusic() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val tracks = when (val result = viewModel.profileAudios()) {
+                is Result.Success -> result.data
+                is Result.Failure -> {
+                    showError(result.error.message)
+                    return@launch
+                }
+            }
+            if (!isResumed || isHidden) return@launch
+            val own = viewModel.info.value?.ownUser != null
+            val dialog = MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.profile_music)
+                .setNegativeButton(android.R.string.cancel, null)
+            if (tracks.isEmpty()) dialog.setMessage(R.string.profile_music_empty)
+            else dialog.setItems(tracks.map(::profileAudioLabel).toTypedArray()) { _, index ->
+                val track = tracks[index]
+                if (own) showProfileAudioActions(track, index == 0)
+                else MessagePlayer.playProfileAudio(viewModel.chatId, track)
+            }
+            if (own) dialog.setPositiveButton(R.string.profile_music_add) { _, _ ->
+                pickProfileAudio.launch(arrayOf("audio/*"))
+            }
+            dialog.show()
+        }
+    }
+
+    private fun showProfileAudioActions(audio: TdApi.Audio, isFirst: Boolean) {
+        val actions = buildList {
+            add(R.string.profile_music_play)
+            if (!isFirst) add(R.string.profile_music_make_first)
+            add(R.string.profile_music_remove)
+        }
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(profileAudioLabel(audio))
+            .setItems(actions.map(::getString).toTypedArray()) { _, index ->
+                when (actions[index]) {
+                    R.string.profile_music_play -> MessagePlayer.playProfileAudio(viewModel.chatId, audio)
+                    R.string.profile_music_make_first -> changeProfileAudio(TdApi.SetProfileAudioPosition(audio.audio.id, 0))
+                    R.string.profile_music_remove -> changeProfileAudio(TdApi.RemoveProfileAudio(audio.audio.id))
+                }
+            }
+            .show()
+    }
+
+    private fun changeProfileAudio(action: TdApi.Function<TdApi.Ok>) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            when (val result = viewModel.request(action)) {
+                is Result.Success -> showProfileMusic()
+                is Result.Failure -> showError(result.error.message)
+            }
+        }
+    }
+
     private fun setTabs(tabs: List<ProfilePage.Kind>) {
         tabLayout.isVisible = tabs.isNotEmpty()
+        if (viewModel.isOwnTab) {
+            // Three fixed targets keep Gifts reachable on the narrow pane.
+            tabLayout.tabMode = TabLayout.MODE_FIXED
+            tabLayout.tabGravity = TabLayout.GRAVITY_FILL
+        }
         if (tabs.isEmpty() || viewPager2.adapter != null) return
         viewPager2.adapter = object : FragmentStateAdapter(this) {
             override fun getItemCount() = tabs.size
@@ -505,7 +600,8 @@ class ProfileFragment : Fragment(R.layout.fragment_profile) {
         get() = when (this) {
             ProfilePage.Kind.MEMBERS -> R.string.profile_tab_members
             ProfilePage.Kind.POSTS -> R.string.profile_tab_posts
-            ProfilePage.Kind.ARCHIVED_POSTS -> R.string.profile_tab_archived_posts
+            ProfilePage.Kind.ARCHIVED_POSTS -> if (viewModel.isOwnTab) R.string.profile_archive_short
+                else R.string.profile_tab_archived_posts
             ProfilePage.Kind.SAVED -> R.string.profile_tab_saved
             ProfilePage.Kind.GIFTS -> R.string.profile_tab_gifts
             ProfilePage.Kind.MEDIA -> R.string.profile_tab_media

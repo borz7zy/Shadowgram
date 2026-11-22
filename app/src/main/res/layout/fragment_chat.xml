@@ -501,16 +501,17 @@
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/videoNoteMaterialButton"
                         style="?attr/materialIconButtonFilledTonalStyle"
-                        android:layout_width="56dp"
-                        android:layout_height="56dp"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
                         android:layout_marginStart="8dp"
-                        android:contentDescription="@string/chat_video_note"
+                        android:contentDescription="@string/chat_voice_note"
                         android:insetTop="0dp"
                         android:insetBottom="0dp"
                         android:textAlignment="center"
-                        android:tooltipText="@string/chat_video_note"
-                        app:icon="@drawable/ic_videocam"
-                        app:iconGravity="textStart" />
+                        android:tooltipText="@string/chat_voice_note"
+                        app:icon="@drawable/ic_mic"
+                        app:iconGravity="textStart"
+                        app:cornerRadius="24dp" />
 
                 </LinearLayout>
 
@@ -527,15 +528,24 @@
                         android:layout_width="match_parent"
                         android:layout_height="match_parent" />
 
-                    <com.github.borz7zy.shadowgram.ui.composer.GalleryPanelView
-                        android:id="@+id/galleryPanelView"
+                    <LinearLayout
+                        android:id="@+id/attachmentPanel"
                         android:layout_width="match_parent"
-                        android:layout_height="match_parent" />
+                        android:layout_height="match_parent"
+                        android:orientation="vertical">
 
-                    <com.github.borz7zy.shadowgram.ui.composer.AttachPanelView
-                        android:id="@+id/attachPanelView"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content" />
+                        <com.github.borz7zy.shadowgram.ui.composer.GalleryPanelView
+                            android:id="@+id/galleryPanelView"
+                            android:layout_width="match_parent"
+                            android:layout_height="0dp"
+                            android:layout_weight="1" />
+
+                        <com.github.borz7zy.shadowgram.ui.composer.AttachPanelView
+                            android:id="@+id/attachPanelView"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content" />
+
+                    </LinearLayout>
 
                 </com.github.borz7zy.shadowgram.ui.views.TopRoundedLayout>
 

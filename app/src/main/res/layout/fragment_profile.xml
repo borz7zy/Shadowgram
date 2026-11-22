@@ -46,8 +46,8 @@
 
                 <com.github.borz7zy.shadowgram.ui.views.AvatarView
                     android:id="@+id/avatarView"
-                    android:layout_width="160dp"
-                    android:layout_height="160dp"
+                    android:layout_width="112dp"
+                    android:layout_height="112dp"
                     android:layout_marginTop="16dp"
                     android:transitionName="@string/transition_profile_avatar" />
 
@@ -56,7 +56,7 @@
                     android:id="@+id/titleLinearLayout"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
+                    android:layout_marginTop="12dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
@@ -68,7 +68,7 @@
                         android:ellipsize="end"
                         android:gravity="center"
                         android:maxLines="2"
-                        android:textAppearance="?attr/textAppearanceDisplaySmall"
+                        android:textAppearance="?attr/textAppearanceHeadlineSmall"
                         android:textColor="?attr/colorOnSurface"
                         tools:text="Shadowgram" />
 
@@ -93,6 +93,20 @@
                     tools:text="online"
                     tools:visibility="visible" />
 
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/profileMusic"
+                    style="?attr/materialButtonTonalStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="@string/profile_music"
+                    android:textAllCaps="false"
+                    android:visibility="gone"
+                    app:icon="@drawable/ic_music_note"
+                    app:iconGravity="textStart" />
+
                 <!-- Slides in with the tabs, in place of the messages and the composer -->
                 <LinearLayout
                     android:id="@+id/profileDetailsLinearLayout"
@@ -105,7 +119,7 @@
                         android:id="@+id/profileActions"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="24dp"
+                        android:layout_marginTop="12dp"
                         android:visibility="gone"
                         tools:visibility="visible"
                         android:orientation="horizontal">
@@ -166,10 +180,10 @@
                         style="?attr/materialCardViewFilledStyle"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="24dp"
+                        android:layout_marginTop="12dp"
                         android:visibility="gone"
                         app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
-                        app:cardCornerRadius="28dp"
+                        app:cardCornerRadius="20dp"
                         tools:visibility="visible">
 
                         <LinearLayout
@@ -342,7 +356,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="?attr/colorSurface"
-            app:tabMode="scrollable" />
+            app:tabGravity="start"
+            app:tabMode="scrollable"
+            app:tabPaddingStart="12dp"
+            app:tabPaddingEnd="12dp" />
 
         <!-- The voice or video message playing -->
         <com.github.borz7zy.shadowgram.ui.views.PlaybackBarView

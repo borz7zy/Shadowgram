@@ -109,6 +109,16 @@ class MainFragment : Fragment(R.layout.fragment_main) {
     private var selectedPage = Page.ACTIVITY
     private var sectionHost: MainSectionHost? = null
 
+    internal val isShowingSettings get() = selectedPage == Page.SETTINGS
+
+    internal fun showSettings() {
+        if (hasNavigationRail && (activity as? MainActivity)?.canUseSettingsPanes == true) {
+            showSection(Page.SETTINGS)
+        } else {
+            startActivity(Intent(requireContext(), SettingsActivity::class.java))
+        }
+    }
+
     fun showChats() {
         showSection(Page.ACTIVITY)
     }
@@ -138,6 +148,13 @@ class MainFragment : Fragment(R.layout.fragment_main) {
             R.id.fabMenuAppBarScrimView,
             R.id.fabMenuNavigationBarScrimView,
         ).map { requireView().findViewById<View>(it) }
+
+    private val settingsOnBackPressedCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            val pane = childFragmentManager.primaryNavigationFragment as? SettingsActivity.SettingsPaneFragment
+            if (pane?.popSection() != true) showChats()
+        }
+    }
 
     private val fabMenuOnBackPressedCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
@@ -411,8 +428,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         }
 
         settingsMaterialButton.setOnClickListener {
-            val intent = Intent(context, SettingsActivity::class.java)
-            startActivity(intent)
+            showSettings()
         }
 
         // New chat menu
@@ -467,14 +483,22 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         }
         sectionHost = MainSectionHost(childFragmentManager, R.id.mainSectionContainer)
 
+        if (hasNavigationRail || selectedPage == Page.SETTINGS) {
+            navigationBarView.menu.add(0, R.id.mainSettingsSection, 2, R.string.title_activity_settings)
+                .setIcon(R.drawable.ic_settings)
+        }
         navigationBarView.setOnItemSelectedListener { item ->
             if (synchronizingNavigation) return@setOnItemSelectedListener true
             setFabMenuOpen(false)
 
             val page = Page.entries.firstOrNull { it.menuItemId == item.itemId }
+            if (page == Page.ACTIVITY || page == Page.CONTACTS) {
+                (activity as? MainActivity)?.closeSettingsDetail()
+            }
             page != null && showSection(page)
         }
         showSection(selectedPage)
+        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, settingsOnBackPressedCallback)
 
         // Search
         searchRecyclerView.adapter = searchAdapter
@@ -502,6 +526,9 @@ class MainFragment : Fragment(R.layout.fragment_main) {
                 }
                 launch {
                     chatsViewModel.selectedFolderId.collectLatest { renderFolderRail() }
+                }
+                launch {
+                    chatsViewModel.folderUnread.collectLatest { renderFolderRail() }
                 }
                 launch { chatsViewModel.chatSelection.collectLatest { renderChatSelection() } }
 
@@ -639,23 +666,28 @@ class MainFragment : Fragment(R.layout.fragment_main) {
 
     private fun updateCompactPane(insets: WindowInsetsCompat? = ViewCompat.getRootWindowInsets(requireView())) {
         val content = requireView().findViewById<View>(R.id.contentCoordinatorLayout)
-        val compact = (activity as? MainActivity)?.isAvatarChatPane == true
-        val hidden = compact && (activity as? MainActivity)?.isNavigationRailHidden == true
+        val main = activity as? MainActivity
+        val compact = main?.isAvatarChatPane == true
+        settingsOnBackPressedCallback.isEnabled = selectedPage == Page.SETTINGS && main?.hasOpenChat != true
+        val hidden = compact && main?.isNavigationRailHidden == true
         val selecting = selectedPage == Page.ACTIVITY && chatsViewModel.chatSelection.value != null
-        val profile = selectedPage == Page.PROFILE
-        requireView().findViewById<View>(R.id.appBarLayout).isVisible = !profile && (!compact || selecting)
-        fabMenuFloatingActionButton.isVisible = !profile && !compact && !selecting
-        if ((profile || compact) && isFabMenuOpen) setFabMenuOpen(false)
+        val hasOwnHeader = selectedPage == Page.PROFILE || selectedPage == Page.SETTINGS
+        requireView().findViewById<View>(R.id.appBarLayout).isVisible = !hasOwnHeader && (!compact || selecting)
+        fabMenuFloatingActionButton.isVisible = !hasOwnHeader && !compact && !selecting
+        if ((hasOwnHeader || compact) && isFabMenuOpen) setFabMenuOpen(false)
         val rail = requireView().findViewById<View>(R.id.navigationRailContainer)
         val header = requireView().findViewById<View>(R.id.compactNavigationHeader)
         if (rail != null && header != null) {
             rail.isVisible = !hidden
             header.isVisible = hidden
             requireView().findViewById<View>(R.id.hideNavigationRailButton).isVisible = compact
-            requireView().findViewById<View>(R.id.foldersRailScrollView).isVisible = compact
-            requireView().findViewById<View>(R.id.foldersRailDivider).isVisible = compact
-            val targetHeight = if (compact) ViewGroup.LayoutParams.WRAP_CONTENT else 0
-            val targetWeight = if (compact) 0f else 1f
+            val showFolders = selectedPage == Page.ACTIVITY && !hidden &&
+                chatsViewModel.folders.value.size > 1
+            requireView().findViewById<View>(R.id.foldersRailScrollView).isVisible = showFolders
+            requireView().findViewById<View>(R.id.foldersRailDivider).isVisible = showFolders
+            val targetHeight = if (showFolders || compact) ViewGroup.LayoutParams.WRAP_CONTENT else 0
+            val targetWeight = if (showFolders || compact) 0f else 1f
+            (childFragmentManager.primaryNavigationFragment as? ChatsFragment)?.updateFolderRail(showFolders)
             val navParams = navigationBarView.layoutParams as LinearLayout.LayoutParams
             if (navParams.height != targetHeight || navParams.weight != targetWeight) {
                 navigationBarView.updateLayoutParams<LinearLayout.LayoutParams> {
@@ -756,7 +788,9 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         view?.findViewById<ChatFolderRailView>(R.id.chatFolderRailView)?.submit(
             folders, selected.takeIf { id -> folders.any { it.key.stableId == id } }
                 ?: folders.firstOrNull()?.key?.stableId ?: ChatListKey.Main.stableId,
+            chatsViewModel.folderUnread.value,
         )
+        view?.let { updateCompactPane() }
     }
 
     private fun setFabMenuOpen(open: Boolean) {
@@ -813,6 +847,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         ACTIVITY(R.id.activityFragment, ::ChatsFragment),
         CONTACTS(R.id.contactsFragment, ::ContactsFragment),
         PROFILE(R.id.libraryFragment, ProfileFragment::createOwnProfile),
+        SETTINGS(R.id.mainSettingsSection, { SettingsActivity.SettingsPaneFragment() }),
     }
 
     companion object {

@@ -35,7 +35,15 @@ data class ProfileItem(
     val chatId: Long = 0L,
     val track: MessagePlayer.Track? = null,
     val document: MessageItem.Document? = null,
+    val isPinned: Boolean = false,
+    val profileAction: ProfileAction? = null,
 ) : UniqueItem<ProfileItem> {
+    sealed interface ProfileAction {
+        data class Story(val id: Int, val canPin: Boolean, val canChangeVisibility: Boolean, val posted: Boolean) :
+            ProfileAction
+        data class Gift(val id: String, val upgraded: Boolean, val saved: Boolean) : ProfileAction
+    }
+
     override fun areItemsTheSame(other: ProfileItem) = key == other.key
 
     override fun areContentsTheSame(other: ProfileItem) = this == other

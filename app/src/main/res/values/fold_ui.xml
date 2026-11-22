@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="mainSettingsSection" type="id" />
+    <plurals name="folder_unread_chats">
+        <item quantity="one">%d unread chat</item>
+        <item quantity="other">%d unread chats</item>
+    </plurals>
+    <string name="gallery_browse">Open photo picker</string>
+    <string name="gallery_recent">Recent photos and videos</string>
+    <string name="gallery_empty">No photos or videos in this album</string>
+    <string name="gallery_permission_hint">Allow access to show photos and videos here, or use the photo picker.</string>
+    <string name="chat_voice_note">Voice message</string>
+    <string name="chat_record_mode">%s. Tap to switch, hold to record</string>
+    <string name="voice_note_failed">Could not record a voice message</string>
+    <string name="profile_music">Profile music</string>
+    <string name="profile_music_add">Add track</string>
+    <string name="profile_music_empty">No tracks yet</string>
+    <string name="profile_music_play">Play</string>
+    <string name="profile_music_make_first">Move to the top</string>
+    <string name="profile_music_remove">Remove from profile</string>
+    <string name="profile_music_invalid">Could not read this audio file</string>
+    <string name="profile_hide_item">Hide from profile</string>
+    <string name="profile_show_item">Show on profile</string>
+    <string name="profile_pinned_item">Pinned</string>
+    <string name="profile_archive_short">Archive</string>
+    <string name="attachment_camera_unavailable">Could not open the camera</string>
+    <string name="message_add_profile_audio">Add to profile music</string>
+    <string name="profile_music_added">Track added to your profile</string>
+</resources>

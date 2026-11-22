@@ -7,7 +7,9 @@ package com.github.borz7zy.shadowgram.fragments
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -39,6 +41,7 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.graphics.withTranslation
 import androidx.core.location.LocationManagerCompat
@@ -82,6 +85,7 @@ import com.github.borz7zy.shadowgram.models.ContactItem
 import com.github.borz7zy.shadowgram.models.FlowResult
 import com.github.borz7zy.shadowgram.models.MessageItem
 import com.github.borz7zy.shadowgram.models.MessageRow
+import com.github.borz7zy.shadowgram.models.Result
 import com.github.borz7zy.shadowgram.playback.MessagePlayer
 import com.github.borz7zy.shadowgram.telegram.Downloads
 import com.github.borz7zy.shadowgram.telegram.InputContents
@@ -110,6 +114,7 @@ import com.github.borz7zy.shadowgram.ui.views.PinnedIndicatorView
 import com.github.borz7zy.shadowgram.ui.views.TopRoundedLayout
 import com.github.borz7zy.shadowgram.videonote.VideoNoteCamera
 import com.github.borz7zy.shadowgram.videonote.VideoNoteDialogFragment
+import com.github.borz7zy.shadowgram.voicenote.VoiceNoteDialogFragment
 import com.github.borz7zy.shadowgram.viewmodels.ChatViewModel
 import com.github.borz7zy.shadowgram.viewmodels.MessageMenuViewModel
 import com.github.borz7zy.shadowgram.viewmodels.PhotoViewerViewModel
@@ -194,6 +199,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private val panelCardView by getViewProperty<TopRoundedLayout>(R.id.panelCardView)
     private val stickerKeyboardView by getViewProperty<StickerKeyboardView>(R.id.stickerKeyboardView)
     private val galleryPanelView by getViewProperty<GalleryPanelView>(R.id.galleryPanelView)
+    private val attachmentPanel by getViewProperty<View>(R.id.attachmentPanel)
     private val attachPanelView by getViewProperty<AttachPanelView>(R.id.attachPanelView)
     private val attachmentStripView by getViewProperty<AttachmentStripView>(R.id.attachmentStripView)
 
@@ -204,6 +210,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private var isCollectingStickers = false
     private var composerBound = false
     private var renderedEdit: ChatViewModel.Edit? = null
+    private var cameraOutputJob: Job? = null
 
     /**
      * Redraws emoji whose sprite just loaded; Emoji keeps it weakly. Every text of the rows, not
@@ -219,11 +226,21 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     // Pickers and permissions
     private val pickMedia = registerForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia()
-    ) { uris -> attach(uris, asFiles = false) }
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            attach(uris, asFiles = false)
+            panels?.hide()
+        }
+    }
 
     private val pickFiles = registerForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
-    ) { uris -> attach(uris, asFiles = true) }
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            attach(uris, asFiles = true)
+            panels?.hide()
+        }
+    }
 
     private val pickEditMedia = registerForActivityResult(
         ActivityResultContracts.PickVisualMedia()
@@ -242,6 +259,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             val (uri, editId) = photo
             if (editId == null) attach(listOf(uri), asFiles = false)
             else viewModel.replaceEditedAttachment(editId, InputContents.Picked(uri, asFile = false))
+            panels?.hide()
         }
     }
 
@@ -253,9 +271,9 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { galleryPanelView.reload() }
 
-    private val cameraPermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { galleryPanelView.reload() }
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        if (it && view != null) launchAttachmentCamera()
+    }
 
     private val locationPermission = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -444,8 +462,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             panelCardView,
             mapOf(
                 KeyboardPanels.Panel.STICKERS to stickerKeyboardView,
-                KeyboardPanels.Panel.GALLERY to galleryPanelView,
-                KeyboardPanels.Panel.ATTACH to attachPanelView,
+                KeyboardPanels.Panel.ATTACH to attachmentPanel,
             ),
             messageEditText,
             ::onPanelChanged,
@@ -551,13 +568,24 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             viewModel.composerText.value = if (viewModel.edit.value == null) it?.toString().orEmpty() else ""
         }
 
-        // CameraX and both cameras' capabilities, so the recorder opens at once
-        VideoNoteCamera.prewarm(requireContext())
-
+        updateRecordMode()
         videoNoteMaterialButton.setOnClickListener {
-            findNavController().navigateSafe(
-                R.id.action_chatFragment_to_videoNoteDialogFragment, requireArguments()
-            )
+            viewModel.isVideoRecordMode = !viewModel.isVideoRecordMode
+            if (viewModel.isVideoRecordMode) VideoNoteCamera.prewarm(requireContext())
+            updateRecordMode()
+        }
+        videoNoteMaterialButton.setOnLongClickListener {
+            panels?.hide()
+            if (viewModel.isVideoRecordMode) {
+                findNavController().navigateSafe(
+                    R.id.action_chatFragment_to_videoNoteDialogFragment, requireArguments()
+                )
+            } else if (!parentFragmentManager.isStateSaved &&
+                parentFragmentManager.findFragmentByTag(VoiceNoteDialogFragment.REQUEST_KEY) == null
+            ) {
+                VoiceNoteDialogFragment().showNow(parentFragmentManager, VoiceNoteDialogFragment.REQUEST_KEY)
+            }
+            true
         }
 
         setFragmentResultListener(PhotoViewerDialogFragment.REQUEST_KEY_SHOWN) { _, bundle ->
@@ -581,6 +609,16 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         }
         cancelReplyMaterialButton.setOnClickListener {
             if (viewModel.edit.value != null) viewModel.cancelEditing() else viewModel.setReply(null)
+        }
+
+        setFragmentResultListener(VoiceNoteDialogFragment.REQUEST_KEY) { _, bundle ->
+            bundle.getString(VoiceNoteDialogFragment.KEY_PATH)?.let {
+                viewModel.sendVoiceNote(
+                    File(it), bundle.getInt(VoiceNoteDialogFragment.KEY_DURATION),
+                    bundle.getByteArray(VoiceNoteDialogFragment.KEY_WAVEFORM) ?: byteArrayOf(),
+                )
+                recyclerView.scrollToPosition(0)
+            }
         }
 
         setFragmentResultListener(VideoNoteDialogFragment.REQUEST_KEY) { _, bundle ->
@@ -759,7 +797,9 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             sendMaterialButton.tooltipText = sendMaterialButton.contentDescription
             scheduledMaterialButton.isVisible = !editing && viewModel.header.value?.chat?.hasScheduledMessages == true
             galleryPanelView.singleSelection = editing
-            attachPanelView.showActions(edit?.let(::editAttachmentActions) ?: AttachPanelView.Action.entries.toSet())
+            val actions = edit?.let(::editAttachmentActions) ?: AttachPanelView.Action.entries.toSet()
+            attachPanelView.showActions(actions)
+            galleryPanelView.isVisible = AttachPanelView.Action.GALLERY in actions
             attachMaterialButton.contentDescription = getString(
                 if (editing) R.string.message_replace_attachment else R.string.chat_attach
             )
@@ -876,11 +916,14 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     }
 
     private fun setUpComposer() {
-        // The gallery opens from the attachments, the button closes either
+        // Open the gallery with the other attachment sources in the same panel.
         attachMaterialButton.setOnClickListener {
             val panels = panels ?: return@setOnClickListener
-            when (panels.current) {
-                KeyboardPanels.Panel.ATTACH, KeyboardPanels.Panel.GALLERY -> panels.showKeyboard()
+            val edit = viewModel.edit.value
+            when {
+                panels.current == KeyboardPanels.Panel.ATTACH -> panels.hide()
+                edit != null && editAttachmentActions(edit) == setOf(AttachPanelView.Action.FILES) ->
+                    openAttachmentFiles()
                 else -> panels.show(KeyboardPanels.Panel.ATTACH)
             }
         }
@@ -954,10 +997,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             override fun onRequestMediaPermission() =
                 mediaPermission.launch(GalleryPanelView.mediaPermissions())
 
-            override fun onRequestCameraPermission() =
-                cameraPermission.launch(Manifest.permission.CAMERA)
-
-            override fun onFolders() {
+            override fun onBrowse() {
                 val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
                 val edit = viewModel.edit.value
                 if (edit == null) {
@@ -967,8 +1007,6 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                     pickEditMedia.launch(request)
                 }
             }
-
-            override fun onPhotoTaken(file: File) = attachFromGallery(listOf(Uri.fromFile(file)))
 
             override fun onConfirm(selection: List<Uri>) {
                 attachFromGallery(selection)
@@ -985,40 +1023,17 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         attachmentStripView.onGroupedChanged = { viewModel.isGrouped = it }
         updateSendButton()
 
-        var cameraOutputJob: Job? = null
         attachPanelView.onAction = actionListener@ { action ->
             val edit = viewModel.edit.value
             if (edit != null && (edit.isSaving || action !in editAttachmentActions(edit))) {
                 return@actionListener
             }
             when (action) {
-                AttachPanelView.Action.GALLERY -> panels?.show(KeyboardPanels.Panel.GALLERY)
+                AttachPanelView.Action.GALLERY -> galleryPanelView.showAlbums()
 
-                AttachPanelView.Action.CAMERA -> {
-                    if (cameraOutputJob?.isActive != true) {
-                        val context = requireContext().applicationContext
-                        cameraOutputJob = viewLifecycleOwner.lifecycleScope.launch {
-                            val uri = withContext(Dispatchers.IO) {
-                                val directory = File(context.cacheDir, "outgoing/${System.nanoTime()}")
-                                    .apply { mkdirs() }
-                                FileProvider.getUriForFile(
-                                    context, "${context.packageName}.files", File(directory, "photo.jpg")
-                                )
-                            }
-                            viewModel.pendingPhoto = uri to edit?.target?.message?.id
-                            takePhoto.launch(uri)
-                        }
-                    }
-                }
+                AttachPanelView.Action.CAMERA -> launchAttachmentCamera()
 
-                AttachPanelView.Action.FILES -> {
-                    if (edit == null) {
-                        pickFiles.launch(arrayOf("*/*"))
-                    } else {
-                        viewModel.editPickerMessageId = edit.target.message.id
-                        pickEditFile.launch(arrayOf(if (edit.target.isAudioAlbum) "audio/*" else "*/*"))
-                    }
-                }
+                AttachPanelView.Action.FILES -> openAttachmentFiles()
 
                 AttachPanelView.Action.LOCATION -> locationPermission.launch(
                     arrayOf(
@@ -1034,6 +1049,48 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         }
     }
 
+    private fun openAttachmentFiles() {
+        val edit = viewModel.edit.value
+        if (edit == null) pickFiles.launch(arrayOf("*/*"))
+        else if (!edit.isSaving && AttachPanelView.Action.FILES in editAttachmentActions(edit)) {
+            viewModel.editPickerMessageId = edit.target.message.id
+            pickEditFile.launch(arrayOf(if (edit.target.isAudioAlbum) "audio/*" else "*/*"))
+        }
+    }
+
+    private fun launchAttachmentCamera() {
+        val edit = viewModel.edit.value
+        if (edit != null && (edit.isSaving || AttachPanelView.Action.CAMERA !in editAttachmentActions(edit))) return
+        if (viewModel.pendingPhoto != null || cameraOutputJob?.isActive == true) return
+        val context = requireContext().applicationContext
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            cameraPermission.launch(Manifest.permission.CAMERA)
+            return
+        }
+        cameraOutputJob = viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val uri = withContext(Dispatchers.IO) {
+                    val directory = File(context.cacheDir, "outgoing/${System.nanoTime()}").apply { mkdirs() }
+                    FileProvider.getUriForFile(context, "${context.packageName}.files", File(directory, "photo.jpg"))
+                }
+                viewModel.pendingPhoto = uri to edit?.target?.message?.id
+                takePhoto.launch(uri)
+            } catch (e: ActivityNotFoundException) {
+                showAttachmentCameraError(e)
+            } catch (e: SecurityException) {
+                showAttachmentCameraError(e)
+            } catch (e: IllegalArgumentException) {
+                showAttachmentCameraError(e)
+            }
+        }
+    }
+
+    private fun showAttachmentCameraError(error: Exception) {
+        viewModel.pendingPhoto = null
+        Log.w("ChatFragment", "Camera attachment unavailable", error)
+        Toast.makeText(requireContext(), R.string.attachment_camera_unavailable, Toast.LENGTH_SHORT).show()
+    }
+
     private fun onPanelChanged(panel: KeyboardPanels.Panel?) {
         emojiMaterialButton.setIconResource(
             if (panel == KeyboardPanels.Panel.STICKERS) R.drawable.ic_keyboard else R.drawable.ic_mood
@@ -1041,7 +1098,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         emojiMaterialButton.contentDescription = getString(
             if (panel == KeyboardPanels.Panel.STICKERS) R.string.chat_keyboard else R.string.chat_emoji
         )
-        val isAttaching = panel == KeyboardPanels.Panel.ATTACH || panel == KeyboardPanels.Panel.GALLERY
+        val isAttaching = panel == KeyboardPanels.Panel.ATTACH
         attachMaterialButton.setIconResource(
             if (isAttaching) R.drawable.ic_close else R.drawable.ic_add_circle
         )
@@ -1054,10 +1111,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         )
         attachMaterialButton.tooltipText = attachMaterialButton.contentDescription
 
-        when (panel) {
-            KeyboardPanels.Panel.GALLERY -> galleryPanelView.start(viewLifecycleOwner)
-            else -> galleryPanelView.stop()
-        }
+        if (isAttaching && galleryPanelView.isVisible) galleryPanelView.reload()
+        else galleryPanelView.stop()
 
         if (panel == KeyboardPanels.Panel.STICKERS && !isCollectingStickers) {
             isCollectingStickers = true
@@ -1444,6 +1499,15 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
 
             MessageMenuDialogFragment.ACTION_SEND_NOW -> viewModel.sendNow(message.id)
 
+            MessageMenuDialogFragment.ACTION_PROFILE_AUDIO -> viewLifecycleOwner.lifecycleScope.launch {
+                val notice = when (val result = viewModel.addMessageAudioToProfile(message.id)) {
+                    is Result.Success -> getString(R.string.profile_music_added)
+                    is Result.Failure -> result.error.message
+                    null -> getString(R.string.profile_music_invalid)
+                }
+                Toast.makeText(requireContext(), notice, Toast.LENGTH_SHORT).show()
+            }
+
             MessageMenuDialogFragment.ACTION_PIN -> viewModel.setPinned(
                 message.id, viewModel.pinned.value.items.none { it.messageId == message.id }
             )
@@ -1574,6 +1638,15 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             .show()
     }
 
+    private fun updateRecordMode() {
+        val video = viewModel.isVideoRecordMode
+        videoNoteMaterialButton.setIconResource(if (video) R.drawable.ic_videocam else R.drawable.ic_mic)
+        val mode = getString(if (video) R.string.chat_video_note else R.string.chat_voice_note)
+        val hint = getString(R.string.chat_record_mode, mode)
+        videoNoteMaterialButton.contentDescription = hint
+        videoNoteMaterialButton.tooltipText = hint
+    }
+
     private fun updateSendButton() {
         val edit = viewModel.edit.value
         if (edit != null) {
@@ -1615,7 +1688,10 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private fun replaceFromPicker(uri: Uri?, asFile: Boolean) {
         val id = viewModel.editPickerMessageId ?: return
         viewModel.editPickerMessageId = null
-        if (uri != null) viewModel.replaceEditedAttachment(id, InputContents.Picked(uri, asFile))
+        if (uri != null) {
+            viewModel.replaceEditedAttachment(id, InputContents.Picked(uri, asFile))
+            panels?.hide()
+        }
     }
 
     private fun editAttachmentActions(edit: ChatViewModel.Edit): Set<AttachPanelView.Action> = when {

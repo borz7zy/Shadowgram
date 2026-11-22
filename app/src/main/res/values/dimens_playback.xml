@@ -5,7 +5,7 @@
 -->
 <resources>
     <!-- A video message in a bubble, ring included -->
-    <dimen name="video_note_size">200dp</dimen>
+    <dimen name="video_note_size">160dp</dimen>
     <!-- Between the round video and the edge of the view, where the ring goes -->
     <dimen name="video_note_ring_space">10dp</dimen>
     <dimen name="video_note_wave_amplitude">3dp</dimen>

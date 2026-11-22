@@ -168,17 +168,17 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:background">?attr/selectableItemBackground</item>
         <item name="android:gravity">center_vertical</item>
-        <item name="android:minHeight">72dp</item>
+        <item name="android:minHeight">56dp</item>
         <item name="android:orientation">horizontal</item>
         <item name="android:paddingHorizontal">16dp</item>
-        <item name="android:paddingVertical">12dp</item>
+        <item name="android:paddingVertical">8dp</item>
         <item name="android:visibility">gone</item>
     </style>
 
     <style name="Theme.Shadowgram.ProfileFragment.InfoIcon" parent="">
         <item name="android:layout_width">24dp</item>
         <item name="android:layout_height">24dp</item>
-        <item name="android:layout_marginEnd">24dp</item>
+        <item name="android:layout_marginEnd">12dp</item>
         <item name="android:importantForAccessibility">no</item>
         <item name="tint">?attr/colorOnSurfaceVariant</item>
     </style>
@@ -186,7 +186,7 @@
     <style name="Theme.Shadowgram.ProfileFragment.InfoValue" parent="Widget.AppCompat.TextView">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:textAppearance">?attr/textAppearanceBodyLarge</item>
+        <item name="android:textAppearance">?attr/textAppearanceBodyMedium</item>
         <item name="android:textColor">?attr/colorOnSurface</item>
         <item name="android:textIsSelectable">true</item>
     </style>
@@ -194,7 +194,7 @@
     <style name="Theme.Shadowgram.ProfileFragment.InfoLabel" parent="Widget.AppCompat.TextView">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:textAppearance">?attr/textAppearanceBodyMedium</item>
+        <item name="android:textAppearance">?attr/textAppearanceBodySmall</item>
         <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
     </style>
 

@@ -14,7 +14,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.doOnAttach
 import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
@@ -35,13 +34,16 @@ import com.github.borz7zy.shadowgram.ext.navigateSafe
 import com.github.borz7zy.shadowgram.ext.setProgressCompat
 import com.github.borz7zy.shadowgram.models.FlowResult
 import com.github.borz7zy.shadowgram.models.ProfileItem
+import com.github.borz7zy.shadowgram.models.Result
 import com.github.borz7zy.shadowgram.playback.MessagePlayer
 import com.github.borz7zy.shadowgram.telegram.Downloads
 import com.github.borz7zy.shadowgram.telegram.ProfilePage
 import com.github.borz7zy.shadowgram.ui.recyclerview.ProfileItemAdapter
 import com.github.borz7zy.shadowgram.viewmodels.PhotoViewerViewModel
 import com.github.borz7zy.shadowgram.viewmodels.ProfilePageViewModel
+import com.github.borz7zy.shadowgram.viewmodels.ProfileViewModel
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
@@ -71,7 +73,9 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
     private val giftRetryButton by getViewProperty<MaterialButton>(R.id.giftRetryButton)
 
     // RecyclerView
-    private val adapter = ProfileItemAdapter { item, image ->
+    private val profileViewModel by viewModels<ProfileViewModel>({ requireParentFragment() })
+
+    private val adapter = ProfileItemAdapter(::showPinActions) { item, image ->
         item.track?.let {
             MessagePlayer.play(it)
             return@ProfileItemAdapter
@@ -113,6 +117,48 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
         }
     }
 
+    private fun showPinActions(item: ProfileItem): Boolean {
+        val actions = buildList<Pair<Int, suspend () -> Result<TdApi.Ok, TdApi.Error>>> {
+            when (val action = item.profileAction) {
+                is ProfileItem.ProfileAction.Story -> {
+                    if (action.posted && action.canPin && viewModel.kind.value == ProfilePage.Kind.POSTS) {
+                        add((if (item.isPinned) R.string.message_unpin else R.string.message_pin) to {
+                            profileViewModel.setProfileStoryPinned(action.id, !item.isPinned)
+                        })
+                    }
+                    if (action.canChangeVisibility) {
+                        add((if (action.posted) R.string.profile_hide_item else R.string.profile_show_item) to {
+                            profileViewModel.setStoryOnProfile(action.id, !action.posted)
+                        })
+                    }
+                }
+                is ProfileItem.ProfileAction.Gift -> {
+                    if (action.upgraded && action.saved) {
+                        add((if (item.isPinned) R.string.message_unpin else R.string.message_pin) to {
+                            profileViewModel.setProfileGiftPinned(action.id, !item.isPinned)
+                        })
+                    }
+                    add((if (action.saved) R.string.profile_hide_item else R.string.profile_show_item) to {
+                        profileViewModel.setGiftOnProfile(action.id, !action.saved)
+                    })
+                }
+                null -> Unit
+            }
+        }
+        if (actions.isEmpty()) return false
+        MaterialAlertDialogBuilder(requireContext())
+            .setItems(actions.map { getString(it.first) }.toTypedArray()) { _, index ->
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val result = actions[index].second()
+                    if (result is Result.Failure) android.widget.Toast.makeText(
+                        requireContext(), result.error.message, android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            .show()
+        return true
+    }
+
     private val viewerAnchor by activityViewModels<PhotoViewerViewModel.Anchor>()
 
     /** The cell whose picture the viewer shows meanwhile, hidden here; null for none. */
@@ -135,11 +181,13 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        // Insets: the list goes under the navigation bar
-        recyclerView.doOnAttach {
-            val insets = ViewCompat.getRootWindowInsets(it)
-                ?.getInsets(WindowInsetsCompat.Type.navigationBars()) ?: return@doOnAttach
-            it.updatePadding(bottom = it.paddingTop + insets.bottom)
+        val bottomPadding = recyclerView.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { list, insets ->
+            val bottom = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            ).bottom
+            list.updatePadding(bottom = bottomPadding + bottom)
+            insets
         }
 
         recyclerView.layoutManager = GridLayoutManager(requireContext(), SPAN_COUNT).apply {
@@ -206,7 +254,8 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.items.collectLatest(::setItems)
+                launch { viewModel.items.collectLatest(::setItems) }
+                launch { profileViewModel.contentRevision.collect(viewModel::refresh) }
             }
         }
     }

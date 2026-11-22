@@ -73,6 +73,11 @@ class ChatsViewModel(application: Application, private val savedState: SavedStat
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    val folderUnread = flow {
+        emitAll(getApplication<ShadowgramApplication>().accountsRepository.activeClient().chats.folderUnread)
+    }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyMap())
+
     val folders = flow {
         emitAll(
             getApplication<ShadowgramApplication>().accountsRepository.activeClient()

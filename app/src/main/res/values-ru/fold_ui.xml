@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="folder_unread_chats">
+        <item quantity="one">%d непрочитанный чат</item>
+        <item quantity="few">%d непрочитанных чата</item>
+        <item quantity="many">%d непрочитанных чатов</item>
+        <item quantity="other">%d непрочитанных чатов</item>
+    </plurals>
+    <string name="gallery_browse">Системный выбор фото и видео</string>
+    <string name="gallery_recent">Недавние фото и видео</string>
+    <string name="gallery_empty">В этом альбоме нет фото и видео</string>
+    <string name="gallery_permission_hint">Разрешите доступ к фото и видео или откройте системный выбор.</string>
+    <string name="chat_voice_note">Голосовое сообщение</string>
+    <string name="chat_record_mode">%s. Нажмите для переключения, удерживайте для записи</string>
+    <string name="voice_note_failed">Не удалось записать голосовое сообщение</string>
+    <string name="profile_music">Музыка профиля</string>
+    <string name="profile_music_add">Добавить трек</string>
+    <string name="profile_music_empty">Треков пока нет</string>
+    <string name="profile_music_play">Воспроизвести</string>
+    <string name="profile_music_make_first">Сделать первым</string>
+    <string name="profile_music_remove">Удалить из профиля</string>
+    <string name="profile_music_invalid">Не удалось прочитать аудиофайл</string>
+    <string name="profile_hide_item">Скрыть из профиля</string>
+    <string name="profile_show_item">Показать в профиле</string>
+    <string name="profile_pinned_item">Закреплено</string>
+    <string name="profile_archive_short">Архив</string>
+    <string name="attachment_camera_unavailable">Не удалось открыть камеру</string>
+    <string name="message_add_profile_audio">Добавить в музыку профиля</string>
+    <string name="profile_music_added">Трек добавлен в профиль</string>
+</resources>

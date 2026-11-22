@@ -16,6 +16,7 @@ import com.github.borz7zy.shadowgram.models.Result.Companion.getOrNull
 import com.github.borz7zy.shadowgram.telegram.EmojiStickers
 import com.github.borz7zy.shadowgram.telegram.InputContents
 import com.github.borz7zy.shadowgram.telegram.ProfilePage
+import com.github.borz7zy.shadowgram.telegram.giftOwner
 import com.github.borz7zy.shadowgram.telegram.TelegramClient
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -27,6 +28,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -35,6 +37,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.io.File
 import org.drinkless.tdlib.TdApi
 
 /** A user, group or channel profile backed by the current account's TDLib client. */
@@ -69,12 +74,16 @@ class ProfileViewModel(
         val callUserId: Long? = null,
         val birthdate: TdApi.Birthdate? = null,
         val personalChannel: TdApi.Chat? = null,
+        val firstProfileAudio: TdApi.Audio? = null,
     )
 
     private val _info = MutableStateFlow<Info?>(null)
     val info = _info.asStateFlow()
     private val _tabs = MutableStateFlow<List<ProfilePage.Kind>?>(null)
     val tabs = _tabs.asStateFlow()
+    private val _contentRevision = MutableStateFlow(0)
+    val contentRevision = _contentRevision.asStateFlow()
+    private val contentMutation = Mutex()
 
     data class Avatar(val hasPhoto: Boolean = false, val path: String? = null, val animationId: Int = 0)
 
@@ -183,6 +192,7 @@ class ProfileViewModel(
             callUserId = userId.takeIf { !own && full?.canBeCalled == true },
             birthdate = full?.birthdate,
             personalChannel = channel,
+            firstProfileAudio = full?.firstProfileAudio,
         )
     }
 
@@ -230,6 +240,94 @@ class ProfileViewModel(
     }
 
     suspend fun <T : TdApi.Object> request(function: TdApi.Function<T>) = client.await().send(function)
+
+    suspend fun profileAudios(): Result<List<TdApi.Audio>, TdApi.Error> {
+        val userId = when (val type = chat.await()?.type) {
+            is TdApi.ChatTypePrivate -> type.userId
+            is TdApi.ChatTypeSecret -> type.userId
+            else -> return Result.Success(emptyList())
+        }
+        val audios = ArrayList<TdApi.Audio>()
+        do {
+            val page = when (val result = request(TdApi.GetUserProfileAudios(userId, audios.size, 100))) {
+                is Result.Success -> result.data
+                is Result.Failure -> return result
+            }
+            audios.addAll(page.audios)
+        } while (page.audios.isNotEmpty() && audios.size < page.totalCount)
+        _info.update { it?.copy(firstProfileAudio = audios.firstOrNull()) }
+        return Result.Success(audios)
+    }
+
+    suspend fun addProfileAudio(uri: Uri): Result<TdApi.Ok, TdApi.Error>? = withContext(NonCancellable) {
+        val content = try {
+            InputContents.fromUri(getApplication(), uri, asFile = false, caption = null, preferAudio = true)
+        } catch (_: RuntimeException) {
+            null
+        } as? TdApi.InputMessageAudio ?: return@withContext null
+        val result = request(TdApi.AddProfileAudio(content.audio))
+        if (result is Result.Failure) {
+            val local = content.audio.audio as? TdApi.InputFileLocal
+            withContext(Dispatchers.IO) { local?.let { File(it.path).delete() } }
+        }
+        result
+    }
+
+    suspend fun setProfileStoryPinned(storyId: Int, pinned: Boolean) = updateContent {
+        when (val stories = request(TdApi.GetChatPostedToChatPageStories(chatId, 0, 1))) {
+            is Result.Failure -> stories
+            is Result.Success -> {
+                val ids = stories.data.pinnedStoryIds.filter { it != storyId }
+                request(TdApi.SetChatPinnedStories(chatId, (if (pinned) listOf(storyId) + ids else ids).toIntArray()))
+            }
+        }
+    }
+
+    suspend fun setStoryOnProfile(storyId: Int, visible: Boolean) =
+        updateContent { request(TdApi.ToggleStoryIsPostedToChatPage(chatId, storyId, visible)) }
+
+    suspend fun setGiftOnProfile(id: String, visible: Boolean) =
+        updateContent { request(TdApi.ToggleGiftIsSaved(id, visible)) }
+
+    suspend fun setProfileGiftPinned(id: String, pinned: Boolean): Result<TdApi.Ok, TdApi.Error> = updateContent {
+        val owner = chat.await()?.giftOwner()
+            ?: return@updateContent Result.Failure(TdApi.Error(400, "Gift owner unavailable"))
+        val current = LinkedHashSet<String>()
+        val offsets = HashSet<String>()
+        var offset = ""
+        val maxPinned = (request(TdApi.GetOption("pinned_gift_count_max")).getOrNull() as? TdApi.OptionValueInteger)
+            ?.value?.takeIf { it > 0 } ?: Long.MAX_VALUE
+        do {
+            offsets += offset
+            val response = request(TdApi.GetReceivedGifts().apply {
+                businessConnectionId = ""
+                ownerId = owner
+                excludeUnsaved = true
+                excludeUnlimited = true
+                excludeUpgradable = true
+                excludeNonUpgradable = true
+                this.offset = offset
+                limit = 100
+            })
+            val page = when (response) {
+                is Result.Success -> response.data
+                is Result.Failure -> return@updateContent response
+            }
+            page.gifts.filter { it.isPinned && it.receivedGiftId.isNotEmpty() }
+                .forEach { current += it.receivedGiftId }
+            offset = page.nextOffset
+        } while (offset.isNotEmpty() && offset !in offsets && current.size < maxPinned)
+        current.remove(id)
+        val ids = if (pinned) listOf(id) + current else current.toList()
+        request(TdApi.SetPinnedGifts(owner, ids.toTypedArray()))
+    }
+
+    private suspend fun updateContent(action: suspend () -> Result<TdApi.Ok, TdApi.Error>) =
+        contentMutation.withLock {
+            action().also { result ->
+                if (result is Result.Success) _contentRevision.update { it + 1 }
+            }
+        }
 
     suspend fun setPhoto(uri: Uri): Result<TdApi.Ok, TdApi.Error>? = withContext(NonCancellable) {
         val file = InputContents.profilePhoto(getApplication(), uri) ?: return@withContext null

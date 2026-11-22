@@ -5,8 +5,10 @@
 
 package com.github.borz7zy.shadowgram
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.view.ContextThemeWrapper
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -22,7 +24,9 @@ import androidx.core.view.doOnAttach
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
 import androidx.core.widget.doAfterTextChanged
+import androidx.fragment.app.Fragment
 import androidx.fragment.app.commit
+import androidx.fragment.app.commitNow
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -36,6 +40,7 @@ import androidx.preference.SwitchPreference
 import com.github.borz7zy.shadowgram.ext.ENABLE_OFFLOAD_KEY
 import com.github.borz7zy.shadowgram.ext.SKIP_SILENCE_KEY
 import com.github.borz7zy.shadowgram.haptics.HapticSettingsPage
+import com.github.borz7zy.shadowgram.fragments.MainFragment
 import com.github.borz7zy.shadowgram.notifications.NotificationSettingsPage
 import com.github.borz7zy.shadowgram.notifications.logNotificationDelivery
 import com.github.borz7zy.shadowgram.playback.MessagePlayer
@@ -75,7 +80,39 @@ class SettingsActivity : AppCompatActivity(R.layout.activity_settings) {
         }
     }
 
+    /** Hosts the same preference screens inside a pane of MainActivity. */
+    class SettingsPaneFragment : Fragment(R.layout.activity_settings) {
+        private val isDetail get() = arguments?.containsKey(PreferenceFragmentCompat.ARG_PREFERENCE_ROOT) == true
+
+        override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+            val toolbar = view.findViewById<MaterialToolbar>(R.id.toolbar)
+            toolbar.setNavigationOnClickListener {
+                if (popSection()) return@setNavigationOnClickListener
+                if (isDetail) (requireActivity() as MainActivity).closeSettingsDetail()
+                else (parentFragment as? MainFragment)?.showChats()
+            }
+            if (childFragmentManager.findFragmentById(R.id.settings) == null) {
+                childFragmentManager.commitNow {
+                    setReorderingAllowed(true)
+                    replace(R.id.settings, RootSettingsFragment().apply {
+                        arguments = this@SettingsPaneFragment.arguments?.let(::Bundle)
+                    })
+                }
+            }
+        }
+
+        internal fun popSection(): Boolean {
+            if (childFragmentManager.backStackEntryCount == 0 || childFragmentManager.isStateSaved) return false
+            childFragmentManager.popBackStack()
+            return true
+        }
+
+        internal fun openDetail(arguments: Bundle): Boolean =
+            !isDetail && (activity as? MainActivity)?.openSettingsDetail(arguments) == true
+    }
+
     class RootSettingsFragment : PreferenceFragmentCompat() {
+        private var paneContext: Context? = null
         private val viewModel by viewModels<SettingsViewModel>()
         private val querySeparator = Regex("\\s+")
         private val sectionLinks = mutableListOf<Preference>()
@@ -93,13 +130,30 @@ class SettingsActivity : AppCompatActivity(R.layout.activity_settings) {
             it?.let { uri -> notificationPage?.importSound(uri) }
         }
 
+        override fun onAttach(context: Context) {
+            // PreferenceFragmentCompat resolves the layout and applies its overlay to this context.
+            if (parentFragment is SettingsPaneFragment) {
+                paneContext = ContextThemeWrapper(context, R.style.Theme_SettingsLib)
+            }
+            super.onAttach(context)
+        }
+
+        override fun getContext(): Context? = paneContext ?: super.getContext()
+
+        override fun onDetach() {
+            super.onDetach()
+            paneContext = null
+        }
+
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
 
             openingSection = false
             val activity = requireActivity()
-            val appBar = activity.findViewById<AppBarLayout>(R.id.appBarLayout)
-            activity.findViewById<CollapsingToolbarLayout>(R.id.settings_collapsing_toolbar).title =
+            val pane = (parentFragment as? SettingsPaneFragment)?.requireView()
+                ?: activity.findViewById(R.id.coordinatorLayout)
+            val appBar = pane.findViewById<AppBarLayout>(R.id.appBarLayout)
+            pane.findViewById<CollapsingToolbarLayout>(R.id.settings_collapsing_toolbar).title =
                 preferenceScreen.title ?: getString(R.string.title_activity_settings)
             val destinationKey = arguments?.getString(ARG_SCROLL_TO)
             if (savedInstanceState == null) {
@@ -255,17 +309,23 @@ class SettingsActivity : AppCompatActivity(R.layout.activity_settings) {
         private fun openSection(screenKey: String, destinationKey: String?, id: Long = 0, topic: Int = 0) {
             if (openingSection || parentFragmentManager.isStateSaved) return
             openingSection = true
-            val activity = requireActivity()
-            WindowCompat.getInsetsController(activity.window, requireView()).hide(WindowInsetsCompat.Type.ime())
+            val view = requireView()
+            WindowCompat.getInsetsController(requireActivity().window, view).hide(WindowInsetsCompat.Type.ime())
+            view.findFocus()?.clearFocus()
+            val arguments = Bundle().apply {
+                putString(ARG_PREFERENCE_ROOT, screenKey)
+                putString(ARG_SCROLL_TO, destinationKey)
+                putLong(ARG_NOTIFICATION_ID, id)
+                putInt(ARG_NOTIFICATION_TOPIC, topic)
+            }
+            if ((parentFragment as? SettingsPaneFragment)?.openDetail(arguments) == true) {
+                openingSection = false
+                return
+            }
             parentFragmentManager.commit {
                 setReorderingAllowed(true)
                 replace(R.id.settings, RootSettingsFragment().apply {
-                    arguments = Bundle().apply {
-                        putString(ARG_PREFERENCE_ROOT, screenKey)
-                        putString(ARG_SCROLL_TO, destinationKey)
-                        putLong(ARG_NOTIFICATION_ID, id)
-                        putInt(ARG_NOTIFICATION_TOPIC, topic)
-                    }
+                    this.arguments = arguments
                 })
                 addToBackStack(null)
             }

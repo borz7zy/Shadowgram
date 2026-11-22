@@ -62,7 +62,7 @@ import java.io.File
  */
 class ChatViewModel(
     application: Application,
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
 ) : AndroidViewModel(application) {
     private val chatId = savedStateHandle.get<Long>(ARG_CHAT_ID) ?: 0L
     private val topicId = savedStateHandle.get<Int>(ARG_TOPIC_ID) ?: 0
@@ -689,6 +689,33 @@ class ChatViewModel(
     /** Download a sticker or GIF file the keyboard shows. */
     fun download(fileId: Int) {
         viewModelScope.launch { client.await().stickers.download(fileId) }
+    }
+
+    suspend fun addMessageAudioToProfile(messageId: Long): Result<TdApi.Ok, TdApi.Error>? {
+        val client = client.await()
+        val message = client.send(TdApi.GetMessage(chatId, messageId))
+        val audio = when (message) {
+            is Result.Failure -> return message
+            is Result.Success -> (message.data.content as? TdApi.MessageAudio)?.audio ?: return null
+        }
+        return client.send(TdApi.AddProfileAudio(TdApi.InputAudio(
+            TdApi.InputFileId(audio.audio.id), null, audio.duration, audio.title, audio.performer,
+        )))
+    }
+
+    var isVideoRecordMode: Boolean
+        get() = savedStateHandle.get<Boolean>("video_record_mode") ?: false
+        set(value) { savedStateHandle["video_record_mode"] = value }
+
+    fun sendVoiceNote(file: File, duration: Int, waveform: ByteArray) {
+        replyTo.value = null
+        viewModelScope.launch(historyDispatcher) {
+            val voice = TdApi.InputVoiceNote(TdApi.InputFileLocal(file.absolutePath), duration, waveform)
+            history.await().send(TdApi.InputMessageVoiceNote(voice, null, null))?.let {
+                withContext(Dispatchers.IO) { file.delete() }
+                _sendFailures.send(Failed(it.message))
+            }
+        }
     }
 
     /**

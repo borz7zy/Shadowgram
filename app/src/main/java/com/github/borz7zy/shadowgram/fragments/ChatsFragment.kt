@@ -49,6 +49,21 @@ class ChatsFragment : Fragment(R.layout.fragment_chats) {
     private var hasFolders = false
     private var isForumOpen = false
     private var isAvatarOnly = false
+    private var foldersInRail = false
+
+    internal fun updateFolderRail(visible: Boolean) {
+        if (foldersInRail == visible) return
+        foldersInRail = visible
+        if (view != null) updateTabVisibility()
+    }
+
+    private fun updateTabVisibility() {
+        tabsAnimator?.cancel()
+        tabsAnimator = null
+        tabLayout.alpha = 1f
+        tabLayout.updateLayoutParams { height = ViewGroup.LayoutParams.WRAP_CONTENT }
+        tabLayout.isVisible = hasFolders && !isForumOpen && !isAvatarOnly && !foldersInRail
+    }
     private var tabsAnimator: ValueAnimator? = null
     private var foldersAdapter: FoldersAdapter? = null
     private var foldersMediator: TabLayoutMediator? = null
@@ -104,11 +119,7 @@ class ChatsFragment : Fragment(R.layout.fragment_chats) {
                 currentWidth <= (112 * resources.displayMetrics.density).toInt()
             if (compact != isAvatarOnly) {
                 isAvatarOnly = compact
-                tabsAnimator?.cancel()
-                tabsAnimator = null
-                tabLayout.alpha = 1f
-                tabLayout.updateLayoutParams { height = ViewGroup.LayoutParams.WRAP_CONTENT }
-                tabLayout.isVisible = hasFolders && !isForumOpen && !isAvatarOnly
+                updateTabVisibility()
             }
             if (oldRight - oldLeft > 0 && currentWidth != oldRight - oldLeft) viewPager2.post {
                 if (this@ChatsFragment.view === view) applySelectedFolder(snap = true)
@@ -205,7 +216,7 @@ class ChatsFragment : Fragment(R.layout.fragment_chats) {
 
     private fun onFoldersChanged(folders: List<ChatFolder>) {
         hasFolders = folders.size > 1
-        tabLayout.isVisible = hasFolders && !isForumOpen && !isAvatarOnly
+        tabLayout.isVisible = hasFolders && !isForumOpen && !isAvatarOnly && !foldersInRail
 
         // Building a chat list takes several frames, so every folder keeps its page instead of
         // getting it built again in the middle of the switch animation.
@@ -224,7 +235,7 @@ class ChatsFragment : Fragment(R.layout.fragment_chats) {
         tabsAnimator?.cancel()
         tabsAnimator = null
 
-        if (!hasFolders || isAvatarOnly) {
+        if (!hasFolders || isAvatarOnly || foldersInRail) {
             tabLayout.isVisible = false
             return
         }
@@ -244,7 +255,7 @@ class ChatsFragment : Fragment(R.layout.fragment_chats) {
         }
 
         fun finish() {
-            tabLayout.isVisible = !isOpen && !isAvatarOnly
+            tabLayout.isVisible = !isOpen && !isAvatarOnly && !foldersInRail
             tabLayout.alpha = 1f
             tabLayout.updateLayoutParams { height = ViewGroup.LayoutParams.WRAP_CONTENT }
         }
