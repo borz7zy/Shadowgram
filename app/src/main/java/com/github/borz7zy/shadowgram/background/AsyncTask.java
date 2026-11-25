@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: The LineageOS Project
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: borz7zy
+ * SPDX-License-Identifier: MIT
  */
 
 package com.github.borz7zy.shadowgram.background;
@@ -111,16 +111,24 @@ public abstract class AsyncTask<Params, Progress, Result> {
         if (target == null) throw new NullPointerException("executor");
         if (!begin(target, params)) return;
         MAIN.post(() -> {
-            if (!prepare()) return;
-            FutureTask<Void> job;
-            synchronized (lock) { if (terminal(state)) return; job = work; }
-            try {
-                target.execute(job);
-                // Handles cancellation between obtaining the job and submitting it.
-                if (job.isCancelled() && target instanceof ThreadPoolExecutor)
-                    ((ThreadPoolExecutor) target).remove(job);
-            } catch (RuntimeException e) { postOutcome(null, e); }
+            if (prepare()) submit(target);
         });
+    }
+    /** Submit immediately for tasks that need no onPreExecute callback. Results still go to main. */
+    @SafeVarargs public final void execBackgroundOn(Executor target, Params... params) {
+        if (target == null) throw new NullPointerException("executor");
+        if (begin(target, params)) submit(target);
+    }
+
+    private void submit(Executor target) {
+        FutureTask<Void> job;
+        synchronized (lock) { if (terminal(state)) return; job = work; }
+        try {
+            target.execute(job);
+            // Handles cancellation between obtaining the job and submitting it.
+            if (job.isCancelled() && target instanceof ThreadPoolExecutor)
+                ((ThreadPoolExecutor) target).remove(job);
+        } catch (RuntimeException e) { postOutcome(null, e); }
     }
     /** Synchronous worker-only API. Never call from main or while main waits for this thread. */
     @SafeVarargs public final void execInCurrThread(Params... params) {
@@ -168,18 +176,23 @@ public abstract class AsyncTask<Params, Progress, Result> {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             postOutcome(null, new IllegalStateException("Executor ran on main thread")); return;
         }
-        int old = Process.getThreadPriority(Process.myTid());
+        int tid = Process.myTid();
+        int old = Process.getThreadPriority(tid);
+        int nice = priority == Priority.DISPLAY ? Process.THREAD_PRIORITY_DISPLAY :
+                priority == Priority.NORMAL ? Process.THREAD_PRIORITY_DEFAULT : Process.THREAD_PRIORITY_BACKGROUND;
         try {
-            int nice = priority == Priority.DISPLAY ? Process.THREAD_PRIORITY_DISPLAY :
-                    priority == Priority.NORMAL ? Process.THREAD_PRIORITY_DEFAULT : Process.THREAD_PRIORITY_BACKGROUND;
-            try { Process.setThreadPriority(nice); } catch (SecurityException e) { Log.w(TAG, "Priority unavailable", e); }
+            if (nice != old) {
+                try { Process.setThreadPriority(nice); } catch (SecurityException e) { Log.w(TAG, "Priority unavailable", e); }
+            }
             if (!isDone()) postOutcome(doInBackground(input), null);
         } catch (Throwable t) {
             postOutcome(null, t);
             if (t instanceof Error) Log.e(TAG, "Fatal worker error", t);
             if (t instanceof InterruptedException) Thread.currentThread().interrupt();
         } finally {
-            try { Process.setThreadPriority(old); } catch (SecurityException e) { Log.w(TAG, "Priority restore failed", e); }
+            try {
+                if (Process.getThreadPriority(tid) != old) Process.setThreadPriority(old);
+            } catch (SecurityException e) { Log.w(TAG, "Priority restore failed", e); }
         }
     }
     public final void publishProgress(Progress progress) {
@@ -241,7 +254,7 @@ public abstract class AsyncTask<Params, Progress, Result> {
     private void cleanupLocked() {
         finishedAt = SystemClock.elapsedRealtime();
         if (timeout != null) { timeout.cancel(false); TIMER.remove((Runnable) timeout); timeout = null; }
-        MAIN.removeCallbacks(progressDelivery);
+        if (progressPosted) MAIN.removeCallbacks(progressDelivery);
         latestProgress = null; progressPosted = false;
         work = null; executor = null;
         if (scope != null) scope.remove(this);
