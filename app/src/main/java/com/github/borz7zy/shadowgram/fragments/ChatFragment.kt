@@ -39,6 +39,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.widget.AppCompatImageButton
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -192,7 +193,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private val sendWhenOnlineMaterialButton by getViewProperty<MaterialButton>(R.id.sendWhenOnlineMaterialButton)
     private val toolbar by getViewProperty<MaterialToolbar>(R.id.toolbar)
     private val videoNoteMaterialButton by getViewProperty<MaterialButton>(R.id.videoNoteMaterialButton)
-    private val attachMaterialButton by getViewProperty<MaterialButton>(R.id.attachMaterialButton)
+    private val attachMaterialButton by getViewProperty<AppCompatImageButton>(R.id.attachMaterialButton)
     private val emojiMaterialButton by getViewProperty<MaterialButton>(R.id.emojiMaterialButton)
     private val scheduledMaterialButton by getViewProperty<MaterialButton>(R.id.scheduledMaterialButton)
     private val botCommandsMaterialButton by getViewProperty<MaterialButton>(R.id.botCommandsMaterialButton)
@@ -790,7 +791,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             attachMaterialButton.isEnabled = !saving
             messageEditText.isEnabled = !saving
             emojiMaterialButton.isEnabled = !saving
-            sendMaterialButton.setIconResource(if (editing) R.drawable.ic_check else R.drawable.ic_send)
+            sendMaterialButton.setIconResource(if (editing) R.drawable.ic_check else R.drawable.ic_mms_send_enabled)
             sendMaterialButton.contentDescription = getString(
                 if (editing) R.string.message_edit_save else R.string.chat_send
             )
@@ -1099,8 +1100,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             if (panel == KeyboardPanels.Panel.STICKERS) R.string.chat_keyboard else R.string.chat_emoji
         )
         val isAttaching = panel == KeyboardPanels.Panel.ATTACH
-        attachMaterialButton.setIconResource(
-            if (isAttaching) R.drawable.ic_close else R.drawable.ic_add_circle
+        attachMaterialButton.setImageResource(
+            if (isAttaching) R.drawable.ic_close else R.drawable.ic_mms_compose_attach
         )
         attachMaterialButton.contentDescription = getString(
             when {
@@ -1658,6 +1659,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             return
         }
         val canSend = !messageEditText.text.isNullOrBlank() || viewModel.attachments.isNotEmpty()
+        sendMaterialButton.setIconResource(if (canSend) R.drawable.ic_mms_send_enabled else R.drawable.ic_mms_send_disabled)
         sendMaterialButton.isEnabled = canSend
         sendMaterialButton.isVisible = canSend
         videoNoteMaterialButton.isVisible = !canSend

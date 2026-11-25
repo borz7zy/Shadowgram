@@ -315,6 +315,7 @@
                 android:id="@+id/composerLinearLayout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:background="@drawable/chat_composer_bar_background"
                 android:orientation="vertical">
 
                 <!-- Members to mention, bot commands or inline bot results for what is typed -->
@@ -399,35 +400,40 @@
                     android:layout_height="wrap_content"
                     android:gravity="bottom"
                     android:orientation="horizontal"
-                    android:paddingHorizontal="12dp"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
                     android:paddingTop="8dp"
-                    android:paddingBottom="12dp">
+                    android:paddingBottom="8dp">
 
-                    <com.google.android.material.card.MaterialCardView
+                    <!-- Round Material 3 attachment control. -->
+                    <androidx.appcompat.widget.AppCompatImageButton
+                        android:id="@+id/attachMaterialButton"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_gravity="bottom"
+                        android:background="@drawable/chat_attach_button_background"
+                        android:contentDescription="@string/chat_attach"
+                        android:padding="0dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_mms_compose_attach"
+                        android:tooltipText="@string/chat_attach"
+                        android:tint="@null" />
+
+                    <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
                         android:layout_weight="1"
-                        android:minHeight="56dp"
-                        app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
-                        app:cardCornerRadius="28dp"
-                        app:cardElevation="0dp"
-                        app:strokeWidth="0dp">
+                        android:minHeight="40dp"
+                        android:background="@drawable/chat_compose_field_background"
+                        android:clipToOutline="true">
 
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:gravity="bottom"
                             android:orientation="horizontal"
-                            android:paddingHorizontal="4dp">
-
-                            <com.google.android.material.button.MaterialButton
-                                android:id="@+id/attachMaterialButton"
-                                style="?attr/materialIconButtonStyle"
-                                android:layout_width="48dp"
-                                android:layout_height="56dp"
-                                android:contentDescription="@string/chat_attach"
-                                android:tooltipText="@string/chat_attach"
-                                app:icon="@drawable/ic_add_circle" />
+                            android:paddingHorizontal="8dp">
 
                             <com.google.android.material.textfield.TextInputEditText
                                 android:id="@+id/messageEditText"
@@ -440,18 +446,26 @@
                                 android:hint="@string/chat_message_hint"
                                 android:importantForAutofill="no"
                                 android:inputType="textCapSentences|textMultiLine"
-                                android:maxLines="6"
-                                android:minHeight="56dp"
+                                android:maxLines="5"
+                                android:minHeight="40dp"
                                 android:paddingHorizontal="8dp"
-                                android:paddingVertical="12dp"
+                                android:paddingVertical="8dp"
                                 android:textAppearance="?attr/textAppearanceBodyLarge" />
+
 
                             <!-- The bots' commands, only while the chat has some and nothing is typed -->
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/botCommandsMaterialButton"
                                 style="?attr/materialIconButtonStyle"
-                                android:layout_width="48dp"
-                                android:layout_height="56dp"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:insetLeft="0dp"
+                                android:insetRight="0dp"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:padding="0dp"
                                 android:contentDescription="@string/chat_bot_commands"
                                 android:tooltipText="@string/chat_bot_commands"
                                 android:visibility="gone"
@@ -460,8 +474,15 @@
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/emojiMaterialButton"
                                 style="?attr/materialIconButtonStyle"
-                                android:layout_width="48dp"
-                                android:layout_height="56dp"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:insetLeft="0dp"
+                                android:insetRight="0dp"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:padding="0dp"
                                 android:contentDescription="@string/chat_emoji"
                                 android:tooltipText="@string/chat_emoji"
                                 app:icon="@drawable/ic_mood" />
@@ -470,8 +491,15 @@
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/scheduledMaterialButton"
                                 style="?attr/materialIconButtonStyle"
-                                android:layout_width="48dp"
-                                android:layout_height="56dp"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:insetLeft="0dp"
+                                android:insetRight="0dp"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:padding="0dp"
                                 android:contentDescription="@string/chat_scheduled_messages"
                                 android:tooltipText="@string/chat_scheduled_messages"
                                 android:visibility="gone"
@@ -479,39 +507,52 @@
 
                         </LinearLayout>
 
-                    </com.google.android.material.card.MaterialCardView>
+                    </LinearLayout>
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/sendMaterialButton"
-                        style="?attr/materialIconButtonFilledStyle"
-                        android:layout_width="56dp"
-                        android:layout_height="56dp"
+                        style="?attr/materialIconButtonStyle"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
                         android:layout_marginStart="8dp"
-                        android:contentDescription="@string/chat_send"
-                        android:enabled="false"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:insetLeft="0dp"
+                        android:insetRight="0dp"
                         android:insetTop="0dp"
                         android:insetBottom="0dp"
+                        android:padding="0dp"
+                        android:contentDescription="@string/chat_send"
+                        android:enabled="false"
                         android:textAlignment="center"
                         android:tooltipText="@string/chat_send"
                         android:visibility="gone"
-                        app:icon="@drawable/ic_send"
-                        app:iconGravity="textStart" />
+                        app:icon="@drawable/ic_mms_send_enabled"
+                        app:iconGravity="textStart"
+                        app:iconSize="40dp"
+                        app:iconTint="@null" />
 
                     <!-- Takes the send button's place while there is nothing to send -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/videoNoteMaterialButton"
                         style="?attr/materialIconButtonFilledTonalStyle"
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
                         android:layout_marginStart="8dp"
-                        android:contentDescription="@string/chat_voice_note"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:insetLeft="0dp"
+                        android:insetRight="0dp"
                         android:insetTop="0dp"
                         android:insetBottom="0dp"
+                        android:padding="0dp"
+                        android:contentDescription="@string/chat_voice_note"
                         android:textAlignment="center"
                         android:tooltipText="@string/chat_voice_note"
-                        app:icon="@drawable/ic_mic"
+                        app:icon="@drawable/ic_mms_send_disabled"
                         app:iconGravity="textStart"
-                        app:cornerRadius="24dp" />
+                        app:iconSize="24dp"
+                        app:cornerRadius="20dp" />
 
                 </LinearLayout>
 
