@@ -9,7 +9,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <androidx.recyclerview.widget.RecyclerView
+    <com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
         android:id="@+id/recyclerView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -35,7 +35,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
-            <androidx.recyclerview.widget.RecyclerView
+            <com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
                 android:id="@+id/topicsRecyclerView"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"

@@ -42,6 +42,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView.DiffAdapter
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.toPx
@@ -81,7 +83,7 @@ class MessageMenuDialogFragment : DialogFragment() {
     private val forwardMaterialButton by getViewProperty<MaterialButton>(R.id.forwardMaterialButton)
     private val expandMaterialButton by getViewProperty<MaterialButton>(R.id.expandMaterialButton)
     private val reactionsCardView by getViewProperty<MaterialCardView>(R.id.reactionsCardView)
-    private val reactionsRecyclerView by getViewProperty<RecyclerView>(R.id.reactionsRecyclerView)
+    private val reactionsRecyclerView by getViewProperty<RecyclerListView>(R.id.reactionsRecyclerView)
     private val replyMaterialButton by getViewProperty<MaterialButton>(R.id.replyMaterialButton)
     private val saveMaterialButton by getViewProperty<MaterialButton>(R.id.saveMaterialButton)
     private val rootFrameLayout by getViewProperty<FrameLayout>(R.id.rootFrameLayout)
@@ -540,7 +542,7 @@ class MessageMenuDialogFragment : DialogFragment() {
     /** The reactions to pick, animated; the custom emoji sets under titles in the grid. */
     private class ReactionsAdapter(
         private val onClick: (MessageMenuViewModel.Reaction) -> Unit,
-    ) : androidx.recyclerview.widget.ListAdapter<Any, RecyclerView.ViewHolder>(
+    ) : DiffAdapter<Any, RecyclerView.ViewHolder>(
         object : androidx.recyclerview.widget.DiffUtil.ItemCallback<Any>() {
             override fun areItemsTheSame(oldItem: Any, newItem: Any) = oldItem == newItem
 

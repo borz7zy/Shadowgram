@@ -17,13 +17,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
-import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.divider.MaterialDivider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ext.Bundle
 import com.github.borz7zy.shadowgram.ext.getParcelable
@@ -56,7 +56,7 @@ class ProviderInformationBottomSheetDialogFragment : TwelveBottomSheetDialogFrag
     private val providerIconImageView by getViewProperty<ImageView>(R.id.providerIconImageView)
     private val providerTypeTextView by getViewProperty<TextView>(R.id.providerTypeTextView)
     private val statusMaterialDivider by getViewProperty<MaterialDivider>(R.id.statusMaterialDivider)
-    private val statusRecyclerView by getViewProperty<RecyclerView>(R.id.statusRecyclerView)
+    private val statusRecyclerView by getViewProperty<RecyclerListView>(R.id.statusRecyclerView)
     private val titleTextView by getViewProperty<TextView>(R.id.titleTextView)
 
     // RecyclerView

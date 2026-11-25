@@ -34,18 +34,20 @@ import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePaddingRelative
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.SimpleItemAnimator
 import coil3.dispose
 import coil3.load
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView.DiffAdapter
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.emoji.Emoji
+import com.github.borz7zy.shadowgram.ui.cells.ChatMessageCell
+import com.github.borz7zy.shadowgram.ui.cells.MessageTextPreparer
+import com.github.borz7zy.shadowgram.ui.cells.MessageTextRenderer
 import com.github.borz7zy.shadowgram.ext.toPx
 import com.github.borz7zy.shadowgram.models.ChatItem.MessagePreview
 import com.github.borz7zy.shadowgram.models.MessageItem
 import com.github.borz7zy.shadowgram.models.MessageRow
-import com.github.borz7zy.shadowgram.ui.text.attachCustomEmoji
-import com.github.borz7zy.shadowgram.ui.text.setCustomEmoji
 import com.github.borz7zy.shadowgram.ui.text.stringResId
 import com.github.borz7zy.shadowgram.ui.views.AnimationView
 import com.github.borz7zy.shadowgram.ui.views.AvatarView
@@ -77,18 +79,66 @@ class MessageListAdapter(
     /** What to play for a voice or video message: who sent it, where. */
     private val trackOf: (MessageItem, MessageItem.Playable) -> MessagePlayer.Track,
     private val callbacks: Callbacks,
-) : ListAdapter<MessageRow, RecyclerView.ViewHolder>(DiffCallback) {
+) : DiffAdapter<MessageRow, RecyclerView.ViewHolder>(DiffCallback) {
     /** The message the menu lifted, its bubble hidden meanwhile; 0 for none. */
     var hiddenMessageId = 0L
 
     /** Keep the viewer's source hidden even when a download causes its row to rebind. */
     var hiddenMediaMessageId = 0L
     private var selectedIds: Set<Long> = emptySet()
+    private val textPreparer = MessageTextPreparer()
+    private var attachedRecycler: RecyclerView? = null
+    private var previousAnimator: SimpleItemAnimator? = null
+    private var previousChangeAnimations = true
+    private var lastPrefetchPosition = -1
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        attachedRecycler = recyclerView
+        previousAnimator = recyclerView.itemAnimator as? SimpleItemAnimator
+        previousChangeAnimations = previousAnimator?.supportsChangeAnimations ?: true
+        previousAnimator?.supportsChangeAnimations = false
+        textPreparer.attach()
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        if (attachedRecycler === recyclerView) {
+            textPreparer.detach()
+            lastPrefetchPosition = -1
+            previousAnimator?.supportsChangeAnimations = previousChangeAnimations
+            previousAnimator = null
+            attachedRecycler = null
+        }
+        super.onDetachedFromRecyclerView(recyclerView)
+    }
+
+    /** Warm immutable Unicode ranges in one CPU job; never block list delivery. */
+    fun prepareRows(rows: List<MessageRow>, firstVisible: Int) {
+        lastPrefetchPosition = firstVisible
+        textPreparer.prefetch(rows, firstVisible)
+    }
+
+    override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
+        (holder as? BubbleViewHolder)?.recycle()
+        super.onViewRecycled(holder)
+    }
 
     fun setSelection(ids: Set<Long>) {
         if (selectedIds == ids) return
+        val previous = selectedIds
         selectedIds = ids.toSet()
-        notifyItemRangeChanged(0, itemCount, "selection")
+        if (previous.isEmpty() != ids.isEmpty()) {
+            // Link handling changes for every row when entering/leaving selection mode.
+            notifyItemRangeChanged(0, itemCount, PAYLOAD_SELECTION)
+        } else {
+            val changed = (previous - ids) + (ids - previous)
+            currentList.forEachIndexed { position, row ->
+                if (row is MessageRow.Bubble &&
+                    (row.message.id in changed || row.album.any { it.id in changed })) {
+                    notifyItemChanged(position, PAYLOAD_SELECTION)
+                }
+            }
+        }
     }
 
     /**
@@ -164,6 +214,7 @@ class MessageListAdapter(
                 { hiddenMediaMessageId },
                 { selectedIds },
                 ::takeHighlight,
+                textPreparer,
             )
 
             else -> SeparatorViewHolder(
@@ -182,7 +233,11 @@ class MessageListAdapter(
 
     override fun onViewAttachedToWindow(holder: RecyclerView.ViewHolder) {
         super.onViewAttachedToWindow(holder)
-        val row = currentList.getOrNull(holder.bindingAdapterPosition) as? MessageRow.Bubble ?: return
+        val position = holder.bindingAdapterPosition
+        val row = currentList.getOrNull(position) as? MessageRow.Bubble ?: return
+        if (lastPrefetchPosition < 0 || kotlin.math.abs(position - lastPrefetchPosition) >= 24) {
+            prepareRows(currentList, position)
+        }
         (holder as? BubbleViewHolder)?.bindSourceVisibility(row)
         (holder as? BubbleViewHolder)?.bindStickerLayout(row.message)
     }
@@ -192,28 +247,26 @@ class MessageListAdapter(
         position: Int,
         payloads: MutableList<Any>,
     ) {
-        // Only the upload progress changed: leave the picture alone, no crossfade
         val row = getItem(position)
-        when {
-            payloads.isNotEmpty() && payloads.all { it == "selection" } && row is MessageRow.Bubble ->
-                (holder as BubbleViewHolder).bindSelection(row)
-            payloads.isNotEmpty() && payloads.all { it == PAYLOAD_UPLOAD } && row is MessageRow.Bubble ->
-                (holder as BubbleViewHolder).bindUpload(row.message)
-
-            // Only the reactions changed: the rest stays as it is
-            payloads.isNotEmpty() && payloads.all { it == PAYLOAD_REACTIONS } && row is MessageRow.Bubble ->
-                (holder as BubbleViewHolder).bindReactions(row.message)
-
-            // Only the document's download went on
-            payloads.isNotEmpty() && payloads.all { it == PAYLOAD_DOCUMENT } && row is MessageRow.Bubble ->
-                (holder as BubbleViewHolder).bindDocument(row.message)
-
-            payloads.isNotEmpty() && payloads.all { it == PAYLOAD_HIGHLIGHT } && row is MessageRow.Bubble ->
-                (holder as BubbleViewHolder).bindHighlight(row)
-
-            payloads.isNotEmpty() && payloads.all { it == PAYLOAD_EMOJI } -> holder.itemView.invalidateTexts()
-
-            else -> super.onBindViewHolder(holder, position, payloads)
+        if (payloads.isEmpty()) {
+            onBindViewHolder(holder, position)
+            return
+        }
+        var mask = 0
+        for (payload in payloads) {
+            if (payload !is Int || payload == 0 || payload and PAYLOAD_ALL.inv() != 0) {
+                onBindViewHolder(holder, position)
+                return
+            }
+            mask = mask or payload
+        }
+        if (row is MessageRow.Bubble && holder is BubbleViewHolder) {
+            holder.bindPartial(row, mask)
+        } else if (mask == PAYLOAD_EMOJI || mask == PAYLOAD_SELECTION ||
+            mask == (PAYLOAD_EMOJI or PAYLOAD_SELECTION)) {
+            if (mask and PAYLOAD_EMOJI != 0) holder.itemView.invalidateTexts()
+        } else {
+            onBindViewHolder(holder, position)
         }
     }
 
@@ -265,6 +318,7 @@ class MessageListAdapter(
         private val hiddenMediaMessageId: () -> Long,
         private val selectedIds: () -> Set<Long>,
         private val takeHighlight: (MessageRow.Bubble) -> Highlight?,
+        private val textPreparer: MessageTextPreparer,
     ) : RecyclerView.ViewHolder(view) {
         private val forwardLinearLayout = view.findViewById<LinearLayout>(R.id.forwardLinearLayout)
         private val forwardAvatarView = view.findViewById<AvatarView>(R.id.forwardAvatarView)
@@ -283,6 +337,9 @@ class MessageListAdapter(
         private val reactionsChipGroup = view.findViewById<ChipGroup>(R.id.reactionsChipGroup)
 
         private var message: MessageItem? = null
+        private var boundRow: MessageRow.Bubble? = null
+        private var quoteCleanup: Runnable? = null
+        private var quoteMark: Any? = null
 
         /** Where the last touch on the text went down, to tell link taps from message taps. */
         private var textTouchX = 0f
@@ -297,6 +354,7 @@ class MessageListAdapter(
         private val mediaImageView = view.findViewById<ImageView>(R.id.mediaImageView)
         private val durationTextView = view.findViewById<TextView>(R.id.durationTextView)
         private val messageTextView = view.findViewById<TextView>(R.id.messageTextView)
+        private val textRenderer = MessageTextRenderer(messageTextView, textPreparer, callbacks::onMentionClick)
         private val metaTextView = view.findViewById<TextView>(R.id.metaTextView)
         private val senderTextView = view.findViewById<TextView>(R.id.senderTextView)
         private val stickerView = view.findViewById<StickerView>(R.id.stickerView)
@@ -462,7 +520,7 @@ class MessageListAdapter(
                 val card = reactionsChipGroup.getChildAt(index) as MaterialCardView
                 val (background, foreground) = if (reaction.isChosen) chosenColors else reactionColors
                 card.setCardBackgroundColor(background)
-                card.setOnClickListener { callbacks.onReactionClick(message, reaction) }
+                card.setOnClickListener { this.message?.let { callbacks.onReactionClick(it, reaction) } }
 
                 val customEmojiView = card.findViewById<CustomEmojiView>(R.id.customEmojiView)
                 val emojiTextView = card.findViewById<TextView>(R.id.emojiTextView)
@@ -487,8 +545,10 @@ class MessageListAdapter(
 
         fun bind(row: MessageRow.Bubble) {
             val message = row.message
+            (view as? ChatMessageCell)?.finishEditTransition()
+            clearHighlight()
+            boundRow = row
             this.message = message
-            val context = view.context
             val isOutgoing = message.isOutgoing
             val media = message.media
             messageId = message.id
@@ -562,54 +622,7 @@ class MessageListAdapter(
                 }
             }
 
-            // Text: media without a caption has none, other kinds say what they are
-            val text = when {
-                message.kind == MessagePreview.Kind.TEXT -> message.text.orEmpty()
-                // The player or the file says what it is
-                message.playable != null || message.document != null -> message.text.orEmpty()
-                media != null -> message.text.takeUnless { isSticker }.orEmpty()
-                else -> SpannableStringBuilder().apply {
-                    append(context.getString(message.kind.stringResId), StyleSpan(Typeface.ITALIC), 0)
-                    message.text?.let { append('\n').append(it) }
-                }
-            }
-            // Emoji drawn from Telegram's sprites, custom ones over them where the text has any
-            val fontMetrics = messageTextView.paint.fontMetricsInt
-            var spanned = Emoji.replaceEmoji(text, fontMetrics, true)
-            if (message.customEmoji.isNotEmpty()) {
-                // Text without plain emoji comes back as is
-                if (spanned !is Spannable) {
-                    spanned = android.text.SpannableString(spanned)
-                }
-                // Kinds that say what they are put the text after a line
-                val shift = if (text is SpannableStringBuilder) text.length - message.text.orEmpty().length else 0
-                spanned.setCustomEmoji(message.customEmoji, fontMetrics, shift)
-            }
-            // Mentions open the profile, like links open the browser
-            if (message.mentions.isNotEmpty()) {
-                if (spanned !is Spannable) {
-                    spanned = android.text.SpannableString(spanned)
-                }
-                val shift = if (text is SpannableStringBuilder) text.length - message.text.orEmpty().length else 0
-                message.mentions.forEach { mention ->
-                    val start = mention.offset + shift
-                    val end = start + mention.length
-                    if (start < 0 || end > spanned.length) {
-                        return@forEach
-                    }
-                    val username = spanned.substring(start, end).removePrefix("@")
-                    spanned.setSpan(object : ClickableSpan() {
-                        override fun onClick(widget: View) = callbacks.onMentionClick(mention.userId, username)
-
-                        override fun updateDrawState(ds: android.text.TextPaint) {
-                            ds.color = ds.linkColor
-                        }
-                    }, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-                }
-            }
-            messageTextView.text = spanned
-            messageTextView.attachCustomEmoji()
-            messageTextView.isVisible = text.isNotEmpty()
+            bindText(message)
             bindForward(message.forward, foreground)
             bindReply(message.reply, foreground)
             val hasHeader = senderLinearLayout.isVisible || forwardLinearLayout.isVisible
@@ -622,6 +635,80 @@ class MessageListAdapter(
 
             bindHighlight(row)
             bindSelection(row)
+        }
+
+        /** Reuse the bound view and apply only independent changed fields. */
+        fun bindPartial(row: MessageRow.Bubble, mask: Int) {
+            val previous = boundRow
+            if (previous == null || previous.message.id != row.message.id) {
+                bind(row)
+                return
+            }
+            // A cached holder may miss earlier payloads. Verify the actual bound row too.
+            val actual = DiffCallback.getChangePayload(previous, row) as? Int
+            if (previous != row && actual == null) {
+                bind(row)
+                return
+            }
+            val changes = mask or (actual ?: 0)
+            val message = row.message
+            boundRow = row
+            this.message = message
+            messageId = message.id
+            val foreground = if (message.isOutgoing) outgoingColors.second else incomingColors.second
+            val textColor = if (isFloating(message)) colorOnSurfaceVariant else foreground
+            if (changes and (PAYLOAD_TEXT or PAYLOAD_META) != 0 &&
+                (previous.message.text != message.text || previous.message.isEdited != message.isEdited) &&
+                bubbleCardView.alpha == 1f && !isFloating(message)) {
+                (view as? ChatMessageCell)?.beginEditTransition(bubbleCardView, messageTextView, metaTextView)
+            }
+            if (changes and PAYLOAD_TEXT != 0) {
+                clearHighlight()
+                bindText(message)
+            }
+            if (changes and PAYLOAD_META != 0) bindMeta(message, textColor)
+            if (changes and PAYLOAD_REACTIONS != 0) bindReactions(message)
+            if (changes and PAYLOAD_UPLOAD != 0) bindUpload(message)
+            if (changes and PAYLOAD_DOCUMENT != 0) bindDocument(message)
+            if (changes and PAYLOAD_REPLY != 0) {
+                bindReply(message.reply, foreground)
+                val hasHeader = senderLinearLayout.isVisible || forwardLinearLayout.isVisible || replyPlateLinearLayout.isVisible
+                messageTextView.updatePaddingRelative(top = view.toPx(if (hasHeader) 4 else 8))
+            }
+            if (changes and PAYLOAD_SELECTION != 0) bindSelection(row)
+            if (changes and PAYLOAD_EMOJI != 0) view.invalidateTexts()
+            if (changes and PAYLOAD_HIGHLIGHT != 0) bindHighlight(row)
+        }
+
+        private fun isFloating(message: MessageItem): Boolean = when (message.media?.type) {
+            MessageItem.Media.Type.STICKER, MessageItem.Media.Type.ANIMATED_STICKER,
+            MessageItem.Media.Type.VIDEO_NOTE -> true
+            else -> false
+        }
+
+        private fun bindText(message: MessageItem) = textRenderer.bind(message)
+
+        private fun clearHighlight() {
+            highlightAnimator?.cancel()
+            highlightAnimator = null
+            highlightFlash?.let(bubbleCardView.overlay::remove)
+            highlightFlash = null
+            quoteCleanup?.let(messageTextView::removeCallbacks)
+            quoteCleanup = null
+            quoteMark?.let { (messageTextView.text as? Spannable)?.removeSpan(it) }
+            quoteMark = null
+        }
+
+        fun recycle() {
+            (view as? ChatMessageCell)?.finishEditTransition()
+            clearHighlight()
+            mediaImageView.dispose()
+            stickerView.setSticker(null, 0)
+            animationView.setVideo(null as Uri?)
+            senderEmojiStatusView.clear()
+            message = null
+            boundRow = null
+            messageId = 0L
         }
 
         fun bindSelection(row: MessageRow.Bubble) {
@@ -732,14 +819,14 @@ class MessageListAdapter(
             replyTextView.maxLines = if (quote != null) QUOTE_MAX_LINES else 1
             replyTextView.setTypeface(null, if (quote != null) Typeface.ITALIC else Typeface.NORMAL)
             val text = quote ?: reply.text?.takeIf { it.isNotBlank() }
-                ?: context.getString(reply.kind.stringResId)
+            ?: context.getString(reply.kind.stringResId)
             replyTextView.text = Emoji.replaceEmoji(text, replyTextView.paint.fontMetricsInt, false)
         }
 
         /** Flash the bubble, and mark the quote in its text, when it's the highlighted one. */
         fun bindHighlight(row: MessageRow.Bubble) {
             val highlight = takeHighlight(row) ?: return
-            highlightAnimator?.cancel()
+            clearHighlight()
 
             // Over the bubble's own drawing, its card keeps its ripple in the foreground
             val color = MaterialColors.getColor(view, androidx.appcompat.R.attr.colorPrimary)
@@ -771,9 +858,16 @@ class MessageListAdapter(
                 start()
             }
             quoteSpan?.let { span ->
-                messageTextView.postDelayed({
+                quoteMark = span
+                val cleanup = Runnable {
                     (messageTextView.text as? Spannable)?.removeSpan(span)
-                }, QUOTE_HIGHLIGHT_DURATION_MS)
+                    if (quoteMark === span) {
+                        quoteMark = null
+                        quoteCleanup = null
+                    }
+                }
+                quoteCleanup = cleanup
+                messageTextView.postDelayed(cleanup, QUOTE_HIGHLIGHT_DURATION_MS)
             }
         }
 
@@ -1052,32 +1146,47 @@ class MessageListAdapter(
         override fun areContentsTheSame(oldItem: MessageRow, newItem: MessageRow) =
             oldItem.areContentsTheSame(newItem)
 
-        override fun getChangePayload(oldItem: MessageRow, newItem: MessageRow): Any? = when {
-            oldItem is MessageRow.Bubble && newItem is MessageRow.Bubble && oldItem.copy(
-                message = oldItem.message.copy(reactions = newItem.message.reactions)
-            ) == newItem -> PAYLOAD_REACTIONS
-
-            oldItem is MessageRow.Bubble && newItem is MessageRow.Bubble && oldItem.copy(
-                message = oldItem.message.copy(
-                    uploadProgress = newItem.message.uploadProgress,
-                    isProcessing = newItem.message.isProcessing,
-                )
-            ) == newItem -> PAYLOAD_UPLOAD
-
-            oldItem is MessageRow.Bubble && newItem is MessageRow.Bubble && oldItem.copy(
-                message = oldItem.message.copy(document = newItem.message.document)
-            ) == newItem -> PAYLOAD_DOCUMENT
-
-            else -> null
+        override fun getChangePayload(oldItem: MessageRow, newItem: MessageRow): Any? {
+            if (oldItem !is MessageRow.Bubble || newItem !is MessageRow.Bubble ||
+                oldItem.message.id != newItem.message.id) return null
+            val old = oldItem.message
+            val new = newItem.message
+            var changes = 0
+            if (old.text != new.text || old.customEmoji != new.customEmoji || old.mentions != new.mentions)
+                changes = changes or PAYLOAD_TEXT
+            if (old.date != new.date || old.isEdited != new.isEdited || old.state != new.state)
+                changes = changes or PAYLOAD_META
+            if (old.reactions != new.reactions) changes = changes or PAYLOAD_REACTIONS
+            if (old.uploadProgress != new.uploadProgress || old.isProcessing != new.isProcessing)
+                changes = changes or PAYLOAD_UPLOAD
+            // A document's presence affects the text, layout and media selection; full bind then.
+            if ((old.document == null) != (new.document == null)) return null
+            if (old.document != new.document) changes = changes or PAYLOAD_DOCUMENT
+            if (old.reply != new.reply) changes = changes or PAYLOAD_REPLY
+            // Upload presence controls mediaFrameLayout visibility, not only the progress indicator.
+            if ((old.uploadProgress == null) != (new.uploadProgress == null)) return null
+            // Any unhandled field (album, geometry, sender, media, etc.) requires a full bind.
+            val normalized = oldItem.copy(message = old.copy(
+                text = new.text, customEmoji = new.customEmoji, mentions = new.mentions,
+                date = new.date, isEdited = new.isEdited, state = new.state,
+                reactions = new.reactions, uploadProgress = new.uploadProgress,
+                isProcessing = new.isProcessing, document = new.document, reply = new.reply,
+            ))
+            return changes.takeIf { it != 0 && normalized == newItem }
         }
     }
 
     private companion object {
-        const val PAYLOAD_UPLOAD = "upload"
-        const val PAYLOAD_REACTIONS = "reactions"
-        const val PAYLOAD_DOCUMENT = "document"
-        const val PAYLOAD_HIGHLIGHT = "highlight"
-        const val PAYLOAD_EMOJI = "emoji"
+        const val PAYLOAD_UPLOAD = 1 shl 0
+        const val PAYLOAD_REACTIONS = 1 shl 1
+        const val PAYLOAD_DOCUMENT = 1 shl 2
+        const val PAYLOAD_HIGHLIGHT = 1 shl 3
+        const val PAYLOAD_EMOJI = 1 shl 4
+        const val PAYLOAD_SELECTION = 1 shl 5
+        const val PAYLOAD_TEXT = 1 shl 6
+        const val PAYLOAD_META = 1 shl 7
+        const val PAYLOAD_REPLY = 1 shl 8
+        const val PAYLOAD_ALL = (1 shl 9) - 1
 
         private fun View.invalidateTexts() {
             invalidate()

@@ -10,8 +10,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView.DiffAdapter
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.models.ContactRow
 import com.github.borz7zy.shadowgram.ui.views.ContactListItemView
@@ -22,7 +22,7 @@ import com.github.borz7zy.shadowgram.ui.views.ContactListItemView
 class ContactListAdapter(
     /** With the avatar, shared with the profile it opens. */
     private val onClick: (ContactRow.Contact, View) -> Unit,
-) : ListAdapter<ContactRow, RecyclerView.ViewHolder>(diffCallback) {
+) : DiffAdapter<ContactRow, RecyclerView.ViewHolder>(diffCallback) {
     override fun getItemViewType(position: Int) = when (getItem(position)) {
         is ContactRow.Header -> R.layout.contact_list_header
         is ContactRow.Contact -> R.layout.contact_list_item

@@ -30,7 +30,7 @@
         android:textAppearance="?attr/textAppearanceTitleLarge"
         android:textColor="?attr/colorOnSurface" />
 
-    <androidx.recyclerview.widget.RecyclerView
+    <com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
         android:id="@+id/recyclerView"
         android:layout_width="match_parent"
         android:layout_height="0dp"

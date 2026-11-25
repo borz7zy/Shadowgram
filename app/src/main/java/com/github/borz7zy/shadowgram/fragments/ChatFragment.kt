@@ -50,7 +50,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.children
-import androidx.core.view.descendants
 import androidx.core.view.doOnLayout
 import androidx.core.view.doOnNextLayout
 import androidx.core.view.drawToBitmap
@@ -70,6 +69,8 @@ import androidx.navigation.fragment.FragmentNavigatorExtras
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.transition.TransitionInflater
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView.DiffAdapter
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.models.MessageSelectionActions
@@ -170,10 +171,10 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     private val linearProgressIndicator by getViewProperty<LinearProgressIndicator>(R.id.linearProgressIndicator)
     private val messageEditText by getViewProperty<TextInputEditText>(R.id.messageEditText)
     private val noElementsLinearLayout by getViewProperty<LinearLayout>(R.id.noElementsLinearLayout)
-    private val recyclerView by getViewProperty<RecyclerView>(R.id.recyclerView)
+    private val recyclerView by getViewProperty<RecyclerListView>(R.id.recyclerView)
     private val sendMaterialButton by getViewProperty<MaterialButton>(R.id.sendMaterialButton)
     private val pinnedLinearLayout by getViewProperty<LinearLayout>(R.id.pinnedLinearLayout)
-    private val suggestionsRecyclerView by getViewProperty<RecyclerView>(R.id.suggestionsRecyclerView)
+    private val suggestionsRecyclerView by getViewProperty<RecyclerListView>(R.id.suggestionsRecyclerView)
     private val reactionsFrameLayout by getViewProperty<View>(R.id.reactionsFrameLayout)
     private val reactionsFloatingActionButton by getViewProperty<View>(R.id.reactionsFloatingActionButton)
     private val reactionsCountTextView by getViewProperty<TextView>(R.id.reactionsCountTextView)
@@ -546,15 +547,19 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             jumpTo(bundle.getLong(ChatSearchFragment.KEY_MESSAGE_ID))
         }
 
-        recyclerView.layoutManager = LinearLayoutManager(requireContext()).apply {
-            reverseLayout = true
+        recyclerView.withoutLayoutRequests {
+            layoutManager = LinearLayoutManager(requireContext()).apply {
+                reverseLayout = true
+            }
+            adapter = this@ChatFragment.adapter
+            avatarDecoration = SenderAvatarDecoration(this@ChatFragment.recyclerView, this@ChatFragment.adapter)
+            addItemDecoration(avatarDecoration)
+            addOnItemTouchListener(avatarTouchListener)
+            addOnScrollListener(onScrollListener)
         }
-        recyclerView.adapter = adapter
-        suggestionsRecyclerView.adapter = suggestionsAdapter
-        avatarDecoration = SenderAvatarDecoration(recyclerView, adapter)
-        recyclerView.addItemDecoration(avatarDecoration)
-        recyclerView.addOnItemTouchListener(avatarTouchListener)
-        recyclerView.addOnScrollListener(onScrollListener)
+        suggestionsRecyclerView.withoutLayoutRequests {
+            adapter = this@ChatFragment.suggestionsAdapter
+        }
         // Rotated: the list restores its own position
         canView = viewModel.isPositioned
 
@@ -1652,7 +1657,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         val edit = viewModel.edit.value
         if (edit != null) {
             sendMaterialButton.isEnabled = !edit.isSaving && (edit.target.isCaption ||
-                edit.replacement != null || !messageEditText.text.isNullOrBlank())
+                    edit.replacement != null || !messageEditText.text.isNullOrBlank())
             sendMaterialButton.isVisible = true
             videoNoteMaterialButton.isVisible = false
             botCommandsMaterialButton.isVisible = false
@@ -1913,10 +1918,16 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         val wasAtBottom = canView && result.data.isNewestLoaded && layoutManager.childCount > 0
                 && layoutManager.findFirstCompletelyVisibleItemPosition() <= 0
 
-        // The diff runs in background and may complete after this view is gone,
-        // so the callback must not look views up again
+        // The diff can finish after this view is gone. Verify the original RecyclerView
+        // is still bound before performing any navigation or scrolling.
         val recyclerView = recyclerView
+        val previousNewest = adapter.currentList.firstOrNull { it is MessageRow.Bubble } as? MessageRow.Bubble
+        val nextNewest = rows.firstOrNull { it is MessageRow.Bubble } as? MessageRow.Bubble
+        val newestChanged = previousNewest?.message?.id != nextNewest?.message?.id ||
+                previousNewest?.album?.map { it.id } != nextNewest?.album?.map { it.id }
+        adapter.prepareRows(rows, layoutManager.findFirstVisibleItemPosition())
         adapter.submitList(rows) {
+            if (view == null || recyclerView.adapter !== adapter || this@ChatFragment.recyclerView !== recyclerView) return@submitList
             when {
                 !viewModel.isPositioned -> {
                     viewModel.isPositioned = true
@@ -1933,7 +1944,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
                 }
 
                 // Follow new messages, unless reading older ones
-                wasAtBottom -> recyclerView.scrollToPosition(0)
+                wasAtBottom && newestChanged -> recyclerView.scrollToPosition(0)
             }
         }
 
@@ -2023,7 +2034,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     /** A row over the composer: the avatar or thumbnail, the name, a line under it. */
     private class SuggestionsAdapter(
         private val onClick: (ChatViewModel.Suggestion) -> Unit,
-    ) : androidx.recyclerview.widget.ListAdapter<ChatViewModel.Suggestion, SuggestionsAdapter.ViewHolder>(
+    ) : DiffAdapter<ChatViewModel.Suggestion, SuggestionsAdapter.ViewHolder>(
         object : androidx.recyclerview.widget.DiffUtil.ItemCallback<ChatViewModel.Suggestion>() {
             override fun areItemsTheSame(oldItem: ChatViewModel.Suggestion, newItem: ChatViewModel.Suggestion) =
                 oldItem.key == newItem.key

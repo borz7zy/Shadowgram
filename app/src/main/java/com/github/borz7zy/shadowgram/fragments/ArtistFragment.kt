@@ -23,12 +23,12 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.ui.setupWithNavController
-import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ext.Bundle
 import com.github.borz7zy.shadowgram.ext.getParcelable
@@ -57,12 +57,12 @@ class ArtistFragment : CollapsingToolbarLayoutFragment(R.layout.fragment_artist)
 
     // Views
     private val albumsLinearLayout by getViewProperty<LinearLayout>(R.id.albumsLinearLayout)
-    private val albumsRecyclerView by getViewProperty<RecyclerView>(R.id.albumsRecyclerView)
+    private val albumsRecyclerView by getViewProperty<RecyclerListView>(R.id.albumsRecyclerView)
     override val appBarLayout by getViewProperty<AppBarLayout>(R.id.appBarLayout)
     private val appearsInAlbumLinearLayout by getViewProperty<LinearLayout>(R.id.appearsInAlbumLinearLayout)
-    private val appearsInAlbumRecyclerView by getViewProperty<RecyclerView>(R.id.appearsInAlbumRecyclerView)
+    private val appearsInAlbumRecyclerView by getViewProperty<RecyclerListView>(R.id.appearsInAlbumRecyclerView)
     private val appearsInPlaylistLinearLayout by getViewProperty<LinearLayout>(R.id.appearsInPlaylistLinearLayout)
-    private val appearsInPlaylistRecyclerView by getViewProperty<RecyclerView>(R.id.appearsInPlaylistRecyclerView)
+    private val appearsInPlaylistRecyclerView by getViewProperty<RecyclerListView>(R.id.appearsInPlaylistRecyclerView)
     private val artistNameTextView by getViewProperty<TextView>(R.id.artistNameTextView)
     override val coordinatorLayout by getViewProperty<CoordinatorLayout>(R.id.coordinatorLayout)
     private val infoNestedScrollView by getViewProperty<NestedScrollView?>(R.id.infoNestedScrollView)

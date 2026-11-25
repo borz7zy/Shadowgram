@@ -23,12 +23,12 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.ui.setupWithNavController
-import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ext.Bundle
 import com.github.borz7zy.shadowgram.ext.getParcelable
@@ -59,11 +59,11 @@ class GenreFragment : CollapsingToolbarLayoutFragment(R.layout.fragment_genre) {
     // Views
     override val appBarLayout by getViewProperty<AppBarLayout>(R.id.appBarLayout)
     private val appearsInAlbumsLinearLayout by getViewProperty<LinearLayout>(R.id.appearsInAlbumsLinearLayout)
-    private val appearsInAlbumsRecyclerView by getViewProperty<RecyclerView>(R.id.appearsInAlbumsRecyclerView)
+    private val appearsInAlbumsRecyclerView by getViewProperty<RecyclerListView>(R.id.appearsInAlbumsRecyclerView)
     private val appearsInPlaylistsLinearLayout by getViewProperty<LinearLayout>(R.id.appearsInPlaylistsLinearLayout)
-    private val appearsInPlaylistsRecyclerView by getViewProperty<RecyclerView>(R.id.appearsInPlaylistsRecyclerView)
+    private val appearsInPlaylistsRecyclerView by getViewProperty<RecyclerListView>(R.id.appearsInPlaylistsRecyclerView)
     private val audiosLinearLayout by getViewProperty<LinearLayout>(R.id.audiosLinearLayout)
-    private val audiosRecyclerView by getViewProperty<RecyclerView>(R.id.audiosRecyclerView)
+    private val audiosRecyclerView by getViewProperty<RecyclerListView>(R.id.audiosRecyclerView)
     override val coordinatorLayout by getViewProperty<CoordinatorLayout>(R.id.coordinatorLayout)
     private val genreNameTextView by getViewProperty<TextView>(R.id.genreNameTextView)
     private val infoNestedScrollView by getViewProperty<NestedScrollView?>(R.id.infoNestedScrollView)

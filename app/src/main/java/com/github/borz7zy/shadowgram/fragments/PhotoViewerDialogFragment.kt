@@ -55,7 +55,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import coil3.dispose
@@ -63,6 +62,7 @@ import coil3.load
 import coil3.request.allowHardware
 import coil3.request.placeholder
 import coil3.size.Precision
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView.DiffAdapter
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ui.finishOverlayReturn
 import com.github.borz7zy.shadowgram.ui.mediaTransitionViewport
@@ -741,7 +741,7 @@ class PhotoViewerDialogFragment : DialogFragment(), ZoomableImageView.Listener {
     ).toLong()
 
     /** The photos, one page each: blurry or the bubble's picture first, the full size after. */
-    private inner class PagesAdapter : ListAdapter<PhotoViewerViewModel.Photo, PageHolder>(
+    private inner class PagesAdapter : DiffAdapter<PhotoViewerViewModel.Photo, PageHolder>(
         object : DiffUtil.ItemCallback<PhotoViewerViewModel.Photo>() {
             override fun areItemsTheSame(oldItem: PhotoViewerViewModel.Photo, newItem: PhotoViewerViewModel.Photo) =
                 oldItem.messageId == newItem.messageId

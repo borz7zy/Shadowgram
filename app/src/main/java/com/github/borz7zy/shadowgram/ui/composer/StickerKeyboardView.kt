@@ -17,11 +17,12 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import coil3.dispose
 import coil3.load
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView.DiffAdapter
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.emoji.EmojiData
 import com.github.borz7zy.shadowgram.telegram.StickersStore
@@ -60,7 +61,7 @@ class StickerKeyboardView @JvmOverloads constructor(
     private val pager = ViewPager2(context)
     private val tabsHeight = (TABS_HEIGHT_DP * resources.displayMetrics.density).toInt()
     private val tabsAdapter = TabsAdapter()
-    private val tabs = RecyclerView(context).apply {
+    private val tabs = RecyclerListView(context).apply {
         layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
         adapter = tabsAdapter
         itemAnimator = null
@@ -191,7 +192,7 @@ class StickerKeyboardView @JvmOverloads constructor(
             .start()
     }
 
-    private inner class TabsAdapter : ListAdapter<Tab, TabHolder>(TabDiff) {
+    private inner class TabsAdapter : DiffAdapter<Tab, TabHolder>(TabDiff) {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = TabHolder(
             FrameLayout(parent.context).apply {
                 layoutParams = ViewGroup.LayoutParams(tabsHeight + tabsHeight / 3, tabsHeight)

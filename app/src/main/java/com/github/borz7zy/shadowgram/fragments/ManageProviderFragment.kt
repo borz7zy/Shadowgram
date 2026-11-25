@@ -18,7 +18,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.ui.setupWithNavController
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.checkbox.MaterialCheckBox
@@ -27,6 +26,7 @@ import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ext.Bundle
 import com.github.borz7zy.shadowgram.ext.getParcelable
@@ -51,7 +51,7 @@ class ManageProviderFragment : Fragment(R.layout.fragment_manage_provider) {
     private val viewModel by viewModels<ManageProviderViewModel>()
 
     // Views
-    private val argumentsRecyclerView by getViewProperty<RecyclerView>(R.id.argumentsRecyclerView)
+    private val argumentsRecyclerView by getViewProperty<RecyclerListView>(R.id.argumentsRecyclerView)
     private val confirmMaterialButton by getViewProperty<MaterialButton>(R.id.confirmMaterialButton)
     private val deleteMaterialButton by getViewProperty<MaterialButton>(R.id.deleteMaterialButton)
     private val fullscreenLoadingProgressBar by getViewProperty<FullscreenLoadingProgressBar>(R.id.fullscreenLoadingProgressBar)

@@ -31,6 +31,7 @@ import androidx.lifecycle.findViewTreeLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.MaterialColors
@@ -76,10 +77,10 @@ class GalleryPanelView @JvmOverloads constructor(
     private var mediaJob: Job? = null
     private val grid = GridLayoutManager(context, 3)
     private val adapter = GalleryAdapter()
-    private val list = RecyclerView(context).apply {
+    private val list = RecyclerListView(context).apply {
         layoutManager = grid
         adapter = this@GalleryPanelView.adapter
-        setPadding(dp(4), 0, dp(4), dp(4))
+        setPaddingWithoutRequestLayout(dp(4), 0, dp(4), dp(4))
         clipToPadding = false
     }
     private val albumButton = MaterialButton(context, null, com.google.android.material.R.attr.materialButtonOutlinedStyle)

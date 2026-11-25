@@ -27,6 +27,7 @@ import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.borz7zy.rustcore.RustMedia
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.MainActivity
 import com.github.borz7zy.shadowgram.ext.getViewProperty
@@ -66,7 +67,7 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
     // Views
     private val linearProgressIndicator by getViewProperty<LinearProgressIndicator>(R.id.linearProgressIndicator)
     private val noElementsLinearLayout by getViewProperty<LinearLayout>(R.id.noElementsLinearLayout)
-    private val recyclerView by getViewProperty<RecyclerView>(R.id.recyclerView)
+    private val recyclerView by getViewProperty<RecyclerListView>(R.id.recyclerView)
     private val voiceToggleGroup by getViewProperty<MaterialButtonToggleGroup>(R.id.voiceToggleGroup)
     private val giftCollectionsScrollView by getViewProperty<HorizontalScrollView>(R.id.giftCollectionsScrollView)
     private val giftCollectionsGroup by getViewProperty<ChipGroup>(R.id.giftCollectionsGroup)

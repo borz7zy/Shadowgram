@@ -20,6 +20,8 @@ import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Process;
+import android.os.SystemClock;
 import android.text.Spannable;
 import android.text.Spanned;
 import android.text.TextPaint;
@@ -28,31 +30,35 @@ import android.text.style.DynamicDrawableSpan;
 import android.text.style.ImageSpan;
 import android.util.SparseIntArray;
 
+import com.github.borz7zy.shadowgram.background.AsyncTask;
+
 
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicIntegerArray;
+import java.util.concurrent.atomic.AtomicLongArray;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 public class Emoji {
 
     private static final String TAG = "Emoji";
 
     /** Set once by {@link #init(Context)}, before any other call. */
-    private static Context appContext;
+    private static volatile Context appContext;
 
     public static void init(Context context) {
-        appContext = context.getApplicationContext();
-        drawImgSize = dp(20);
-        bigImgSize = dp(34);
+        Context application = context.getApplicationContext();
+        float density = application.getResources().getDisplayMetrics().density;
+        drawImgSize = (int) Math.ceil(20 * density);
+        bigImgSize = (int) Math.ceil(34 * density);
+        appContext = application;
     }
 
     private static final java.util.HashMap<CharSequence, DrawableInfo> rects = new java.util.HashMap<>();
@@ -63,30 +69,61 @@ public class Emoji {
             EmojiData.data[0].length, EmojiData.data[1].length, EmojiData.data[2].length, EmojiData.data[3].length,
             EmojiData.data[4].length, EmojiData.data[5].length, EmojiData.data[6].length, EmojiData.data[7].length
     };
-    private static final Bitmap[][] emojiBmp = new Bitmap[8][];
-    private static final boolean[][] loadingEmoji = new boolean[8][];
+    private static final int PAGE_COUNT = 8;
+    private static final int NOT_LOADING = 0;
+    private static final int LOADING = 1;
+    private static final long FAILED_RETRY_MS = 5_000L;
+    private static final long BUSY_RETRY_MS = 100L;
+
+    private static final ArrayList<AtomicReferenceArray<Bitmap>> emojiBmp = new ArrayList<>(PAGE_COUNT);
+    private static final AtomicIntegerArray[] loadingEmoji = new AtomicIntegerArray[PAGE_COUNT];
+    private static final AtomicLongArray[] retryAfter = new AtomicLongArray[PAGE_COUNT];
 
     public static float emojiDrawingYOffset;
     public static boolean emojiDrawingUseAlpha = true;
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
-    private static final Executor LOAD_EXEC = Executors.newSingleThreadExecutor(new ThreadFactory() {
-        @Override public Thread newThread(Runnable r) {
-            Thread t = new Thread(r, "emoji-loader");
-            t.setPriority(Thread.NORM_PRIORITY - 1);
-            return t;
-        }
-    });
-
+    private static final AtomicBoolean invalidationPosted = new AtomicBoolean();
+    private static final AtomicBoolean busyRetryPosted = new AtomicBoolean();
     private static final CopyOnWriteArrayList<WeakReference<Runnable>> invalidateCallbacks = new CopyOnWriteArrayList<>();
 
     private static final Runnable invalidateAllRunnable = () -> {
-        Iterator<WeakReference<Runnable>> it = invalidateCallbacks.iterator();
-        while (it.hasNext()) {
-            Runnable r = it.next().get();
-            if (r != null) r.run();
+        invalidationPosted.set(false);
+        for (WeakReference<Runnable> ref : invalidateCallbacks) {
+            Runnable callback = ref.get();
+            if (callback == null) {
+                invalidateCallbacks.remove(ref);
+            } else {
+                try {
+                    callback.run();
+                } catch (RuntimeException error) {
+                    android.util.Log.e(TAG, "Emoji invalidator failed", error);
+                }
+            }
         }
     };
+
+    // Coalesce completed loads without postponing a pending redraw on each completion.
+    private static void requestInvalidation() {
+        if (invalidationPosted.compareAndSet(false, true)) {
+            if (!MAIN.postDelayed(invalidateAllRunnable, 16L)) {
+                invalidationPosted.set(false);
+            }
+        }
+    }
+
+    // The shared media pool has a bounded queue. Never fall back to decoding on UI.
+    // Ask visible consumers to draw again after a short, globally coalesced cooldown.
+    private static void retryWhenMediaPoolBusy() {
+        if (busyRetryPosted.compareAndSet(false, true)) {
+            if (!MAIN.postDelayed(() -> {
+                busyRetryPosted.set(false);
+                requestInvalidation();
+            }, BUSY_RETRY_MS)) {
+                busyRetryPosted.set(false);
+            }
+        }
+    }
 
     public static void registerInvalidator(Runnable r) {
         invalidateCallbacks.add(new WeakReference<>(r));
@@ -108,9 +145,10 @@ public class Emoji {
     }
 
     static {
-        for (int a = 0; a < emojiBmp.length; a++) {
-            emojiBmp[a] = new Bitmap[emojiCounts[a]];
-            loadingEmoji[a] = new boolean[emojiCounts[a]];
+        for (int a = 0; a < PAGE_COUNT; a++) {
+            emojiBmp.add(new AtomicReferenceArray<>(emojiCounts[a]));
+            loadingEmoji[a] = new AtomicIntegerArray(emojiCounts[a]);
+            retryAfter[a] = new AtomicLongArray(emojiCounts[a]);
         }
         for (int j = 0; j < EmojiData.data.length; j++) {
             for (int i = 0; i < EmojiData.data[j].length; i++) {
@@ -126,7 +164,8 @@ public class Emoji {
         if (info != null) loadEmoji(info.page, info.page2);
     }
 
-    private static SparseIntArray emojiAlphaMasks;
+    private static final Object ALPHA_MASKS_LOCK = new Object();
+    private static volatile SparseIntArray emojiAlphaMasks;
     private static volatile boolean alphaMasksLoadFailed;
 
     private static SparseIntArray loadEmojiAlphaMasks() {
@@ -166,52 +205,114 @@ public class Emoji {
         }
     }
 
-    private static void loadEmoji(final byte page, final short page2) {
-        if (emojiBmp[page][page2] != null) return;
-        synchronized (loadingEmoji) {
-            if (loadingEmoji[page][page2]) return;
-            loadingEmoji[page][page2] = true;
+    /** The metadata is built once and is read-only after safe publication. */
+    private static SparseIntArray getEmojiAlphaMasks() {
+        SparseIntArray masks = emojiAlphaMasks;
+        if (masks != null || alphaMasksLoadFailed) return masks;
+        synchronized (ALPHA_MASKS_LOCK) {
+            if (emojiAlphaMasks == null && !alphaMasksLoadFailed) {
+                emojiAlphaMasks = loadEmojiAlphaMasks();
+            }
+            return emojiAlphaMasks;
         }
-        LOAD_EXEC.execute(() -> {
-            Bitmap bitmap = loadBitmap("emoji/" + String.format(Locale.US, "%d_%d.png", page, page2));
+    }
+
+    private static Bitmap cachedBitmap(byte page, short page2) {
+        return emojiBmp.get(page).get(page2);
+    }
+
+    private static void loadEmoji(final byte page, final short page2) {
+        if (appContext == null || cachedBitmap(page, page2) != null || busyRetryPosted.get()) return;
+        if (SystemClock.elapsedRealtime() < retryAfter[page].get(page2)) return;
+        if (!loadingEmoji[page].compareAndSet(page2, NOT_LOADING, LOADING)) return;
+
+        // Another worker may have published the bitmap between the cache read and CAS.
+        if (cachedBitmap(page, page2) != null || SystemClock.elapsedRealtime() < retryAfter[page].get(page2)) {
+            loadingEmoji[page].set(page2, NOT_LOADING);
+            return;
+        }
+        try {
+            AsyncTask.MEDIA_EXECUTOR.execute(() -> decodeEmoji(page, page2));
+        } catch (RejectedExecutionException rejected) {
+            retryWhenMediaPoolBusy();
+            loadingEmoji[page].set(page2, NOT_LOADING);
+        } catch (RuntimeException error) {
+            loadingEmoji[page].set(page2, NOT_LOADING);
+            android.util.Log.e(TAG, "Cannot schedule emoji load", error);
+        }
+    }
+
+    private static void decodeEmoji(byte page, short page2) {
+        Bitmap bitmap = null;
+        boolean published = false;
+        int oldPriority = Process.THREAD_PRIORITY_DEFAULT;
+        boolean restorePriority = false;
+        try {
+            // Raw executor calls bypass AsyncTask.runWorker's priority handling.
             try {
-                if (emojiAlphaMasks == null && !alphaMasksLoadFailed) {
-                    emojiAlphaMasks = loadEmojiAlphaMasks();
-                }
-                int maskIndex = -1;
-                if (emojiAlphaMasks != null) {
-                    maskIndex = emojiAlphaMasks.get(page * 4096 + page2, -1);
-                }
-                if (bitmap != null && maskIndex != -1) {
-                    Bitmap alphaBitmap = loadBitmap("emoji/masks/" + String.format(Locale.US, "%d.png", maskIndex));
-                    if (alphaBitmap != null) {
-                        int w = bitmap.getWidth();
-                        int h = bitmap.getHeight();
-                        int[] rgbPixels = new int[w * h];
-                        int[] alphaPixels = new int[w * h];
-                        bitmap.getPixels(rgbPixels, 0, w, 0, 0, w, h);
-                        alphaBitmap.getPixels(alphaPixels, 0, w, 0, 0, w, h);
-                        alphaBitmap.recycle();
-                        for (int i = 0; i < rgbPixels.length; i++) {
-                            int c = rgbPixels[i];
-                            c = (c & 0x00FFFFFF) | ((alphaPixels[i] & 0xFF) << 24);
-                            rgbPixels[i] = c;
-                        }
-                        bitmap.recycle();
-                        bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-                        bitmap.setPixels(rgbPixels, 0, w, 0, 0, w, h);
-                    }
-                }
-            } catch (Throwable e) {
-                android.util.Log.e(TAG, "load mask failed", e);
+                oldPriority = Process.getThreadPriority(Process.myTid());
+                Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT);
+                restorePriority = true;
+            } catch (RuntimeException ignored) {
+                // Continue with the worker's current priority.
             }
-            if (bitmap != null) {
-                emojiBmp[page][page2] = bitmap;
-                MAIN.removeCallbacks(invalidateAllRunnable);
-                MAIN.post(invalidateAllRunnable);
+            bitmap = loadBitmap("emoji/" + page + "_" + page2 + ".png");
+            if (bitmap == null) return;
+            SparseIntArray masks = getEmojiAlphaMasks();
+            int maskIndex = masks == null ? -1 : masks.get(page * 4096 + page2, -1);
+            if (maskIndex != -1) {
+                bitmap = applyAlphaMask(bitmap, maskIndex);
             }
-            loadingEmoji[page][page2] = false;
-        });
+            emojiBmp.get(page).set(page2, bitmap);
+            published = true;
+            retryAfter[page].set(page2, 0L);
+            requestInvalidation();
+        } catch (RuntimeException | OutOfMemoryError error) {
+            android.util.Log.e(TAG, "Emoji decode failed: " + page + "_" + page2, error);
+        } finally {
+            try {
+                if (!published) {
+                    retryAfter[page].set(page2, SystemClock.elapsedRealtime() + FAILED_RETRY_MS);
+                    if (bitmap != null) bitmap.recycle();
+                }
+            } finally {
+                loadingEmoji[page].set(page2, NOT_LOADING);
+                if (restorePriority) {
+                    try { Process.setThreadPriority(oldPriority); }
+                    catch (RuntimeException ignored) { }
+                }
+            }
+        }
+    }
+
+    /** Takes ownership of source only after successfully constructing a replacement. */
+    private static Bitmap applyAlphaMask(Bitmap source, int maskIndex) {
+        Bitmap mask = null;
+        try {
+            mask = loadBitmap("emoji/masks/" + maskIndex + ".png");
+            if (mask == null) return source;
+            int w = source.getWidth();
+            int h = source.getHeight();
+            if (w != mask.getWidth() || h != mask.getHeight()) {
+                android.util.Log.w(TAG, "Emoji alpha mask dimensions differ: " + maskIndex);
+                return source;
+            }
+            int[] rgbPixels = new int[w * h];
+            int[] alphaPixels = new int[w * h];
+            source.getPixels(rgbPixels, 0, w, 0, 0, w, h);
+            mask.getPixels(alphaPixels, 0, w, 0, 0, w, h);
+            for (int i = 0; i < rgbPixels.length; i++) {
+                rgbPixels[i] = (rgbPixels[i] & 0x00FFFFFF) | ((alphaPixels[i] & 0xFF) << 24);
+            }
+            Bitmap result = Bitmap.createBitmap(rgbPixels, w, h, Bitmap.Config.ARGB_8888);
+            source.recycle();
+            return result;
+        } catch (RuntimeException | OutOfMemoryError error) {
+            android.util.Log.e(TAG, "load mask failed", error);
+            return source;
+        } finally {
+            if (mask != null) mask.recycle();
+        }
     }
 
     public static Bitmap loadBitmap(String path) {
@@ -225,7 +326,7 @@ public class Emoji {
                 opts.inSampleSize = imageResize;
                 return BitmapFactory.decodeStream(is, null, opts);
             }
-        } catch (Throwable x) {
+        } catch (Exception | OutOfMemoryError x) {
             android.util.Log.e(TAG, "Error loading emoji " + path, x);
             return null;
         }
@@ -318,8 +419,8 @@ public class Emoji {
 
     public static class SimpleEmojiDrawable extends EmojiDrawable {
         private final DrawableInfo info;
-        private static final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
-        private static final Rect rect = new Rect();
+        private final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
+        private final Rect rect = new Rect();
         private final boolean invert;
 
         public SimpleEmojiDrawable(DrawableInfo i, boolean invert) {
@@ -340,7 +441,8 @@ public class Emoji {
 
         @Override
         public void draw(Canvas canvas) {
-            if (!isLoaded()) {
+            Bitmap bitmap = cachedBitmap(info.page, info.page2);
+            if (bitmap == null) {
                 loadEmoji(info.page, info.page2);
                 placeholderPaint.setColor(placeholderColor);
                 Rect bounds = getBounds();
@@ -353,7 +455,7 @@ public class Emoji {
                     canvas.save();
                     canvas.scale(-1, 1, b.centerX(), b.centerY());
                 }
-                canvas.drawBitmap(emojiBmp[info.page][info.page2], null, b, paint);
+                canvas.drawBitmap(bitmap, null, b, paint);
                 if (invert) canvas.restore();
             }
         }
@@ -363,7 +465,7 @@ public class Emoji {
         @Override public void setColorFilter(ColorFilter cf) {}
 
         @Override
-        public boolean isLoaded() { return emojiBmp[info.page][info.page2] != null; }
+        public boolean isLoaded() { return cachedBitmap(info.page, info.page2) != null; }
 
         @Override
         public void preload() { if (!isLoaded()) loadEmoji(info.page, info.page2); }

@@ -27,8 +27,9 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView.DiffAdapter
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ShadowgramApplication
 import com.github.borz7zy.shadowgram.emoji.Emoji
@@ -55,7 +56,7 @@ class ChatSearchFragment : Fragment(R.layout.fragment_chat_search) {
     private val emptyTextView by getViewProperty<TextView>(R.id.emptyTextView)
     private val linearProgressIndicator by getViewProperty<LinearProgressIndicator>(R.id.linearProgressIndicator)
     private val queryEditText by getViewProperty<EditText>(R.id.queryEditText)
-    private val recyclerView by getViewProperty<RecyclerView>(R.id.recyclerView)
+    private val recyclerView by getViewProperty<RecyclerListView>(R.id.recyclerView)
     private val toolbar by getViewProperty<MaterialToolbar>(R.id.toolbar)
 
     private val adapter = FoundAdapter { found ->
@@ -132,7 +133,7 @@ class ChatSearchFragment : Fragment(R.layout.fragment_chat_search) {
 
     private class FoundAdapter(
         private val onClick: (ChatSearchViewModel.Found) -> Unit,
-    ) : ListAdapter<ChatSearchViewModel.Found, FoundAdapter.ViewHolder>(
+    ) : DiffAdapter<ChatSearchViewModel.Found, FoundAdapter.ViewHolder>(
         object : DiffUtil.ItemCallback<ChatSearchViewModel.Found>() {
             override fun areItemsTheSame(oldItem: ChatSearchViewModel.Found, newItem: ChatSearchViewModel.Found) =
                 oldItem.messageId == newItem.messageId

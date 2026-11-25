@@ -15,9 +15,9 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavOptions
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.launch
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.navigateSafe
@@ -37,7 +37,7 @@ class ProviderSelectorDialogFragment : MaterialDialogFragment(
 
     // Views
     private val addProviderMaterialButton by getViewProperty<MaterialButton>(R.id.addProviderMaterialButton)
-    private val recyclerView by getViewProperty<RecyclerView>(R.id.recyclerView)
+    private val recyclerView by getViewProperty<RecyclerListView>(R.id.recyclerView)
 
     // Recyclerview
     private val adapter = object : SimpleListAdapter<Pair<Provider, Boolean>, ListItem>(

@@ -12,10 +12,10 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import coil3.dispose
 import coil3.load
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView.DiffAdapter
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.models.ProfileItem
 import com.github.borz7zy.shadowgram.telegram.ProfilePage
@@ -34,7 +34,7 @@ class ProfileItemAdapter(
     private val onLongClick: (ProfileItem) -> Boolean,
     /** Tapped, with its picture to open a media viewer from. */
     private val onClick: (ProfileItem, ImageView) -> Unit,
-) : ListAdapter<ProfileItem, ProfileItemAdapter.ViewHolder>(diffCallback) {
+) : DiffAdapter<ProfileItem, ProfileItemAdapter.ViewHolder>(diffCallback) {
     /** What the items are, set before submitting another kind. */
     var kind = ProfilePage.Kind.MEDIA
 

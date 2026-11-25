@@ -9,8 +9,8 @@ import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView.DiffAdapter
 
 /**
  * A very basic ListAdapter that holds only one type of item.
@@ -20,7 +20,7 @@ import androidx.recyclerview.widget.RecyclerView
 abstract class SimpleListAdapter<T, V : View>(
     diffCallback: DiffUtil.ItemCallback<T>,
     private val factory: (Context) -> V,
-) : ListAdapter<T, SimpleListAdapter<T, V>.ViewHolder>(diffCallback) {
+) : DiffAdapter<T, SimpleListAdapter<T, V>.ViewHolder>(diffCallback) {
     abstract fun ViewHolder.onBindView(item: T)
 
     open fun ViewHolder.onPrepareView() {}

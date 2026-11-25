@@ -10,7 +10,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.RecyclerView
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.models.ActivityTab
 import com.github.borz7zy.shadowgram.models.Album
@@ -25,7 +25,7 @@ import com.github.borz7zy.shadowgram.ui.recyclerview.SimpleListAdapter
 
 class ActivityTabView(context: Context) : FrameLayout(context) {
     // Views
-    private val recyclerView by lazy { findViewById<RecyclerView>(R.id.recyclerView) }
+    private val recyclerView by lazy { findViewById<RecyclerListView>(R.id.recyclerView) }
     private val titleTextView by lazy { findViewById<TextView>(R.id.titleTextView) }
 
     // RecyclerView

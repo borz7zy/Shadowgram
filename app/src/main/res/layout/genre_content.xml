@@ -38,7 +38,7 @@
                     android:text="@string/genre_appears_in_albums_header"
                     android:textAppearance="?attr/textAppearanceTitleLarge" />
 
-                <androidx.recyclerview.widget.RecyclerView
+                <com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
                     android:id="@+id/appearsInAlbumsRecyclerView"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -68,7 +68,7 @@
                     android:text="@string/genre_appears_in_playlists_header"
                     android:textAppearance="?attr/textAppearanceTitleLarge" />
 
-                <androidx.recyclerview.widget.RecyclerView
+                <com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
                     android:id="@+id/appearsInPlaylistsRecyclerView"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -98,7 +98,7 @@
                     android:text="@string/genre_audios_header"
                     android:textAppearance="?attr/textAppearanceTitleLarge" />
 
-                <androidx.recyclerview.widget.RecyclerView
+                <com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
                     android:id="@+id/audiosRecyclerView"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

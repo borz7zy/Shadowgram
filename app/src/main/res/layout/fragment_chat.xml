@@ -122,7 +122,7 @@
                 android:layout_weight="1"
                 android:clipChildren="false">
 
-                <androidx.recyclerview.widget.RecyclerView
+                <com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
                     android:id="@+id/recyclerView"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
@@ -319,7 +319,7 @@
                 android:orientation="vertical">
 
                 <!-- Members to mention, bot commands or inline bot results for what is typed -->
-                <androidx.recyclerview.widget.RecyclerView
+                <com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
                     android:id="@+id/suggestionsRecyclerView"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

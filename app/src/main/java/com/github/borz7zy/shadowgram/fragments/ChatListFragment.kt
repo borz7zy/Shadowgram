@@ -28,6 +28,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.MainActivity
 import com.github.borz7zy.shadowgram.ext.getViewProperty
@@ -71,11 +72,11 @@ class ChatListFragment : Fragment(R.layout.fragment_chat_list) {
     // Views
     private val linearProgressIndicator by getViewProperty<LinearProgressIndicator>(R.id.linearProgressIndicator)
     private val noElementsLinearLayout by getViewProperty<LinearLayout>(R.id.noElementsLinearLayout)
-    private val recyclerView by getViewProperty<RecyclerView>(R.id.recyclerView)
+    private val recyclerView by getViewProperty<RecyclerListView>(R.id.recyclerView)
     private val noTopicsTextView by getViewProperty<TextView>(R.id.noTopicsTextView)
     private val topicsCardView by getViewProperty<TopRoundedLayout>(R.id.topicsCardView)
     private val topicsLinearProgressIndicator by getViewProperty<LinearProgressIndicator>(R.id.topicsLinearProgressIndicator)
-    private val topicsRecyclerView by getViewProperty<RecyclerView>(R.id.topicsRecyclerView)
+    private val topicsRecyclerView by getViewProperty<RecyclerListView>(R.id.topicsRecyclerView)
 
     // RecyclerView
     private val adapter: ChatListAdapter = ChatListAdapter(

@@ -3,7 +3,7 @@
      SPDX-FileCopyrightText: borz7zy
      SPDX-License-Identifier: MIT
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<com.github.borz7zy.shadowgram.ui.cells.ChatMessageCell xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
@@ -323,4 +323,4 @@
 
     </com.google.android.material.card.MaterialCardView>
 
-</LinearLayout>
+</com.github.borz7zy.shadowgram.ui.cells.ChatMessageCell>

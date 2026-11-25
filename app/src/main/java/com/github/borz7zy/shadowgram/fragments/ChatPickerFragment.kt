@@ -25,6 +25,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import androidx.viewpager2.widget.ViewPager2
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.navigateSafe
@@ -171,7 +172,7 @@ class ChatPickerFragment : Fragment(R.layout.fragment_chat_picker) {
             inflater: LayoutInflater,
             container: ViewGroup?,
             savedInstanceState: Bundle?,
-        ): View = RecyclerView(inflater.context).apply {
+        ): View = RecyclerListView(inflater.context).apply {
             // A grid of one column, like the main chat list: its rows take the whole width
             layoutManager = GridLayoutManager(context, 1)
             clipToPadding = false

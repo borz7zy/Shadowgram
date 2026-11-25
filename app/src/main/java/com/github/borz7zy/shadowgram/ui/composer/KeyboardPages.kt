@@ -23,11 +23,12 @@ import androidx.core.widget.TextViewCompat
 import androidx.core.widget.doAfterTextChanged
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.GridLayoutManager
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.StaggeredGridLayoutManager
 import coil3.dispose
 import coil3.load
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView.DiffAdapter
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.emoji.Emoji
 import com.github.borz7zy.shadowgram.telegram.StickersStore
@@ -135,7 +136,7 @@ private object GridItemDiff : DiffUtil.ItemCallback<GridItem>() {
  * The cells of every page: headers, stickers, emoji and GIFs.
  */
 class GridAdapter(private val listener: KeyboardListener) :
-    ListAdapter<GridItem, RecyclerView.ViewHolder>(GridItemDiff) {
+    DiffAdapter<GridItem, RecyclerView.ViewHolder>(GridItemDiff) {
 
     override fun getItemViewType(position: Int) = when (getItem(position)) {
         is GridItem.Header -> TYPE_HEADER
@@ -339,7 +340,7 @@ class GridAdapter(private val listener: KeyboardListener) :
 class PagesAdapter(
     private val listener: KeyboardListener,
     private val onScrolled: (dy: Int) -> Unit,
-) : ListAdapter<KeyboardPage, PagesAdapter.PageHolder>(PageDiff) {
+) : DiffAdapter<KeyboardPage, PagesAdapter.PageHolder>(PageDiff) {
 
     init {
         setHasStableIds(true)
@@ -366,7 +367,7 @@ class PagesAdapter(
     }
 
     private fun grid(context: Context, columns: Int, adapter: GridAdapter) =
-        RecyclerView(context).apply {
+        RecyclerListView(context).apply {
             layoutManager = GridLayoutManager(context, columns).apply {
                 spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
                     override fun getSpanSize(position: Int) =
@@ -377,7 +378,7 @@ class PagesAdapter(
             itemAnimator = null
             clipToPadding = false
             // Room for the tabs, which float over the bottom
-            setPadding(0, 0, 0, GridAdapter.dp(context, StickerKeyboardView.TABS_HEIGHT_DP))
+            setPaddingWithoutRequestLayout(0, 0, 0, GridAdapter.dp(context, StickerKeyboardView.TABS_HEIGHT_DP))
             layoutParams = ViewGroup.LayoutParams(-1, -1)
             addOnScrollListener(object : RecyclerView.OnScrollListener() {
                 override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) = onScrolled(dy)

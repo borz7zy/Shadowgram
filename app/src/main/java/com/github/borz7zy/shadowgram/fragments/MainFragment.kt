@@ -34,7 +34,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.ui.setupWithNavController
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.button.MaterialButton
@@ -45,6 +44,7 @@ import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.search.SearchView
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.models.ChatListKey
 import com.github.borz7zy.shadowgram.ext.toPx
@@ -96,7 +96,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
     private val providerMaterialButton by getViewProperty<MaterialButton>(R.id.storiesMaterialButton)
     private val searchLinearProgressIndicator by getViewProperty<LinearProgressIndicator>(R.id.searchLinearProgressIndicator)
     private val searchNoElementsLinearLayout by getViewProperty<LinearLayout>(R.id.searchNoElementsLinearLayout)
-    private val searchRecyclerView by getViewProperty<RecyclerView>(R.id.searchRecyclerView)
+    private val searchRecyclerView by getViewProperty<RecyclerListView>(R.id.searchRecyclerView)
     private val searchView by getViewProperty<SearchView>(R.id.searchView)
     private val settingsMaterialButton by getViewProperty<MaterialButton>(R.id.settingsMaterialButton)
     private val toolbar by getViewProperty<MaterialToolbar>(R.id.toolbar)
