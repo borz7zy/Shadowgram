@@ -251,8 +251,10 @@ public class Emoji {
             // Raw executor calls bypass AsyncTask.runWorker's priority handling.
             try {
                 oldPriority = Process.getThreadPriority(Process.myTid());
-                Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT);
-                restorePriority = true;
+                if (oldPriority != Process.THREAD_PRIORITY_DEFAULT) {
+                    Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT);
+                    restorePriority = true;
+                }
             } catch (RuntimeException ignored) {
                 // Continue with the worker's current priority.
             }

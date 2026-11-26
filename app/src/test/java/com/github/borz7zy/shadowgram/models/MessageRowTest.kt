@@ -6,7 +6,10 @@
 package com.github.borz7zy.shadowgram.models
 
 import com.github.borz7zy.shadowgram.models.ChatItem.MessagePreview
+import com.github.borz7zy.shadowgram.ui.recyclerview.MessageListAdapter
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MessageRowTest {
@@ -85,6 +88,30 @@ class MessageRowTest {
 
         assertEquals(1, bubbles.size)
         assertEquals(listOf(1L, 2L, 3L), bubbles[0].album.map { it.id })
+    }
+
+    @Test
+    fun outgoingStatusChangesKeepTheSameCellAndUseAMetadataPayload() {
+        val pending = message(19, 10, 10, isOutgoing = true).copy(state = MessageItem.State.PENDING)
+        val sent = pending.copy(id = 30, state = MessageItem.State.SENT)
+        val read = sent.copy(state = MessageItem.State.READ)
+        fun row(item: MessageItem) = MessageRow.Bubble(item, isGroupStart = true, isGroupEnd = true, showSender = false)
+
+        val diff = MessageListAdapter.DiffCallback
+        assertTrue(diff.areItemsTheSame(row(pending), row(sent)))
+        assertTrue(diff.areItemsTheSame(row(sent), row(read)))
+        val sentPayload = diff.getChangePayload(row(pending), row(sent))
+        assertNotNull(sentPayload)
+        assertEquals(sentPayload, diff.getChangePayload(row(sent), row(read)))
+    }
+
+    @Test
+    fun albumKeySurvivesAcknowledgementsInDifferentOrder() {
+        val first = message(19, 10, 10, isOutgoing = true).copy(mediaAlbumId = 7, text = null, media = photo)
+        val second = message(20, 10, 10, isOutgoing = true).copy(mediaAlbumId = 7, media = photo)
+        fun row(items: List<MessageItem>) = MessageRow.build(items, isGroup = false).filterIsInstance<MessageRow.Bubble>().single()
+
+        assertEquals(row(listOf(first, second)).key, row(listOf(second, first.copy(id = 30))).key)
     }
 
     @Test

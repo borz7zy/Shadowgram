@@ -31,8 +31,8 @@ sealed interface MessageRow : UniqueItem<MessageRow> {
         val hasAvatar: Boolean = false,
         val album: List<MessageItem> = listOf(),
     ) : MessageRow {
-        // The first of an album keeps the bubble's place as the others come in
-        override val key get() = album.firstOrNull()?.id ?: message.id
+        // An acknowledgement can reorder an album's temporary and server IDs.
+        override val key = album.minOfOrNull { it.rowId } ?: message.rowId
     }
 
     /**

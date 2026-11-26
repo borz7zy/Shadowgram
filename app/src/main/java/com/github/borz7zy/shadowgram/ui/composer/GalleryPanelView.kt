@@ -12,6 +12,8 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
+import android.os.CancellationSignal
+import android.os.OperationCanceledException
 import android.provider.MediaStore
 import android.text.TextUtils
 import android.text.format.DateUtils
@@ -27,12 +29,16 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
+import com.github.borz7zy.shadowgram.background.AsyncTask
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -40,6 +46,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
+import java.util.concurrent.RejectedExecutionException
 
 class GalleryPanelView @JvmOverloads constructor(
     context: Context,
@@ -75,6 +83,7 @@ class GalleryPanelView @JvmOverloads constructor(
     private var visibleMedia = emptyList<Media>()
     private var selectedAlbumId: String? = null
     private var mediaJob: Job? = null
+    private var thumbnailScope: AsyncTask.Scope? = null
     private val grid = GridLayoutManager(context, 3)
     private val adapter = GalleryAdapter()
     private val list = RecyclerListView(context).apply {
@@ -162,7 +171,7 @@ class GalleryPanelView @JvmOverloads constructor(
             val media = withContext(Dispatchers.IO) { queryMedia() }
             allMedia = media
             if (allMedia.none { it.albumId == selectedAlbumId }) selectedAlbumId = null
-            selection.retainAll(allMedia.mapTo(HashSet()) { it.uri })
+            if (selection.isNotEmpty()) selection.retainAll(allMedia.mapTo(HashSet()) { it.uri })
             showAlbum()
             updateConfirm()
         }
@@ -170,6 +179,21 @@ class GalleryPanelView @JvmOverloads constructor(
 
     fun stop() {
         mediaJob?.cancel()
+    }
+
+    private fun thumbnailScope(): AsyncTask.Scope? {
+        val owner = findViewTreeLifecycleOwner() ?: return null
+        if (owner.lifecycle.currentState == Lifecycle.State.DESTROYED) return null
+        thumbnailScope?.let { return it }
+        val scope = AsyncTask.Scope()
+        thumbnailScope = scope
+        owner.lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onDestroy(owner: LifecycleOwner) {
+                scope.close()
+                thumbnailScope = null
+            }
+        })
+        return scope
     }
 
     private fun clearSelection() {
@@ -272,7 +296,12 @@ class GalleryPanelView @JvmOverloads constructor(
         private val image = view.findViewById<ImageView>(R.id.mediaImageView)
         private val check = view.findViewById<TextView>(R.id.selectionTextView)
         private val duration = view.findViewById<TextView>(R.id.galleryVideoDuration)
-        private var job: Job? = null
+        private var thumbnailTask: ThumbnailTask? = null
+        private val retryThumbnail = Runnable {
+            val task = thumbnailTask ?: return@Runnable
+            thumbnailTask = null
+            if (!task.scope.isClosed) loadThumbnail(task.uri, task.scope)
+        }
 
         init {
             itemView.setOnClickListener {
@@ -297,18 +326,55 @@ class GalleryPanelView @JvmOverloads constructor(
             duration.isVisible = item.video
             duration.text = if (item.video) DateUtils.formatElapsedTime(item.durationMs / 1_000) else null
             bindSelection(item.uri)
-            val cached = thumbnails.get(item.uri)
+            loadThumbnail(item.uri, thumbnailScope())
+        }
+
+        private fun loadThumbnail(uri: Uri, scope: AsyncTask.Scope?) {
+            val cached = thumbnails.get(uri)
             if (cached != null) {
                 image.setImageBitmap(cached)
                 return
             }
-            val owner = this@GalleryPanelView.findViewTreeLifecycleOwner() ?: return
-            job = owner.lifecycleScope.launch {
-                val bitmap = withContext(Dispatchers.IO) {
-                    runCatching { context.contentResolver.loadThumbnail(item.uri, Size(256, 256), null) }.getOrNull()
-                } ?: return@launch
-                thumbnails.put(item.uri, bitmap)
-                image.setImageBitmap(bitmap)
+            if (scope == null) return
+            val task = ThumbnailTask(uri, scope)
+            thumbnailTask = task
+            task.inScope(scope).withPriority(AsyncTask.Priority.NORMAL).execBackgroundOn(AsyncTask.IO_EXECUTOR)
+        }
+
+        private inner class ThumbnailTask(val uri: Uri, val scope: AsyncTask.Scope) : AsyncTask<Void, Void, Bitmap?>() {
+            private val signal = CancellationSignal()
+
+            override fun doInBackground(vararg params: Void): Bitmap? = try {
+                context.contentResolver.loadThumbnail(uri, THUMBNAIL_SIZE, signal)
+            } catch (_: IOException) {
+                null
+            } catch (_: SecurityException) {
+                null
+            } catch (_: OperationCanceledException) {
+                null
+            }
+
+            override fun onPostExecute(result: Bitmap?) {
+                if (thumbnailTask !== this) return
+                thumbnailTask = null
+                if (result != null) {
+                    thumbnails.put(uri, result)
+                    image.setImageBitmap(result)
+                }
+            }
+
+            override fun onError(t: Throwable) {
+                if (thumbnailTask !== this) return
+                if (t is RejectedExecutionException) {
+                    itemView.postDelayed(retryThumbnail, THUMBNAIL_RETRY_MS)
+                } else {
+                    thumbnailTask = null
+                    super.onError(t)
+                }
+            }
+
+            fun cancelLoad() {
+                if (cancel(false)) signal.cancel()
             }
         }
 
@@ -322,7 +388,11 @@ class GalleryPanelView @JvmOverloads constructor(
         }
 
         fun clear() {
-            job?.cancel()
+            thumbnailTask?.let { task ->
+                if (task.state == AsyncTask.State.FAILED) itemView.removeCallbacks(retryThumbnail)
+                else task.cancelLoad()
+            }
+            thumbnailTask = null
             image.setImageDrawable(null)
         }
     }
@@ -331,6 +401,8 @@ class GalleryPanelView @JvmOverloads constructor(
 
     companion object {
         private const val SELECTION = "selection"
+        private const val THUMBNAIL_RETRY_MS = 100L
+        private val THUMBNAIL_SIZE = Size(256, 256)
 
         fun mediaPermissions() = when {
             Build.VERSION.SDK_INT >= 34 -> arrayOf(

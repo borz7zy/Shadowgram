@@ -22,16 +22,16 @@ import android.view.View
 import android.widget.TextView
 import com.github.borz7zy.rustcore.RustMedia
 import com.github.borz7zy.shadowgram.ShadowgramApplication
+import com.github.borz7zy.shadowgram.background.AsyncTask
 import com.github.borz7zy.shadowgram.emoji.Emoji
 import com.github.borz7zy.shadowgram.telegram.EmojiStickers
 import com.github.borz7zy.shadowgram.ui.views.AnimatedStickerPlayback
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
+import java.util.concurrent.RejectedExecutionException
 import kotlin.math.abs
 
 /**
@@ -90,6 +90,7 @@ class CustomEmojiDrawable private constructor(
     // Main thread
     private var current: Bitmap? = null
     private var isLoading = false
+    private var resumePosted = false
 
     /** TDLib had no file for it: not asked again on every draw. */
     private var isFailed = false
@@ -100,27 +101,33 @@ class CustomEmojiDrawable private constructor(
         val context = host.context
         appContext = context.applicationContext
         hosts[host] = span
-        val file = file
-        when {
-            file == null -> load(context)
-            file.isAnimated -> play()
-        }
+        showOrLoad(context)
     }
 
     /** Load it if it isn't, play it again if it paused; it's being drawn. */
     fun resume() {
+        if (isLoading || isFailed || resumePosted) return
         val file = file
+        if (file != null && (if (file.isAnimated) playback != null else current != null)) return
         val context = appContext ?: return
+        resumePosted = true
+        main.post {
+            resumePosted = false
+            showOrLoad(context)
+        }
+    }
+
+    private fun showOrLoad(context: Context) {
+        if (isLoading) return
+        val file = file
         when {
-            file == null -> if (!isFailed) main.post { load(context) }
-            file.isAnimated && playback == null -> main.post { play() }
+            file == null -> load(context)
+            file.isAnimated -> play()
+            current == null && !isFailed -> decodeStatic(file.path)
         }
     }
 
     private fun load(context: Context) {
-        if (isLoading) {
-            return
-        }
         isLoading = true
         scope.launch {
             val client = (context.applicationContext as ShadowgramApplication)
@@ -132,15 +139,41 @@ class CustomEmojiDrawable private constructor(
                 return@launch
             }
             this@CustomEmojiDrawable.file = file
+            isFailed = false
             if (file.isAnimated) {
                 play()
             } else {
-                current = withContext(Dispatchers.IO) {
-                    RustMedia.decode(File(file.path), size, size)
-                }
-                invalidateHosts()
+                decodeStatic(file.path)
             }
         }
+    }
+
+    private fun decodeStatic(path: String) {
+        isLoading = true
+        val task = object : AsyncTask<Void, Void, Bitmap?>() {
+            override fun doInBackground(vararg params: Void): Bitmap? = RustMedia.decode(File(path), size, size)
+
+            override fun onPostExecute(result: Bitmap?) {
+                isLoading = false
+                isFailed = result == null
+                current = result
+                if (result != null) invalidateHosts()
+            }
+
+            override fun onError(t: Throwable) {
+                if (t is RejectedExecutionException) {
+                    main.postDelayed({
+                        isLoading = false
+                        invalidateHosts()
+                    }, DECODE_RETRY_MS)
+                } else {
+                    isLoading = false
+                    isFailed = true
+                    super.onError(t)
+                }
+            }
+        }
+        task.withPriority(AsyncTask.Priority.NORMAL).execBackgroundOn(AsyncTask.MEDIA_EXECUTOR)
     }
 
     private fun play() {
@@ -197,6 +230,7 @@ class CustomEmojiDrawable private constructor(
     override fun getOpacity() = PixelFormat.TRANSLUCENT
 
     companion object {
+        private const val DECODE_RETRY_MS = 100L
         private val scope = MainScope()
 
         /** For loading from [resume], set by the first [attach]. */

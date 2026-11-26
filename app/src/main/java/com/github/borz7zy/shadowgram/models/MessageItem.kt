@@ -55,6 +55,8 @@ data class MessageItem(
     /** Mentions in [text] that open a profile. */
     val mentions: List<Mention> = listOf(),
     val isEdited: Boolean = false,
+    /** Stable UI identity when TDLib replaces a temporary message ID after sending. */
+    val rowId: Long = id,
 ) {
     /**
      * An @username or a mention by name in the text, offsets in UTF-16 like TDLib's.

@@ -206,7 +206,7 @@ class MessageListAdapter(
         val inflater = LayoutInflater.from(parent.context)
         return when (viewType) {
             TYPE_BUBBLE -> BubbleViewHolder(
-                inflater.inflate(R.layout.message_bubble_item, parent, false),
+                inflater.inflate(R.layout.message_bubble_item, parent, false) as ChatMessageCell,
                 onCancelUpload,
                 trackOf,
                 callbacks,
@@ -310,7 +310,7 @@ class MessageListAdapter(
 
     @SuppressLint("ClickableViewAccessibility") // Only watches touches, the click handles them
     private class BubbleViewHolder(
-        val view: View,
+        val view: ChatMessageCell,
         private val onCancelUpload: (messageId: Long) -> Unit,
         private val trackOf: (MessageItem, MessageItem.Playable) -> MessagePlayer.Track,
         private val callbacks: Callbacks,
@@ -545,7 +545,7 @@ class MessageListAdapter(
 
         fun bind(row: MessageRow.Bubble) {
             val message = row.message
-            (view as? ChatMessageCell)?.finishEditTransition()
+            view.finishEditTransition()
             clearHighlight()
             boundRow = row
             this.message = message
@@ -557,7 +557,7 @@ class MessageListAdapter(
                     || media?.type == MessageItem.Media.Type.ANIMATED_STICKER
                     || media?.type == MessageItem.Media.Type.VIDEO_NOTE
 
-            (view as LinearLayout).gravity = if (isOutgoing) Gravity.END else Gravity.START
+            view.gravity = if (isOutgoing) Gravity.END else Gravity.START
             view.updatePaddingRelative(start = if (row.hasAvatar) avatarSpace else 0)
             bindStickerLayout(message)
             view.updateLayoutParams<RecyclerView.LayoutParams> {
@@ -640,7 +640,7 @@ class MessageListAdapter(
         /** Reuse the bound view and apply only independent changed fields. */
         fun bindPartial(row: MessageRow.Bubble, mask: Int) {
             val previous = boundRow
-            if (previous == null || previous.message.id != row.message.id) {
+            if (previous == null || previous.key != row.key) {
                 bind(row)
                 return
             }
@@ -660,7 +660,7 @@ class MessageListAdapter(
             if (changes and (PAYLOAD_TEXT or PAYLOAD_META) != 0 &&
                 (previous.message.text != message.text || previous.message.isEdited != message.isEdited) &&
                 bubbleCardView.alpha == 1f && !isFloating(message)) {
-                (view as? ChatMessageCell)?.beginEditTransition(bubbleCardView, messageTextView, metaTextView)
+                view.beginEditTransition(bubbleCardView, messageTextView, metaTextView)
             }
             if (changes and PAYLOAD_TEXT != 0) {
                 clearHighlight()
@@ -668,14 +668,19 @@ class MessageListAdapter(
             }
             if (changes and PAYLOAD_META != 0) bindMeta(message, textColor)
             if (changes and PAYLOAD_REACTIONS != 0) bindReactions(message)
-            if (changes and PAYLOAD_UPLOAD != 0) bindUpload(message)
+            if (changes and PAYLOAD_UPLOAD != 0) {
+                mediaFrameLayout.isVisible = albumView.isVisible || message.media != null || message.uploadProgress != null
+                bindUpload(message)
+            }
             if (changes and PAYLOAD_DOCUMENT != 0) bindDocument(message)
             if (changes and PAYLOAD_REPLY != 0) {
                 bindReply(message.reply, foreground)
                 val hasHeader = senderLinearLayout.isVisible || forwardLinearLayout.isVisible || replyPlateLinearLayout.isVisible
                 messageTextView.updatePaddingRelative(top = view.toPx(if (hasHeader) 4 else 8))
             }
-            if (changes and PAYLOAD_SELECTION != 0) bindSelection(row)
+            val idChanged = previous.message.id != message.id
+            if (idChanged) bindSourceVisibility(row)
+            if (idChanged || changes and PAYLOAD_SELECTION != 0) bindSelection(row)
             if (changes and PAYLOAD_EMOJI != 0) view.invalidateTexts()
             if (changes and PAYLOAD_HIGHLIGHT != 0) bindHighlight(row)
         }
@@ -700,7 +705,7 @@ class MessageListAdapter(
         }
 
         fun recycle() {
-            (view as? ChatMessageCell)?.finishEditTransition()
+            view.finishEditTransition()
             clearHighlight()
             mediaImageView.dispose()
             stickerView.setSticker(null, 0)
@@ -1113,7 +1118,8 @@ class MessageListAdapter(
 
         private fun bindMeta(message: MessageItem, color: Int) {
             val time = DateFormat.getTimeFormat(view.context).format(message.date * 1000L)
-            metaTextView.text = if (message.isEdited) view.context.getString(R.string.message_edited_at, time) else time
+            val label = if (message.isEdited) view.context.getString(R.string.message_edited_at, time) else time
+            if (metaTextView.text != label) metaTextView.text = label
 
             val iconResId = when {
                 message.state == MessageItem.State.FAILED -> R.drawable.ic_error
@@ -1139,7 +1145,7 @@ class MessageListAdapter(
         }
     }
 
-    private object DiffCallback : DiffUtil.ItemCallback<MessageRow>() {
+    internal object DiffCallback : DiffUtil.ItemCallback<MessageRow>() {
         override fun areItemsTheSame(oldItem: MessageRow, newItem: MessageRow) =
             oldItem.areItemsTheSame(newItem)
 
@@ -1147,14 +1153,15 @@ class MessageListAdapter(
             oldItem.areContentsTheSame(newItem)
 
         override fun getChangePayload(oldItem: MessageRow, newItem: MessageRow): Any? {
-            if (oldItem !is MessageRow.Bubble || newItem !is MessageRow.Bubble ||
-                oldItem.message.id != newItem.message.id) return null
+            if (oldItem !is MessageRow.Bubble || newItem !is MessageRow.Bubble || oldItem.key != newItem.key) return null
             val old = oldItem.message
             val new = newItem.message
+            // Player tracks are keyed by the current TDLib message ID.
+            if (old.id != new.id && (old.playable != null || old.rowId != new.rowId)) return null
             var changes = 0
             if (old.text != new.text || old.customEmoji != new.customEmoji || old.mentions != new.mentions)
                 changes = changes or PAYLOAD_TEXT
-            if (old.date != new.date || old.isEdited != new.isEdited || old.state != new.state)
+            if (old.id != new.id || old.date != new.date || old.isEdited != new.isEdited || old.state != new.state)
                 changes = changes or PAYLOAD_META
             if (old.reactions != new.reactions) changes = changes or PAYLOAD_REACTIONS
             if (old.uploadProgress != new.uploadProgress || old.isProcessing != new.isProcessing)
@@ -1163,10 +1170,18 @@ class MessageListAdapter(
             if ((old.document == null) != (new.document == null)) return null
             if (old.document != new.document) changes = changes or PAYLOAD_DOCUMENT
             if (old.reply != new.reply) changes = changes or PAYLOAD_REPLY
-            // Upload presence controls mediaFrameLayout visibility, not only the progress indicator.
-            if ((old.uploadProgress == null) != (new.uploadProgress == null)) return null
-            // Any unhandled field (album, geometry, sender, media, etc.) requires a full bind.
-            val normalized = oldItem.copy(message = old.copy(
+            if (oldItem.album != newItem.album) {
+                // Album members have no separate status views. Keep their media on read receipts.
+                if (oldItem.album.size != newItem.album.size || oldItem.album.indices.any { index ->
+                        val member = oldItem.album[index]
+                        val next = newItem.album[index]
+                        member != next && member.copy(state = next.state) != next
+                    }) return null
+                changes = changes or PAYLOAD_META
+            }
+            // Any unhandled field (geometry, sender, media, etc.) requires a full bind.
+            val normalized = oldItem.copy(album = newItem.album, message = old.copy(
+                id = new.id,
                 text = new.text, customEmoji = new.customEmoji, mentions = new.mentions,
                 date = new.date, isEdited = new.isEdited, state = new.state,
                 reactions = new.reactions, uploadProgress = new.uploadProgress,

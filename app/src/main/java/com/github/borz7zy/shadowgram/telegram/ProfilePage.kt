@@ -93,12 +93,22 @@ class ProfilePage(
     private val version = MutableStateFlow(0L)
 
     private val onUpdate: (TdApi.Object) -> Unit = { update ->
-        if (update is TdApi.UpdateFile && synchronized(lock) {
-                files.containsKey(update.file.id).also { if (it) files[update.file.id] = update.file }
+        if (update is TdApi.UpdateFile) updateTrackedFile(update.file)
+    }
+
+    private fun updateTrackedFile(file: TdApi.File) {
+        val changed = synchronized(lock) {
+            val previous = files[file.id] ?: return
+            files[file.id] = file
+            if (kind == Kind.GIFTS) {
+                val oldPath = previous.local.path.takeIf { previous.local.isDownloadingCompleted }
+                val newPath = file.local.path.takeIf { file.local.isDownloadingCompleted }
+                oldPath != newPath
+            } else {
+                true
             }
-        ) {
-            version.update { it + 1 }
         }
+        if (changed) version.update { it + 1 }
     }
 
     /**
@@ -525,8 +535,7 @@ class ProfilePage(
             client.send(TdApi.DownloadFile(current.id, DOWNLOAD_PRIORITY, 0, 0, waitForGift)) { result ->
                 if (waitForGift && result is TdApi.File && result.local.isDownloadingCompleted) {
                     // The collection may be inactive by the time the sticker finishes downloading.
-                    synchronized(lock) { files[result.id] = result }
-                    version.update { it + 1 }
+                    updateTrackedFile(result)
                 }
             }
         }

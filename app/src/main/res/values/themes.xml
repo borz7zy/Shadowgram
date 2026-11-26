@@ -230,14 +230,22 @@
         <item name="android:windowLightStatusBar">false</item>
     </style>
 
+    <style name="Theme.Shadowgram.NowPlaying" parent="BaseTheme.Shadowgram.FullscreenDialog">
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">?attr/colorSurface</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
     <!-- Message menu: full screen over the chat, blurred where the device can -->
     <style name="Theme.Shadowgram.MessageMenu" parent="BaseTheme.Shadowgram.FullscreenDialog">
         <item name="android:windowIsFloating">false</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowNoTitle">true</item>
-        <item name="android:backgroundDimEnabled">true</item>
-        <item name="android:backgroundDimAmount">0</item>
+        <item name="android:backgroundDimEnabled">false</item>
         <item name="android:windowAnimationStyle">@null</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
     </style>

@@ -429,17 +429,21 @@ class ChatListFragment : Fragment(R.layout.fragment_chat_list) {
                 }
 
                 is FlowResult.Success -> {
-                    // The diff runs in background and may complete after this view is gone,
-                    // so the callback must not look views up again
                     val recyclerView = recyclerView
                     val layoutManager = recyclerView.layoutManager as LinearLayoutManager
-                    val wasAtTop = layoutManager.findFirstCompletelyVisibleItemPosition() <= 0
-
-                    adapter.submit(it.data)
-
-                    // Follow chats moving to the top, like a new message does
-                    if (wasAtTop) {
-                        recyclerView.scrollToPosition(0)
+                    adapter.submit(it.data) { diff ->
+                        if (recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE) return@submit
+                        val anchor = layoutManager.findViewByPosition(layoutManager.findFirstVisibleItemPosition())
+                            ?: return@submit
+                        val first = recyclerView.getChildAdapterPosition(anchor)
+                        if (first !in adapter.items.indices) return@submit
+                        val offset = layoutManager.getDecoratedTop(anchor) - recyclerView.paddingTop
+                        val newPosition = diff.convertOldPositionToNew(first)
+                        if (first == 0 && offset >= 0) {
+                            if (newPosition != 0) layoutManager.scrollToPositionWithOffset(0, 0)
+                        } else if (newPosition != RecyclerView.NO_POSITION && newPosition != first) {
+                            layoutManager.scrollToPositionWithOffset(newPosition, offset)
+                        }
                     }
 
                     val isEmpty = it.data.isEmpty()

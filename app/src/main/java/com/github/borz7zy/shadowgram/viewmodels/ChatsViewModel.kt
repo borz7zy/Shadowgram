@@ -10,24 +10,42 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.github.borz7zy.shadowgram.ShadowgramApplication
-import com.github.borz7zy.shadowgram.models.ChatFolder
 import com.github.borz7zy.shadowgram.models.ChatListKey
 import com.github.borz7zy.shadowgram.models.ChatHeader
+import com.github.borz7zy.shadowgram.telegram.ChatsStore
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import org.drinkless.tdlib.TdApi
 
 /**
  * Chat folders of the active account, and the forum whose topics are open. Activity scoped:
  * the main top bar, the folders and every chat list share it.
  */
 class ChatsViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application) {
+    private val client = viewModelScope.async {
+        getApplication<ShadowgramApplication>().accountsRepository.activeClient()
+    }
+
+    data class AppTitle(
+        val connectionState: TdApi.ConnectionState? = null,
+        val emojiStatusId: Long = 0L,
+    )
+
+    val appTitle = flow {
+        val active = client.await()
+        emitAll(combine(active.connectionState, active.chats.ownEmojiStatusId, ::AppTitle))
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, AppTitle())
+
     val chatSelection = MutableStateFlow<com.github.borz7zy.shadowgram.models.ChatSelection?>(null)
     // Until a folder is chosen, the UI follows the first item in the server's folder order.
     // In particular, the initial Main-only snapshot must not pin the selection to All chats.
@@ -63,30 +81,14 @@ class ChatsViewModel(application: Application, private val savedState: SavedStat
         .flatMapLatest { forum ->
             when (forum) {
                 null -> flowOf<ChatHeader?>(null)
-                else -> flow {
-                    emitAll(
-                        getApplication<ShadowgramApplication>().accountsRepository.activeClient()
-                            .chats.header(forum.chatId, 0)
-                    )
-                }
+                else -> flow { emitAll(client.await().chats.header(forum.chatId, 0)) }
             }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    val folderUnread = flow {
-        emitAll(getApplication<ShadowgramApplication>().accountsRepository.activeClient().chats.folderUnread)
-    }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyMap())
+    val folderState = flow { emitAll(client.await().chats.folderState) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ChatsStore.FolderSnapshot())
 
-    val folders = flow {
-        emitAll(
-            getApplication<ShadowgramApplication>().accountsRepository.activeClient()
-                .chats.folders()
-        )
-    }
-        .stateIn(
-            viewModelScope,
-            SharingStarted.Eagerly,
-            listOf(ChatFolder(ChatListKey.Main, null)),
-        )
+    val folders = folderState.map { it.folders }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, folderState.value.folders)
 }

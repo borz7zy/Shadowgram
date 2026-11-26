@@ -7,8 +7,11 @@ package com.github.borz7zy.shadowgram.ui.views
 
 import android.content.Context
 import android.util.AttributeSet
+import android.util.TypedValue
+import android.view.Gravity
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.TextView
 import androidx.core.view.isVisible
 import coil3.dispose
 import coil3.load
@@ -36,7 +39,13 @@ class CustomEmojiView @JvmOverloads constructor(
     }
     private val stickerView = StickerView(context).apply {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        onFirstFrame = { fallbackView?.isVisible = false }
     }
+    private var fallbackView: TextView? = null
+
+    var isAnimationPaused: Boolean
+        get() = stickerView.isAnimationPaused
+        set(value) { stickerView.isAnimationPaused = value }
 
     /** What's shown or loading, to skip rebinding the same. */
     private var key: Any? = null
@@ -54,6 +63,7 @@ class CustomEmojiView @JvmOverloads constructor(
     fun setEmojiStatus(id: Long, isPremium: Boolean) = when {
         id != 0L -> setCustomEmoji(id)
         isPremium -> show("premium") {
+            showFallback(null)
             stickerView.setSticker(null, 0)
             stickerView.isVisible = false
             imageView.dispose()
@@ -64,9 +74,10 @@ class CustomEmojiView @JvmOverloads constructor(
         else -> clear()
     }
 
-    fun setCustomEmoji(id: Long) = load(id) { EmojiStickers.customEmoji(it, id) }
+    fun setCustomEmoji(id: Long, fallbackEmoji: String? = null) =
+        load(id, fallbackEmoji) { EmojiStickers.customEmoji(it, id) }
 
-    fun setEmojiReaction(emoji: String) = load(emoji) { EmojiStickers.emojiReaction(it, emoji) }
+    fun setEmojiReaction(emoji: String) = load(emoji, emoji) { EmojiStickers.emojiReaction(it, emoji) }
 
     fun clear() {
         key = null
@@ -74,7 +85,24 @@ class CustomEmojiView @JvmOverloads constructor(
         stickerView.setSticker(null, 0)
         imageView.dispose()
         imageView.setImageDrawable(null)
+        showFallback(null)
         isVisible = false
+    }
+
+    private fun showFallback(emoji: String?) {
+        if (emoji.isNullOrEmpty()) {
+            fallbackView?.isVisible = false
+            return
+        }
+        val label = fallbackView ?: TextView(context).apply {
+            gravity = Gravity.CENTER
+            importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 26f)
+            addView(this, 0, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            fallbackView = this
+        }
+        label.text = emoji
+        label.isVisible = true
     }
 
     private inline fun show(key: Any, block: () -> Unit) {
@@ -87,7 +115,8 @@ class CustomEmojiView @JvmOverloads constructor(
         block()
     }
 
-    private fun load(key: Any, file: suspend (TelegramClient) -> EmojiStickers.File?) = show(key) {
+    private fun load(key: Any, fallbackEmoji: String?, file: suspend (TelegramClient) -> EmojiStickers.File?) = show(key) {
+        showFallback(fallbackEmoji)
         stickerView.setSticker(null, 0)
         imageView.dispose()
         imageView.setImageDrawable(null)
@@ -101,7 +130,9 @@ class CustomEmojiView @JvmOverloads constructor(
             imageView.isVisible = !sticker.isAnimated
             when (sticker.isAnimated) {
                 true -> stickerView.setSticker(File(sticker.path), sizePx())
-                false -> imageView.load(File(sticker.path))
+                false -> imageView.load(File(sticker.path)) {
+                    listener(onSuccess = { _, _ -> fallbackView?.isVisible = false })
+                }
             }
         }
     }

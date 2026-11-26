@@ -9,8 +9,12 @@ import com.github.borz7zy.shadowgram.models.ChatFolder
 import com.github.borz7zy.shadowgram.models.ChatHeader
 import com.github.borz7zy.shadowgram.models.ChatItem
 import com.github.borz7zy.shadowgram.models.ChatListKey
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.produceIn
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.TdApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -231,7 +235,7 @@ class ChatsStoreTest {
 
     @Test
     fun foldersAndLoadState() = runBlocking {
-        assertEquals(listOf(ChatFolder(ChatListKey.Main, null)), store.folders().first())
+        assertEquals(listOf(ChatFolder(ChatListKey.Main, null)), store.folderState.value.folders)
 
         store.onUpdate(
             TdApi.UpdateChatFolders(
@@ -247,7 +251,7 @@ class ChatsStoreTest {
         )
         assertEquals(
             listOf(ChatFolder(ChatListKey.Folder(5), "Work"), ChatFolder(ChatListKey.Main, null)),
-            store.folders().first(),
+            store.folderState.value.folders,
         )
 
         // Empty and not loaded yet, then loaded once TDLib answers
@@ -259,6 +263,75 @@ class ChatsStoreTest {
         // 404 means complete: no more requests
         store.loadMore(key)
         assertEquals(1, requests.count { it is TdApi.LoadChats })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun catchUpPublishesOnlyTheFinalRowsAndFolderCountsThenResumesLiveUpdates() = runBlocking {
+        val key = ChatListKey.Main
+        val main = TdApi.ChatListMain()
+        store.onUpdate(TdApi.UpdateNewChat(chat(1, "Cached")))
+        store.onUpdate(TdApi.UpdateChatPosition(1, position(main, 10)))
+        store.onUpdate(TdApi.UpdateUnreadChatCount(main, 1, 1, 1, 0, 0))
+        val snapshots = store.chatList(key).produceIn(this)
+        try {
+            assertEquals(listOf(1L), withTimeout(2_000) { snapshots.receive() }.items.map { it.id })
+            store.onUpdate(TdApi.UpdateConnectionState(TdApi.ConnectionStateUpdating()))
+            store.onUpdate(TdApi.UpdateNewChat(chat(2, "New")))
+            store.onUpdate(TdApi.UpdateChatPosition(2, position(main, 20)))
+            store.onUpdate(TdApi.UpdateChatReadInbox(1, 0, 2))
+            store.onUpdate(TdApi.UpdateUnreadChatCount(main, 2, 2, 1, 0, 0))
+            val folder = TdApi.ChatFolderInfo().apply {
+                id = 5
+                name = TdApi.ChatFolderName(TdApi.FormattedText("Work", arrayOf()), false)
+            }
+            store.onUpdate(TdApi.UpdateChatFolders(arrayOf(folder), 1, false))
+            assertNull(withTimeoutOrNull(100) { snapshots.receive() })
+            assertNull(withTimeoutOrNull(100) { store.chatList(key).first() })
+            assertEquals(1 to 1, store.folderState.value.unread[key])
+            assertEquals(listOf(key), store.folderState.value.folders.map { it.key })
+
+            store.onUpdate(TdApi.UpdateChatReadInbox(1, 0, 4))
+            store.onUpdate(TdApi.UpdateConnectionState(TdApi.ConnectionStateReady()))
+            val finalItems = withTimeout(2_000) { snapshots.receive() }.items
+            assertEquals(listOf(2L, 1L), finalItems.map { it.id })
+            assertEquals(4, finalItems.last().unreadCount)
+            assertEquals(2 to 1, store.folderState.value.unread[key])
+            assertEquals(listOf(ChatListKey.Folder(5), key), store.folderState.value.folders.map { it.key })
+            assertNull(withTimeoutOrNull(100) { snapshots.receive() })
+
+            store.onUpdate(TdApi.UpdateChatReadInbox(1, 0, 5))
+            assertEquals(5, withTimeout(2_000) { snapshots.receive() }.items.last().unreadCount)
+        } finally {
+            snapshots.cancel()
+        }
+    }
+
+    @Test
+    fun losingConnectionDuringCatchUpReleasesTheCache() = runBlocking {
+        val key = ChatListKey.Main
+        store.onUpdate(TdApi.UpdateConnectionState(TdApi.ConnectionStateUpdating()))
+        store.onUpdate(TdApi.UpdateNewChat(chat(1, "Cached")))
+        store.onUpdate(TdApi.UpdateChatPosition(1, position(TdApi.ChatListMain(), 10)))
+        store.onUpdate(TdApi.UpdateConnectionState(TdApi.ConnectionStateWaitingForNetwork()))
+
+        assertEquals("Cached", withTimeout(2_000) { store.chatList(key).first() }.items.single().title)
+    }
+
+    @Test
+    fun ownEmojiStatusTracksOnlyTheSignedInUser() {
+        val own = TdApi.User().apply {
+            id = 1
+            emojiStatus = TdApi.EmojiStatus(TdApi.EmojiStatusTypeCustomEmoji(42L), 0)
+        }
+        store.onUpdate(TdApi.UpdateUser(own))
+        assertEquals(0L, store.ownEmojiStatusId.value)
+        store.onUpdate(TdApi.UpdateOption("my_id", TdApi.OptionValueInteger(1)))
+        assertEquals(42L, store.ownEmojiStatusId.value)
+        store.onUpdate(TdApi.UpdateUser(TdApi.User().apply { id = 2 }))
+        assertEquals(42L, store.ownEmojiStatusId.value)
+        store.onUpdate(TdApi.UpdateUser(TdApi.User().apply { id = 1 }))
+        assertEquals(0L, store.ownEmojiStatusId.value)
     }
 
     @Test

@@ -50,7 +50,8 @@ class TelegramClient(
     val authorizationState = _authorizationState.asStateFlow()
 
     private val notificationOptionsReady = CompletableDeferred<Boolean>()
-    private val connectionState = MutableStateFlow<TdApi.ConnectionState?>(null)
+    private val _connectionState = MutableStateFlow<TdApi.ConnectionState?>(null)
+    val connectionState = _connectionState.asStateFlow()
     private val havePendingNotifications = MutableStateFlow(false)
     private val _reactionNotificationSettings = MutableStateFlow<TdApi.ReactionNotificationSettings?>(null)
     internal val reactionNotificationSettings = _reactionNotificationSettings.asStateFlow()
@@ -148,7 +149,7 @@ class TelegramClient(
                 _reactionNotificationSettings.value = update.notificationSettings
             }
             is TdApi.UpdateConnectionState -> {
-                connectionState.value = update.state
+                _connectionState.value = update.state
                 logNotificationDelivery { "TDLib connection ready=${update.state is TdApi.ConnectionStateReady}" }
             }
             is TdApi.UpdateNewMessage -> if (!update.message.isOutgoing) {

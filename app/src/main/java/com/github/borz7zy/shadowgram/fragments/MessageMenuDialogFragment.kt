@@ -5,12 +5,14 @@
 
 package com.github.borz7zy.shadowgram.fragments
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.RectEvaluator
 import android.animation.ValueAnimator
 import android.app.Dialog
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.graphics.RenderEffect
-import android.graphics.Shader
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -30,8 +32,12 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.children
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnNextLayout
 import androidx.core.view.doOnPreDraw
+import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
+import androidx.core.widget.NestedScrollView
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.activityViewModels
 import androidx.fragment.app.setFragmentResult
@@ -42,18 +48,22 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.transition.ChangeBounds
+import androidx.transition.Fade
+import androidx.transition.TransitionManager
+import androidx.transition.TransitionSet
 import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView.DiffAdapter
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.ext.getViewProperty
 import com.github.borz7zy.shadowgram.ext.toPx
+import com.github.borz7zy.shadowgram.ui.MessageMenuLayout
 import com.github.borz7zy.shadowgram.ui.finishOverlayReturn
 import com.github.borz7zy.shadowgram.ui.views.CustomEmojiView
 import com.github.borz7zy.shadowgram.viewmodels.MessageMenuViewModel
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.motion.MotionUtils
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -72,44 +82,55 @@ class MessageMenuDialogFragment : DialogFragment() {
 
     // Views
     private val actionsLinearLayout by getViewProperty<LinearLayout>(R.id.actionsLinearLayout)
+    private val actionsScrollView by getViewProperty<NestedScrollView>(R.id.actionsScrollView)
     private val editMaterialButton by getViewProperty<MaterialButton>(R.id.editMaterialButton)
     private val bubbleImageView by getViewProperty<ImageView>(R.id.bubbleImageView)
+    private val bubblePreviewImageView by getViewProperty<ImageView>(R.id.bubblePreviewImageView)
+    private val bubbleScrollView by getViewProperty<NestedScrollView>(R.id.bubbleScrollView)
+    private val bubbleContentLayout by getViewProperty<FrameLayout>(R.id.bubbleContentLayout)
     private val copyLinkMaterialButton by getViewProperty<MaterialButton>(R.id.copyLinkMaterialButton)
     private val copyMaterialButton by getViewProperty<MaterialButton>(R.id.copyMaterialButton)
     private val deleteMaterialButton by getViewProperty<MaterialButton>(R.id.deleteMaterialButton)
+    private val dimView by getViewProperty<View>(R.id.messageMenuDimView)
     private val sendNowMaterialButton by getViewProperty<MaterialButton>(R.id.sendNowMaterialButton)
     private val profileAudioMaterialButton by getViewProperty<MaterialButton>(R.id.profileAudioMaterialButton)
     private val pinMaterialButton by getViewProperty<MaterialButton>(R.id.pinMaterialButton)
     private val forwardMaterialButton by getViewProperty<MaterialButton>(R.id.forwardMaterialButton)
     private val expandMaterialButton by getViewProperty<MaterialButton>(R.id.expandMaterialButton)
     private val reactionsCardView by getViewProperty<MaterialCardView>(R.id.reactionsCardView)
+    private val reactionsLinearLayout by getViewProperty<LinearLayout>(R.id.reactionsLinearLayout)
     private val reactionsRecyclerView by getViewProperty<RecyclerListView>(R.id.reactionsRecyclerView)
     private val replyMaterialButton by getViewProperty<MaterialButton>(R.id.replyMaterialButton)
     private val saveMaterialButton by getViewProperty<MaterialButton>(R.id.saveMaterialButton)
-    private val rootFrameLayout by getViewProperty<FrameLayout>(R.id.rootFrameLayout)
+    private val rootFrameLayout by getViewProperty<MessageMenuLayout>(R.id.rootFrameLayout)
     private val transitionClipLayout by getViewProperty<FrameLayout>(R.id.transitionClipLayout)
 
-    private val adapter = ReactionsAdapter { close(bundleOf(KEY_ACTION to ACTION_REACTION).apply {
-        putString(KEY_EMOJI, it.emoji)
-        putLong(KEY_CUSTOM_EMOJI_ID, it.customEmojiId)
-    }) }
+    private val rowAdapter = ReactionsAdapter(::selectReaction)
+    private val gridAdapter = ReactionsAdapter(::selectReaction)
+    private var gridReactions: Pair<List<MessageMenuViewModel.Reaction>, List<Any>>? = null
+
+    private fun selectReaction(reaction: MessageMenuViewModel.Reaction) {
+        close(bundleOf(
+            KEY_ACTION to ACTION_REACTION,
+            KEY_EMOJI to reaction.emoji,
+            KEY_CUSTOM_EMOJI_ID to reaction.customEmojiId,
+        ))
+    }
 
     /** The bubble's text over its picture, selectable to quote or copy a part; null for none. */
     private var textView: TextView? = null
-
-    /** Where [textView] is in the picture. */
-    private var textOffset = android.graphics.Point()
 
     private var canQuote = false
     private var canCopyPart = false
 
     private var isExpanded = false
     private var isClosing = false
-    private var backgroundAnimator: ValueAnimator? = null
+    private var isLifted = false
+    private var bubbleAnimator: ValueAnimator? = null
     private var cancelReturnHandoff: (() -> Unit)? = null
 
     /** Where the bubble was, in this window. */
-    private var source = android.graphics.Rect()
+    private var source = Rect()
 
     override fun getTheme() = R.style.Theme_Shadowgram_MessageMenu
 
@@ -123,8 +144,9 @@ class MessageMenuDialogFragment : DialogFragment() {
                 WindowCompat.setDecorFitsSystemWindows(it, false)
                 it.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             }
-            // Back puts the bubble back first
-            onBackPressedDispatcher.addCallback(this@MessageMenuDialogFragment) { close(null) }
+            onBackPressedDispatcher.addCallback(this@MessageMenuDialogFragment) {
+                if (isExpanded && !isClosing) setExpanded(false) else close(null)
+            }
         }
 
     override fun onCreateView(
@@ -136,20 +158,29 @@ class MessageMenuDialogFragment : DialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        val bitmap = anchor.bitmap
+        val snapshot = anchor.snapshot
         val bounds = anchor.bounds
         // Recreated without the chat's picture (process death): nothing to lift
-        if (bitmap == null || bounds == null || savedInstanceState != null) {
+        if (snapshot == null || bounds == null || savedInstanceState != null) {
             close(null, animate = false)
             return
         }
-        bubbleImageView.setImageBitmap(bitmap)
-        anchor.text?.let { setUpText(it, bounds) }
-        // The text goes wherever the picture goes
-        bubbleImageView.animate().setUpdateListener { syncText() }
+        for (image in listOf(bubbleImageView, bubblePreviewImageView)) {
+            image.setImageDrawable(snapshot())
+            image.updateLayoutParams {
+                width = bounds.width()
+                height = bounds.height()
+            }
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(rootFrameLayout) { _, insets ->
+            rootFrameLayout.systemInsets = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+            )
+            insets
+        }
 
         rootFrameLayout.setOnClickListener { close(null) }
-        bubbleImageView.setOnClickListener { close(null) }
+        bubblePreviewImageView.setOnClickListener { close(null) }
 
         val text = requireArguments().getString(MessageMenuViewModel.ARG_TEXT)
         replyMaterialButton.setOnClickListener { close(bundleOf(KEY_ACTION to ACTION_REPLY)) }
@@ -193,8 +224,10 @@ class MessageMenuDialogFragment : DialogFragment() {
 
         reactionsRecyclerView.layoutManager =
             LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false)
-        reactionsRecyclerView.adapter = adapter
-        expandMaterialButton.setOnClickListener { expand() }
+        reactionsRecyclerView.adapter = rowAdapter
+        reactionsRecyclerView.itemAnimator = null
+        expandMaterialButton.isEnabled = false
+        expandMaterialButton.setOnClickListener { setExpanded(!isExpanded) }
 
         // The picture shows where the bubble is at once, the chat hides its own once it's drawn
         view.doOnPreDraw { place(bounds) }
@@ -203,36 +236,41 @@ class MessageMenuDialogFragment : DialogFragment() {
         }
 
         viewLifecycleOwner.lifecycleScope.launch {
-            // Lift once it's known what the menu has, the reactions come in after
+            // Give the actions time to arrive before choosing the lift's destination.
             withTimeoutOrNull(PROPERTIES_TIMEOUT_MS) { viewModel.state.first { it.isLoaded } }
             bind(viewModel.state.value, text)
-            view.doOnPreDraw { lift() }
+            view.doOnNextLayout { lift() }
             view.requestLayout()
+        }
 
+        viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.state.collectLatest { bind(it, text) }
+                viewModel.state.collect { bind(it, text) }
             }
         }
     }
 
     override fun onDestroyView() {
         cancelReturnHandoff?.invoke()
-        backgroundAnimator?.cancel()
+        TransitionManager.endTransitions(rootFrameLayout)
+        dimView.animate().cancel()
+        cancelBubbleAnimation()
         bubbleImageView.animate().cancel()
         anchor.restore?.invoke()
         reactionsRecyclerView.adapter = null
-        setChatBlur(0f)
+        textView = null
 
         super.onDestroyView()
     }
 
     private fun bind(state: MessageMenuViewModel.State, text: String?) {
+        if (isClosing) return
         val properties = state.properties
         // Scheduled messages have no audience yet to reply or react to them.
         val isScheduled = requireArguments().getBoolean(ARG_SCHEDULED)
         canQuote = !isScheduled && properties?.canBeReplied == true
         canCopyPart = properties?.canBeCopied == true
-        textView?.isVisible = !isClosing && (canQuote || canCopyPart)
+        bindSelectableText()
         sendNowMaterialButton.isVisible = isScheduled
         replyMaterialButton.isVisible = !isScheduled && properties?.canBeReplied == true
         editMaterialButton.isVisible = state.canEdit
@@ -247,70 +285,95 @@ class MessageMenuDialogFragment : DialogFragment() {
         saveMaterialButton.isVisible = state.saveable != null
         deleteMaterialButton.isVisible = properties?.canBeDeletedOnlyForSelf == true
                 || properties?.canBeDeletedForAllUsers == true
-        actionsLinearLayout.isVisible = !isExpanded && (sendNowMaterialButton.isVisible
-                || replyMaterialButton.isVisible || editMaterialButton.isVisible || copyMaterialButton.isVisible
-                || copyLinkMaterialButton.isVisible || forwardMaterialButton.isVisible
-                || pinMaterialButton.isVisible || profileAudioMaterialButton.isVisible
-                || saveMaterialButton.isVisible
-                || deleteMaterialButton.isVisible)
+        actionsScrollView.isVisible = !isExpanded && actionsLinearLayout.children.any { it.isVisible }
 
-        val reactions = if (isExpanded) state.allReactions else state.topReactions
-        adapter.submitList(
-            when (isExpanded) {
-                // The custom emoji sets follow, under their titles
-                true -> reactions + state.customPacks.flatMap { (title, pack) -> listOf(title) + pack }
-                false -> reactions
+        rowAdapter.submitList(state.topReactions)
+        if (isExpanded) {
+            val reactions = state.allReactions to state.customReactions
+            if (gridReactions != reactions) {
+                gridReactions = reactions
+                gridAdapter.submitList(reactions.first + reactions.second)
             }
-        )
+        }
+        val canExpand = isExpanded || state.allReactions.size > state.topReactions.size ||
+            state.customReactions.isNotEmpty()
         // Its place is kept while they load
-        reactionsCardView.isVisible = !isScheduled && (reactions.isNotEmpty() || !state.areReactionsLoaded)
-        expandMaterialButton.isVisible = !isExpanded && (state.allReactions.size > state.topReactions.size
-                || state.customPacks.isNotEmpty())
+        reactionsCardView.isVisible = !isScheduled &&
+            (state.topReactions.isNotEmpty() || !state.areReactionsLoaded || canExpand)
+        expandMaterialButton.isVisible = canExpand
     }
 
-    /** All the reactions, a grid in place of the row. */
-    private fun expand() {
-        isExpanded = true
-        reactionsRecyclerView.layoutManager = GridLayoutManager(requireContext(), GRID_COLUMNS).apply {
-            spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
-                override fun getSpanSize(position: Int) =
-                    if (adapter.currentList.getOrNull(position) is String) GRID_COLUMNS else 1
+    private fun setExpanded(expanded: Boolean) {
+        if (isClosing || !isLifted || expanded == isExpanded) return
+        TransitionManager.beginDelayedTransition(rootFrameLayout, TransitionSet().apply {
+            addTransition(ChangeBounds().apply {
+                resizeClip = true
+                addTarget(reactionsCardView)
+                addTarget(bubbleScrollView)
+            })
+            addTransition(Fade().addTarget(actionsScrollView))
+            duration = REACTIONS_TRANSITION_MS
+            interpolator = interpolator()
+        })
+        isExpanded = expanded
+        reactionsRecyclerView.swapAdapter(if (expanded) gridAdapter else rowAdapter, true)
+        reactionsRecyclerView.layoutManager = if (expanded) {
+            GridLayoutManager(requireContext(), 1).apply {
+                spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+                    override fun getSpanSize(position: Int) =
+                        if (gridAdapter.currentList.getOrNull(position) is String) spanCount else 1
+                }
             }
+        } else {
+            LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false)
         }
-        reactionsRecyclerView.layoutParams = reactionsRecyclerView.layoutParams.apply {
-            height = rootFrameLayout.toPx(GRID_HEIGHT_DP)
+        reactionsLinearLayout.orientation = if (expanded) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+        expandMaterialButton.updateLayoutParams<LinearLayout.LayoutParams> {
+            gravity = if (expanded) Gravity.END else Gravity.CENTER_VERTICAL
         }
-        // The grid takes the actions' room, like iOS
+        expandMaterialButton.setIconResource(if (expanded) R.drawable.ic_keyboard_arrow_up else R.drawable.ic_keyboard_arrow_down)
+        val label = getString(if (expanded) R.string.message_fewer_reactions else R.string.message_more_reactions)
+        expandMaterialButton.contentDescription = label
+        expandMaterialButton.tooltipText = label
+        rootFrameLayout.isExpanded = expanded
         bind(viewModel.state.value, requireArguments().getString(MessageMenuViewModel.ARG_TEXT))
     }
 
-    private fun insets() = ViewCompat.getRootWindowInsets(rootFrameLayout)
-        ?.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-        ?: androidx.core.graphics.Insets.NONE
-
     /** The picture over the bubble, where it is; the chat blurs behind it. */
-    private fun place(bounds: android.graphics.Rect) {
+    private fun place(bounds: Rect) {
         if (isClosing) return
         rootFrameLayout.isVisible = true
         source = bounds.inWindow()
+        rootFrameLayout.source = source
         bubbleImageView.translationX = source.left.toFloat()
         bubbleImageView.translationY = source.top.toFloat()
-        syncText()
-        animateBackground(0f, 1f)
+        transitionClipLayout.clipBounds = anchor.viewport?.invoke()?.inWindow()
+        actionsLinearLayout.gravity = if (source.centerX() > rootFrameLayout.width / 2) Gravity.RIGHT else Gravity.LEFT
+        setBackgroundBlur(true)
+        dimView.animate().alpha(DIM_AMOUNT).setDuration(duration()).start()
+    }
+
+    private fun bindSelectableText() {
+        val selectable = canQuote || canCopyPart
+        textView?.isVisible = selectable
+        if (isLifted && selectable && textView == null) {
+            val text = anchor.text ?: return
+            val bounds = anchor.bounds ?: return
+            setUpText(text, bounds)
+        }
     }
 
     /**
      * A text view laid out like the bubble's over its picture, transparent: the picture shows the
      * text, this one selects it. A long press selects, the selection's bar quotes the part.
      */
-    private fun setUpText(text: MessageMenuViewModel.SelectableText, bounds: android.graphics.Rect) {
-        textOffset = android.graphics.Point(text.bounds.left - bounds.left, text.bounds.top - bounds.top)
+    private fun setUpText(text: MessageMenuViewModel.SelectableText, bounds: Rect) {
         textView = TextView(requireContext()).apply {
             text.style(this)
             setTextColor(android.graphics.Color.TRANSPARENT)
             setText(text.text)
             setTextIsSelectable(true)
-            isVisible = false
+            isVisible = canQuote || canCopyPart
             // A tap without a selection is a tap on the bubble
             setOnClickListener { if (!hasSelection()) close(null) }
             customSelectionActionModeCallback = object : android.view.ActionMode.Callback {
@@ -344,11 +407,13 @@ class MessageMenuDialogFragment : DialogFragment() {
                 override fun onDestroyActionMode(mode: android.view.ActionMode) = Unit
             }
         }
-        // Under the reactions and the actions
-        rootFrameLayout.addView(
+        // The selection scrolls with the snapshot at the original text size.
+        bubbleContentLayout.addView(
             textView,
-            rootFrameLayout.indexOfChild(transitionClipLayout) + 1,
-            FrameLayout.LayoutParams(text.bounds.width(), text.bounds.height()),
+            FrameLayout.LayoutParams(text.bounds.width(), text.bounds.height(), Gravity.TOP or Gravity.LEFT).apply {
+                leftMargin = text.bounds.left - bounds.left
+                topMargin = text.bounds.top - bounds.top
+            },
         )
     }
 
@@ -368,83 +433,88 @@ class MessageMenuDialogFragment : DialogFragment() {
         ))
     }
 
-    /** Keep the text view over the text in the picture while it moves and scales. */
-    private fun syncText() {
-        val textView = textView ?: return
-        textView.translationX = bubbleImageView.translationX + textOffset.x
-        textView.translationY = bubbleImageView.translationY + textOffset.y
-        textView.pivotX = bubbleImageView.pivotX - textOffset.x
-        textView.pivotY = bubbleImageView.pivotY - textOffset.y
-        textView.scaleX = bubbleImageView.scaleX
-        textView.scaleY = bubbleImageView.scaleY
-    }
-
     /** A rect on screen, in this window. */
-    private fun android.graphics.Rect.inWindow(): android.graphics.Rect {
+    private fun Rect.inWindow(): Rect {
         val location = IntArray(2).also(rootFrameLayout::getLocationOnScreen)
-        return android.graphics.Rect(this).apply { offset(-location[0], -location[1]) }
+        return Rect(this).apply { offset(-location[0], -location[1]) }
     }
 
-    /** Lift the bubble to where its reactions fit above and its actions below. */
+    /** Lift the snapshot, then replace it with the scrollable preview at the same position. */
     private fun lift() {
-        if (isClosing) {
+        if (isClosing) return
+        if (source.isEmpty) {
+            rootFrameLayout.doOnNextLayout { lift() }
             return
         }
-        val insets = insets()
-        val margin = rootFrameLayout.toPx(MARGIN_DP)
-        val gap = rootFrameLayout.toPx(GAP_DP)
-        val barHeight = if (reactionsCardView.isVisible) reactionsCardView.height + gap else 0
-        val menuHeight = if (actionsLinearLayout.isVisible) actionsLinearLayout.height + gap else 0
+        val openingClip = transitionClipLayout.clipBounds ?: windowBounds()
+        bubbleScrollView.scrollTo(0, (openingClip.top - source.top).coerceAtLeast(0))
+        val previewBounds = previewBounds()
 
-        // The bubble moves the least it can for both to fit, and shrinks if even that isn't enough
-        val top = insets.top + margin + barHeight
-        val bottom = rootFrameLayout.height - insets.bottom - margin - menuHeight
-        val height = source.height()
-        val scale = if (height > bottom - top) ((bottom - top).toFloat() / height).coerceAtLeast(MIN_SCALE) else 1f
-        val targetTop = source.top.coerceAtMost(bottom - (height * scale).toInt()).coerceAtLeast(top)
-
-        // Lifted on the side it's on, outgoing ones on the right
-        val isEnd = source.centerX() > rootFrameLayout.width / 2
-        bubbleImageView.pivotX = if (isEnd) source.width().toFloat() else 0f
-        bubbleImageView.pivotY = 0f
-
-        fun alignX(view: View) = when (isEnd) {
-            true -> (source.right - view.width).toFloat()
-            false -> source.left.toFloat()
-        }.coerceIn(margin.toFloat(), (rootFrameLayout.width - margin - view.width).toFloat().coerceAtLeast(margin.toFloat()))
-
-        // It grows as the reactions come, and upwards when expanded: kept on its side, its
-        // bottom above the bubble, on screen
-        val barBottom = targetTop - gap
-        fun placeBar(view: View) {
-            view.translationX = alignX(view)
-            view.translationY = (barBottom - view.height).toFloat()
-                .coerceAtLeast((insets.top + margin).toFloat())
-        }
-        placeBar(reactionsCardView)
-        reactionsCardView.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ -> placeBar(view) }
-        reactionsCardView.pivotX = if (isEnd) reactionsCardView.width.toFloat() else 0f
+        reactionsCardView.pivotX = if (source.centerX() > rootFrameLayout.width / 2) reactionsCardView.width.toFloat() else 0f
         reactionsCardView.pivotY = reactionsCardView.height.toFloat()
         reactionsCardView.scaleX = POP_SCALE
         reactionsCardView.scaleY = POP_SCALE
         reactionsCardView.animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(POP_DELAY_MS)
             .setDuration(duration()).setInterpolator(interpolator()).start()
 
-        // The actions slide out of the bubble, the closest one first, like the new chat menu
-        actionsLinearLayout.gravity = if (isEnd) Gravity.END else Gravity.START
-        actionsLinearLayout.alpha = 1f
-        actionsLinearLayout.translationX = alignX(actionsLinearLayout)
-        actionsLinearLayout.translationY = targetTop + height * scale + gap
-        actionsLinearLayout.children.filter { it.isVisible }.forEachIndexed { index, action ->
-            action.alpha = 0f
-            action.translationY = -rootFrameLayout.toPx(ACTION_OFFSET_DP) * (index + 1f)
-            action.animate().alpha(1f).translationY(0f)
-                .setStartDelay(POP_DELAY_MS + index * ACTION_STAGGER_MS)
-                .setDuration(duration()).setInterpolator(interpolator()).start()
-        }
+        actionsScrollView.translationY = -rootFrameLayout.toPx(ACTION_OFFSET_DP).toFloat()
+        actionsScrollView.animate().alpha(1f).translationY(0f).setStartDelay(POP_DELAY_MS)
+            .setDuration(duration()).setInterpolator(interpolator()).withLayer().start()
 
-        bubbleImageView.animate().translationY(targetTop.toFloat()).scaleX(scale).scaleY(scale)
-            .setDuration(duration()).setInterpolator(interpolator()).start()
+        animateBubble(previewBounds.left, previewBounds.top - bubbleScrollView.scrollY, previewBounds, followPreview = true) {
+            bubbleImageView.isInvisible = true
+            bubbleScrollView.isVisible = true
+            isLifted = true
+            expandMaterialButton.isEnabled = true
+            bindSelectableText()
+            reactionsRecyclerView.children.forEach {
+                it.findViewById<CustomEmojiView>(R.id.customEmojiView)?.isAnimationPaused = false
+            }
+        }
+    }
+
+    private fun previewBounds() = with(bubbleScrollView) { Rect(left, top, right, bottom) }
+
+    private fun windowBounds() = Rect(0, 0, rootFrameLayout.width, rootFrameLayout.height)
+
+    private fun cancelBubbleAnimation() {
+        val animator = bubbleAnimator
+        bubbleAnimator = null
+        animator?.cancel()
+    }
+
+    private fun animateBubble(x: Int, y: Int, clip: Rect, followPreview: Boolean = false, onEnd: () -> Unit) {
+        cancelBubbleAnimation()
+        val image = bubbleImageView
+        val startX = image.translationX
+        val startY = image.translationY
+        val startClip = transitionClipLayout.clipBounds ?: windowBounds()
+        val clipEvaluator = RectEvaluator(Rect())
+        val destination = Rect(clip)
+        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = duration()
+            interpolator = interpolator()
+            addUpdateListener {
+                val fraction = it.animatedValue as Float
+                if (followPreview) {
+                    with(bubbleScrollView) { destination.set(left, top, right, bottom) }
+                }
+                val targetX = if (followPreview) destination.left else x
+                val targetY = if (followPreview) destination.top - bubbleScrollView.scrollY else y
+                image.translationX = startX + (targetX - startX) * fraction
+                image.translationY = startY + (targetY - startY) * fraction
+                transitionClipLayout.clipBounds = clipEvaluator.evaluate(fraction, startClip, destination)
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (bubbleAnimator !== animation) return
+                    bubbleAnimator = null
+                    onEnd()
+                }
+            })
+        }
+        bubbleAnimator = animator
+        animator.start()
     }
 
     /**
@@ -457,76 +527,69 @@ class MessageMenuDialogFragment : DialogFragment() {
             return
         }
         isClosing = true
+        if (view != null) TransitionManager.endTransitions(rootFrameLayout)
         // The picture alone goes back, the selection with its handles goes now
         textView?.isVisible = false
 
         val finish = {
-            backgroundAnimator?.cancel()
-            setChatBlur(0f)
-            dialog?.window?.let { window ->
-                window.attributes = window.attributes.apply { dimAmount = 0f }
+            if (view != null) {
+                dimView.animate().cancel()
+                dimView.alpha = 0f
             }
+            setBackgroundBlur(false)
             cancelReturnHandoff = finishOverlayReturn(anchor.restore?.invoke()) {
                 setFragmentResult(REQUEST_KEY, result ?: Bundle())
                 dismissAllowingStateLoss()
             }
         }
-        if (!animate || view == null) {
+        if (!animate || view == null || source.isEmpty) {
             finish()
             return
         }
 
         reactionsCardView.animate().alpha(0f).scaleX(POP_SCALE).scaleY(POP_SCALE).setStartDelay(0)
             .setDuration(duration() / 2).start()
-        actionsLinearLayout.animate().alpha(0f).setStartDelay(0).setDuration(duration() / 2).start()
+        actionsScrollView.animate().alpha(0f).setStartDelay(0).setDuration(duration() / 2).start()
 
-        val viewport = anchor.viewport?.invoke()
-        transitionClipLayout.clipBounds = viewport?.inWindow()
-        val target = anchor.locate?.invoke()
-            ?.takeIf { viewport == null || android.graphics.Rect.intersects(it, viewport) }
-            ?.inWindow()
-        bubbleImageView.animate().apply {
-            when (target) {
-                // Scrolled away: it fades where it is
-                null -> alpha(0f)
-                else -> translationX(target.left.toFloat()).translationY(target.top.toFloat())
-                    .scaleX(1f).scaleY(1f)
-            }
+        cancelBubbleAnimation()
+        val viewport = anchor.viewport?.invoke()?.inWindow() ?: windowBounds()
+        if (bubbleScrollView.isVisible) {
+            val previewBounds = previewBounds()
+            bubbleImageView.translationX = previewBounds.left.toFloat()
+            bubbleImageView.translationY = (previewBounds.top - bubbleScrollView.scrollY).toFloat()
+            transitionClipLayout.clipBounds = previewBounds
+            bubbleScrollView.isInvisible = true
+            bubbleImageView.isVisible = true
         }
-            .setStartDelay(0).setDuration(duration()).setInterpolator(interpolator())
-            .withEndAction { finish() }
-            .start()
-        animateBackground((dialog?.window?.attributes?.dimAmount ?: 0f) / DIM_AMOUNT, 0f)
+        val clippedStart = transitionClipLayout.clipBounds ?: windowBounds()
+        if (!clippedStart.intersect(viewport)) {
+            val x = clippedStart.centerX().coerceIn(viewport.left, viewport.right)
+            val y = clippedStart.centerY().coerceIn(viewport.top, viewport.bottom)
+            clippedStart.set(x, y, x, y)
+        }
+        transitionClipLayout.clipBounds = clippedStart
+        val target = anchor.locate?.invoke()?.inWindow()?.takeIf { Rect.intersects(it, viewport) }
+        if (target == null) {
+            bubbleImageView.animate().alpha(0f).setDuration(duration()).withEndAction(finish).start()
+        } else {
+            animateBubble(target.left, target.top, viewport, onEnd = finish)
+        }
+        setBackgroundBlur(false)
+        dimView.animate().alpha(0f).setDuration(duration()).start()
     }
 
-    /** Blur where the device can, dim everywhere. */
-    private fun animateBackground(from: Float, to: Float) {
+    /** Let the compositor blur the window behind the menu, when supported. */
+    private fun setBackgroundBlur(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         val window = dialog?.window ?: return
-        val blurRadius = resources.getDimension(R.dimen.message_menu_blur_radius)
-        backgroundAnimator?.cancel()
-        backgroundAnimator = ValueAnimator.ofFloat(from, to).apply {
-            duration = duration()
-            addUpdateListener {
-                val fraction = it.animatedValue as Float
-                window.attributes = window.attributes.apply { dimAmount = DIM_AMOUNT * fraction }
-                window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-                setChatBlur(blurRadius * fraction)
+        if (enabled) {
+            window.attributes = window.attributes.apply {
+                blurBehindRadius = resources.getDimensionPixelSize(R.dimen.message_menu_blur_radius)
+                flags = flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
             }
-            start()
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
         }
-    }
-
-    /**
-     * Blur the chat's own views: blur behind windows is off on many devices (One UI, Nothing OS,
-     * battery saver), drawing the app blurred works on all since Android 12.
-     */
-    private fun setChatBlur(radius: Float) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            return
-        }
-        activity?.findViewById<View>(android.R.id.content)?.setRenderEffect(
-            if (radius >= 1f) RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP) else null
-        )
     }
 
     private fun duration() = MotionUtils.resolveThemeDuration(
@@ -540,7 +603,7 @@ class MessageMenuDialogFragment : DialogFragment() {
     )
 
     /** The reactions to pick, animated; the custom emoji sets under titles in the grid. */
-    private class ReactionsAdapter(
+    private inner class ReactionsAdapter(
         private val onClick: (MessageMenuViewModel.Reaction) -> Unit,
     ) : DiffAdapter<Any, RecyclerView.ViewHolder>(
         object : androidx.recyclerview.widget.DiffUtil.ItemCallback<Any>() {
@@ -571,19 +634,23 @@ class MessageMenuDialogFragment : DialogFragment() {
                 is String -> (holder.itemView as TextView).text = item
                 is MessageMenuViewModel.Reaction -> {
                     val emojiView = holder.itemView.findViewById<CustomEmojiView>(R.id.customEmojiView)
+                    emojiView.isAnimationPaused = !isLifted
                     when (val emoji = item.emoji) {
-                        null -> emojiView.setCustomEmoji(item.customEmojiId)
+                        null -> emojiView.setCustomEmoji(item.customEmojiId, item.fallbackEmoji)
                         else -> emojiView.setEmojiReaction(emoji)
                     }
-                    holder.itemView.contentDescription = item.emoji
+                    holder.itemView.contentDescription = item.fallbackEmoji
                     holder.itemView.setOnClickListener { onClick(item) }
                 }
             }
         }
 
-        companion object {
-            const val TYPE_TITLE = 0
-            const val TYPE_REACTION = 1
+        override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
+            holder.itemView.findViewById<CustomEmojiView>(R.id.customEmojiView)?.clear()
+        }
+
+        override fun onViewAttachedToWindow(holder: RecyclerView.ViewHolder) {
+            holder.itemView.findViewById<CustomEmojiView>(R.id.customEmojiView)?.isAnimationPaused = !isLifted
         }
     }
 
@@ -616,15 +683,12 @@ class MessageMenuDialogFragment : DialogFragment() {
         const val ACTION_REACTION = "reaction"
 
         private const val PROPERTIES_TIMEOUT_MS = 300L
-        private const val MARGIN_DP = 12
-        private const val GAP_DP = 8
-        private const val GRID_COLUMNS = 7
-        private const val GRID_HEIGHT_DP = 240
-        private const val MIN_SCALE = 0.4f
+        private const val REACTIONS_TRANSITION_MS = 240L
+        private const val TYPE_TITLE = 0
+        private const val TYPE_REACTION = 1
         private const val POP_SCALE = 0.6f
         private const val POP_DELAY_MS = 60L
         private const val ACTION_OFFSET_DP = 12
-        private const val ACTION_STAGGER_MS = 30L
         private const val DIM_AMOUNT = 0.35f
 
         /**

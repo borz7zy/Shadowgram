@@ -15,10 +15,11 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import coil3.dispose
 import coil3.load
-import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView.DiffAdapter
 import com.github.borz7zy.shadowgram.R
 import com.github.borz7zy.shadowgram.models.ProfileItem
 import com.github.borz7zy.shadowgram.telegram.ProfilePage
+import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView.DiffAdapter
+import com.github.borz7zy.shadowgram.ui.views.AnimatedStickerPlayback
 import com.github.borz7zy.shadowgram.ui.views.AvatarView
 import com.github.borz7zy.shadowgram.ui.views.StickerView
 import com.google.android.material.imageview.ShapeableImageView
@@ -37,6 +38,8 @@ class ProfileItemAdapter(
 ) : DiffAdapter<ProfileItem, ProfileItemAdapter.ViewHolder>(diffCallback) {
     /** What the items are, set before submitting another kind. */
     var kind = ProfilePage.Kind.MEDIA
+    /** An asset keeps its playback position even if its cell is recycled or shown in another collection. */
+    private val giftTimelines = HashMap<String, AnimatedStickerPlayback.Timeline>()
 
     override fun getItemViewType(position: Int) = when (kind.isGrid) {
         true -> R.layout.profile_grid_item
@@ -144,11 +147,15 @@ class ProfileItemAdapter(
             }
 
             if (old == null || old.stickerPath != item.stickerPath) {
-                stickerView?.isVisible = item.stickerPath != null
+                val path = item.stickerPath
+                val timeline = if (path != null && kind == ProfilePage.Kind.GIFTS) {
+                    giftTimelines.getOrPut(path) { AnimatedStickerPlayback.Timeline() }
+                } else null
+                stickerView?.isVisible = path != null
                 stickerView?.setSticker(
-                    item.stickerPath?.let(::File), itemView.resources.getDimensionPixelSize(
-                        R.dimen.profile_sticker_size
-                    )
+                    path?.let(::File),
+                    itemView.resources.getDimensionPixelSize(R.dimen.profile_sticker_size),
+                    timeline,
                 )
             }
         }

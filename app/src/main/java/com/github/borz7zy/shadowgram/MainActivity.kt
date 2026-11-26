@@ -50,6 +50,7 @@ import com.github.borz7zy.shadowgram.fragments.ArtistFragment
 import com.github.borz7zy.shadowgram.fragments.GenreFragment
 import com.github.borz7zy.shadowgram.fragments.ChatPaneNavHostFragment
 import com.github.borz7zy.shadowgram.fragments.MainFragment
+import com.github.borz7zy.shadowgram.fragments.NowPlayingDialogFragment
 import com.github.borz7zy.shadowgram.fragments.PlaylistFragment
 import com.github.borz7zy.shadowgram.models.MediaType
 import com.github.borz7zy.shadowgram.models.Result
@@ -239,6 +240,7 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
             pendingChatArguments = Bundle(arguments)
             return
         }
+        NowPlayingDialogFragment.close(this)
         if (closingChat) {
             supportFragmentManager.findFragmentByTag(CHAT_HOST_TAG)?.let { completeCloseChat(it, animate = false) }
         }
@@ -531,13 +533,7 @@ class MainActivity : AppCompatActivity(R.layout.activity_main) {
         }
     }
 
-    private fun navigateToNowPlayingFragment() = navController.navigate(
-        R.id.fragment_now_playing,
-        null,
-        NavOptions.Builder()
-            .setPopUpTo(R.id.fragment_now_playing, true)
-            .build(),
-    )
+    private fun navigateToNowPlayingFragment() = NowPlayingDialogFragment.open(this)
 
     companion object {
         private const val STATE_CHAT_ARGUMENTS = "open_chat_arguments"

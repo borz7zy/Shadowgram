@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: borz7zy
+     SPDX-License-Identifier: MIT
+-->
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/now_playing_overlay"
+    app:startDestination="@id/fragment_now_playing">
+
+    <include app:graph="@navigation/fragment_add_or_remove_from_playlists" />
+    <include app:graph="@navigation/fragment_album" />
+    <include app:graph="@navigation/fragment_artist" />
+    <include app:graph="@navigation/fragment_chat_picker" />
+    <include app:graph="@navigation/fragment_genre" />
+    <include app:graph="@navigation/fragment_lyrics" />
+    <include app:graph="@navigation/fragment_media_item_bottom_sheet_dialog" />
+    <include app:graph="@navigation/fragment_now_playing" />
+    <include app:graph="@navigation/fragment_now_playing_stats_bottom_sheet_dialog" />
+    <include app:graph="@navigation/fragment_playback_control_bottom_sheet_dialog" />
+    <include app:graph="@navigation/fragment_queue" />
+
+</navigation>

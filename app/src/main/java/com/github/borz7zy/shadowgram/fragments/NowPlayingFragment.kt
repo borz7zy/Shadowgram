@@ -175,7 +175,9 @@ class NowPlayingFragment : Fragment(R.layout.fragment_now_playing) {
 
         // Top bar
         toolbar.setNavigationOnClickListener {
-            findNavController().navigateUp()
+            if (!findNavController().navigateUp()) {
+                (parentFragment?.parentFragment as? NowPlayingDialogFragment)?.dismiss()
+            }
         }
 
         statsMaterialCardView.setOnClickListener {

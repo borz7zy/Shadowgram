@@ -14,10 +14,14 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Picture
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.PictureDrawable
 import android.location.Location
 import android.location.LocationManager
 import android.net.Uri
@@ -44,6 +48,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.graphics.withClip
 import androidx.core.graphics.withTranslation
 import androidx.core.location.LocationManagerCompat
 import androidx.core.view.ViewCompat
@@ -1254,8 +1259,8 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             return
         }
         val bubbleBounds = bubble.boundsOnScreen()
-        val (bitmap, bounds) = snapshot(message, bubble, bubbleBounds)
-        menuAnchor.bitmap = bitmap
+        val (snapshot, bounds) = snapshot(message, bubble, bubbleBounds)
+        menuAnchor.snapshot = snapshot
         menuAnchor.bounds = bounds
         // The bubble may have moved by the time the menu closes, the avatar goes along
         val messageId = message.id
@@ -1315,30 +1320,61 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
     }
 
     /** A picture of [bubble] and where it is, with the sender's avatar when it's drawn beside it. */
-    private fun snapshot(message: MessageItem, bubble: View, bubbleBounds: Rect): Pair<Bitmap, Rect> {
-        val picture = bubble.drawToBitmap().also {
-            it.drawTexturesOf(bubble)
+    private fun snapshot(message: MessageItem, bubble: View, bubbleBounds: Rect): Pair<() -> Drawable, Rect> {
+        val avatar = avatarDecoration.avatarBeside(bubble.parent as View, message.senderId)?.let { (rect, sender) ->
+            val origin = IntArray(2).also(recyclerView::getLocationOnScreen)
+            Rect(rect).apply { offset(origin[0], origin[1]) } to sender
+        }
+        val bounds = Rect(bubbleBounds).apply { avatar?.let { union(it.first) } }
+        val bubbleX = (bubbleBounds.left - bounds.left).toFloat()
+        val bubbleY = (bubbleBounds.top - bounds.top).toFloat()
+        fun drawAvatar(canvas: Canvas) {
+            avatar?.let { (rect, sender) ->
+                avatarDecoration.draw(canvas, sender, rect.left - bounds.left, rect.top - bounds.top)
+            }
+        }
+        if (maxOf(bounds.width(), bounds.height()) > 4_096 || bounds.width().toLong() * bounds.height() > 4_194_304L) {
+            // A long message can exceed texture limits. Record drawing commands without a full-size raster.
+            val picture = Picture()
+            val canvas = picture.beginRecording(bounds.width(), bounds.height())
+            try {
+                drawAvatar(canvas)
+                canvas.withTranslation(bubbleX, bubbleY) {
+                    val shape = bubbleShape(bubble)
+                    if (shape != null) clipPath(shape)
+                    withClip(0, 0, bubble.width, bubble.height) {
+                        bubble.draw(this)
+                        drawTexturesOf(bubble, recycleFrames = false)
+                    }
+                }
+            } finally {
+                picture.endRecording()
+            }
+            return ({ PictureDrawable(picture) }) to bounds
+        }
+        val bubbleBitmap = bubble.drawToBitmap().also {
+            Canvas(it).drawTexturesOf(bubble, recycleFrames = true)
             it.clipToShapeOf(bubble)
         }
-        val (avatarRect, sender) = avatarDecoration.avatarBeside(bubble.parent as View, message.senderId)
-            ?: return picture to bubbleBounds
-        val list = IntArray(2).also(recyclerView::getLocationOnScreen)
-        val avatarBounds = Rect(avatarRect).apply { offset(list[0], list[1]) }
-        val bounds = Rect(bubbleBounds).apply { union(avatarBounds) }
-        val bitmap = Bitmap.createBitmap(bounds.width(), bounds.height(), Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        avatarDecoration.draw(canvas, sender, avatarBounds.left - bounds.left, avatarBounds.top - bounds.top)
-        canvas.drawBitmap(picture, (bubbleBounds.left - bounds.left).toFloat(), (bubbleBounds.top - bounds.top).toFloat(), null)
-        return bitmap to bounds
+        val bitmap = if (avatar == null) bubbleBitmap else {
+            Bitmap.createBitmap(bounds.width(), bounds.height(), Bitmap.Config.ARGB_8888).also {
+                val canvas = Canvas(it)
+                drawAvatar(canvas)
+                canvas.drawBitmap(bubbleBitmap, bubbleX, bubbleY, null)
+                bubbleBitmap.recycle()
+            }
+        }
+        bitmap.prepareToDraw()
+        val resources = resources
+        return ({ BitmapDrawable(resources, bitmap) }) to bounds
     }
 
     /**
      * Draw the frames of the videos playing in [bubble], a video's preview: a bitmap's canvas
      * doesn't draw what a TextureView shows.
      */
-    private fun Bitmap.drawTexturesOf(bubble: View) {
+    private fun Canvas.drawTexturesOf(bubble: View, recycleFrames: Boolean) {
         val origin = IntArray(2).also(bubble::getLocationOnScreen)
-        val canvas = Canvas(this)
         fun visit(view: View) {
             if (!view.isShown || view.alpha == 0f) {
                 return
@@ -1346,13 +1382,13 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
             if (view is android.view.TextureView) {
                 val frame = view.takeIf { it.isAvailable }?.bitmap ?: return
                 val location = IntArray(2).also(view::getLocationOnScreen)
-                canvas.drawBitmap(frame, (location[0] - origin[0]).toFloat(), (location[1] - origin[1]).toFloat(), null)
-                frame.recycle()
+                drawBitmap(frame, (location[0] - origin[0]).toFloat(), (location[1] - origin[1]).toFloat(), null)
+                if (recycleFrames) frame.recycle()
                 // What is over it (a duration) again on top
                 val parent = view.parent as? android.view.ViewGroup ?: return
                 parent.children.drop(parent.indexOfChild(view) + 1).filter { it.isShown }.forEach { above ->
                     val at = IntArray(2).also(above::getLocationOnScreen)
-                    canvas.withTranslation((at[0] - origin[0]).toFloat(), (at[1] - origin[1]).toFloat()) {
+                    withTranslation((at[0] - origin[0]).toFloat(), (at[1] - origin[1]).toFloat()) {
                         above.draw(this)
                     }
                 }
@@ -1368,15 +1404,20 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
      * its photos to its corners, only the screen does.
      */
     private fun Bitmap.clipToShapeOf(bubble: View) {
-        val card = bubble as? MaterialCardView ?: return
-        val path = Path()
-        ShapeAppearancePathProvider.getInstance().calculatePath(
-            card.shapeAppearanceModel, 1f, RectF(0f, 0f, width.toFloat(), height.toFloat()), path
-        )
+        val path = bubbleShape(bubble) ?: return
         path.fillType = Path.FillType.INVERSE_WINDING
         Canvas(this).drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
             xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
         })
+    }
+
+    private fun bubbleShape(bubble: View): Path? {
+        val card = bubble as? MaterialCardView ?: return null
+        return Path().also { path ->
+            ShapeAppearancePathProvider.getInstance().calculatePath(
+                card.shapeAppearanceModel, 1f, RectF(0f, 0f, card.width.toFloat(), card.height.toFloat()), path,
+            )
+        }
     }
 
     private fun View.boundsOnScreen(): Rect {
@@ -1475,7 +1516,7 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         val message = menuMessage
         menuMessage = null
         message?.let { setMenuBubbleHidden(it.id, false) }
-        menuAnchor.bitmap = null
+        menuAnchor.snapshot = null
         menuAnchor.locate = null
         menuAnchor.viewport = null
         menuAnchor.restore = null
@@ -1923,8 +1964,11 @@ class ChatFragment : Fragment(R.layout.fragment_chat) {
         val recyclerView = recyclerView
         val previousNewest = adapter.currentList.firstOrNull { it is MessageRow.Bubble } as? MessageRow.Bubble
         val nextNewest = rows.firstOrNull { it is MessageRow.Bubble } as? MessageRow.Bubble
-        val newestChanged = previousNewest?.message?.id != nextNewest?.message?.id ||
-                previousNewest?.album?.map { it.id } != nextNewest?.album?.map { it.id }
+        val previousAlbum = previousNewest?.album.orEmpty()
+        val nextAlbum = nextNewest?.album.orEmpty()
+        val newestChanged = previousNewest?.key != nextNewest?.key ||
+                previousAlbum.size != nextAlbum.size ||
+                previousAlbum.any { old -> nextAlbum.none { it.rowId == old.rowId } }
         adapter.prepareRows(rows, layoutManager.findFirstVisibleItemPosition())
         adapter.submitList(rows) {
             if (view == null || recyclerView.adapter !== adapter || this@ChatFragment.recyclerView !== recyclerView) return@submitList

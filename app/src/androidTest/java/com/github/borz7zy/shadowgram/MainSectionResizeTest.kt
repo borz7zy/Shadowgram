@@ -181,13 +181,13 @@ class MainSectionResizeTest {
                 val rail = ChatFolderRailView(activity)
                 var selected: ChatListKey = ChatListKey.Main
                 rail.onFolderSelected = { selected = it }
-                rail.submit(folders, selected.stableId)
+                rail.submit(folders, selected.stableId, unread = emptyMap())
                 assertEquals(3, rail.childCount)
                 (rail.getChildAt(1) as MaterialButton).performClick()
                 assertEquals(ChatListKey.Folder(7), selected)
                 assertTrue((rail.getChildAt(1) as MaterialButton).isChecked)
                 assertEquals(false, (rail.getChildAt(0) as MaterialButton).isChecked)
-                rail.submit(folders, selected.stableId)
+                rail.submit(folders, selected.stableId, unread = emptyMap())
                 assertTrue((rail.getChildAt(1) as MaterialButton).isChecked)
             }
         }
@@ -215,7 +215,8 @@ class MainSectionResizeTest {
                         val folders = root.findViewById<ChatFolderRailView>(R.id.chatFolderRailView)
                         folders.submit(listOf(ChatFolder(ChatListKey.Main, null),
                             ChatFolder(ChatListKey.Folder(7), "Work"),
-                            ChatFolder(ChatListKey.Folder(9), "Friends")), ChatListKey.Main.stableId)
+                            ChatFolder(ChatListKey.Folder(9), "Friends")), ChatListKey.Main.stableId,
+                            unread = emptyMap())
                         val density = context.resources.displayMetrics.density
                         val width = (168 * density).toInt()
                         val height = (heightDp * density).toInt()

@@ -20,7 +20,7 @@ internal class MessageTextPreparer {
     private var cacheGeneration = 0L
     // The scheduling fields below are confined to the main thread.
     private var attached = false
-    private var running: AsyncTask<String, Void, Unit>? = null
+    private var running: AsyncTask<Void, Void, Unit>? = null
     private var pending = emptyList<String>()
 
     fun attach() { attached = true }
@@ -54,12 +54,24 @@ internal class MessageTextPreparer {
     }
 
     private fun parse(text: String): List<Range> {
-        if (text.isEmpty() || text.all { it.code < 128 }) return emptyList()
-        return Emoji.parseEmojis(text).asSequence().take(MAX_RANGES).mapNotNull {
-            val code = it.code?.toString() ?: return@mapNotNull null
-            if (it.start < 0 || it.end <= it.start || it.end > text.length) null
-            else Range(it.start, it.end, code)
-        }.toList()
+        // Match the characters that can start a sequence in Emoji.parseEmojis, including keycaps.
+        if (text.none {
+                it in '\uD83C'..'\uD83E' || it in '\u203C'..'\u3299' ||
+                    it in '\uFE00'..'\uFE0F' || it == '©' || it == '®'
+            }) {
+            return emptyList()
+        }
+        val parsed = Emoji.parseEmojis(text)
+        if (parsed.isEmpty()) return emptyList()
+        return buildList {
+            for (index in 0 until minOf(parsed.size, MAX_RANGES)) {
+                val range = parsed[index]
+                val code = range.code?.toString() ?: continue
+                if (range.start >= 0 && range.end > range.start && range.end <= text.length) {
+                    add(Range(range.start, range.end, code))
+                }
+            }
+        }
     }
 
     /** A visible cache miss is synchronous on purpose: no placeholder text or second bind. */
@@ -86,13 +98,12 @@ internal class MessageTextPreparer {
 
     private fun startNext() {
         if (!attached || running != null || pending.isEmpty()) return
-        val batch = pending.filter { cached(it) == null }
+        val batch = pending
         pending = emptyList()
-        if (batch.isEmpty()) return
         val generation = synchronized(cacheLock) { cacheGeneration }
-        val task = object : AsyncTask<String, Void, Unit>() {
-            override fun doInBackground(vararg params: String): Unit {
-                for (text in params) {
+        val task = object : AsyncTask<Void, Void, Unit>() {
+            override fun doInBackground(vararg params: Void) {
+                for (text in batch) {
                     if (isCanceled || Thread.currentThread().isInterrupted) break
                     if (cached(text) != null) continue
                     val ranges = parse(text)
@@ -109,10 +120,10 @@ internal class MessageTextPreparer {
             }
         }
         running = task
-        task.withPriority(AsyncTask.Priority.NORMAL).execOn(AsyncTask.CPU_EXECUTOR, *batch.toTypedArray())
+        task.withPriority(AsyncTask.Priority.NORMAL).execBackgroundOn(AsyncTask.CPU_EXECUTOR)
     }
 
-    private fun complete(task: AsyncTask<String, Void, Unit>) {
+    private fun complete(task: AsyncTask<Void, Void, Unit>) {
         if (running !== task) return
         running = null
         startNext()

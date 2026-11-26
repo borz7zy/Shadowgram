@@ -11,6 +11,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.borz7zy.shadowgram.models.ChatRow
 import com.github.borz7zy.shadowgram.ui.views.ChatListItemView
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 /**
@@ -49,10 +51,19 @@ class ChatListAdapter(
 
     /**
      * Replace the rows, diffing them in background. Does nothing if the rows have been moved
-     * meanwhile, the caller then submits again.
+     * meanwhile, the caller then submits again. [beforeDispatch] runs while the old rows are
+     * still laid out, so the caller can anchor its scroll position to a moved row.
      */
-    suspend fun submit(newItems: List<ChatRow>) {
+    suspend fun submit(newItems: List<ChatRow>, beforeDispatch: ((DiffUtil.DiffResult) -> Unit)? = null) {
+        currentCoroutineContext().ensureActive()
         val oldItems = items
+        if (oldItems === newItems) return
+        if (oldItems.isEmpty() || newItems.isEmpty()) {
+            items = newItems
+            if (oldItems.isNotEmpty()) notifyItemRangeRemoved(0, oldItems.size)
+            if (newItems.isNotEmpty()) notifyItemRangeInserted(0, newItems.size)
+            return
+        }
         val diffResult = withContext(Dispatchers.Default) {
             DiffUtil.calculateDiff(DiffCallback(oldItems, newItems))
         }
@@ -61,6 +72,7 @@ class ChatListAdapter(
             return
         }
 
+        beforeDispatch?.invoke(diffResult)
         items = newItems
         diffResult.dispatchUpdatesTo(this)
     }

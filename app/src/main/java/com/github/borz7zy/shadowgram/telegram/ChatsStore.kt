@@ -18,8 +18,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.onStart
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.drinkless.tdlib.TdApi
 import kotlin.coroutines.resume
@@ -27,9 +27,8 @@ import kotlin.coroutines.resume
 /**
  * Chats of an account, kept up to date from TDLib updates.
  *
- * Updates are applied on the TDLib thread under [lock], every change bumps [version]. Collectors
- * build immutable snapshots on [Dispatchers.Default]; since [version] is a StateFlow, bursts of
- * updates are conflated into a single snapshot.
+ * Updates are applied on the TDLib thread under [lock]. Collectors build immutable snapshots on
+ * [Dispatchers.Default]. While TDLib catches up, list collectors keep their last snapshot.
  *
  * ponytail: every snapshot scans all chats, fine for thousands of chats. Keep per-list sorted
  * indexes if profiling ever says so.
@@ -54,6 +53,11 @@ class ChatsStore(
         val isLoaded: Boolean,
     )
 
+    data class FolderSnapshot(
+        val folders: List<ChatFolder> = listOf(ChatFolder(ChatListKey.Main, null)),
+        val unread: Map<ChatListKey, Pair<Int, Int>> = emptyMap(),
+    )
+
     private val lock = Any()
 
     // Guarded by lock
@@ -73,8 +77,9 @@ class ChatsStore(
     private val photoFileIdToChatIds = HashMap<Int, MutableSet<Long>>()
     private val requestedPhotoFileIds = HashSet<Int>()
     private val loadStates = HashMap<ChatListKey, LoadState>()
-    private var chatFolders = arrayOf<TdApi.ChatFolderInfo>()
-    private var mainChatListPosition = 0
+    private var chatFolders = listOf(ChatFolder(ChatListKey.Main, null))
+    private val folderUnreadCounts = HashMap<ChatListKey, Pair<Int, Int>>()
+    private var isCatchingUp = false
 
     /**
      * The small animated photos of the chats that have one, by chat; only full infos have them,
@@ -92,35 +97,18 @@ class ChatsStore(
     }
 
     private val version = MutableStateFlow(0L)
-    private val _folderUnread = MutableStateFlow<Map<ChatListKey, Pair<Int, Int>>>(emptyMap())
-    val folderUnread = _folderUnread.asStateFlow()
+    private val listVersion = MutableStateFlow(0L)
+    private val _folderState = MutableStateFlow(FolderSnapshot())
+    val folderState = _folderState.asStateFlow()
 
-    /**
-     * The chat lists to show as tabs, in order.
-     */
-    fun folders(): Flow<List<ChatFolder>> = version
-        .map {
-            synchronized(lock) {
-                val folders = chatFolders.map {
-                    ChatFolder(ChatListKey.Folder(it.id), it.name.text.text, it.icon?.name)
-                }.toMutableList()
-
-                folders.add(
-                    mainChatListPosition.coerceIn(0, folders.size),
-                    ChatFolder(ChatListKey.Main, null),
-                )
-
-                folders.toList()
-            }
-        }
-        .distinctUntilChanged()
-        .flowOn(Dispatchers.Default)
+    private val _ownEmojiStatusId = MutableStateFlow(0L)
+    val ownEmojiStatusId = _ownEmojiStatusId.asStateFlow()
 
     /**
      * The chats of a chat list, starts loading it when collected.
      */
-    fun chatList(key: ChatListKey): Flow<ChatListSnapshot> = version
-        .map { snapshot(key) }
+    fun chatList(key: ChatListKey): Flow<ChatListSnapshot> = listVersion
+        .mapNotNull { synchronized(lock) { if (isCatchingUp) null else snapshot(key) } }
         .distinctUntilChanged()
         .onStart { loadMore(key) }
         .flowOn(Dispatchers.Default)
@@ -146,8 +134,8 @@ class ChatsStore(
                     // 404 means that all the chats have been loaded
                     isComplete = result is TdApi.Error && result.code == 404
                 }
+                publishChatChange()
             }
-            version.update { it + 1 }
         }
     }
 
@@ -174,10 +162,10 @@ class ChatsStore(
             chatIds.zip(orders).forEach { (chatId, order) ->
                 chats.getValue(chatId).setPosition(TdApi.ChatPosition(key.toTdApi(), order, true, null))
             }
+            publishChatChange()
 
             previousOrders
         }
-        version.update { it + 1 }
 
         val result = suspendCancellableCoroutine { continuation ->
             send(TdApi.SetPinnedChats(key.toTdApi(), chatIds.toLongArray())) {
@@ -190,8 +178,8 @@ class ChatsStore(
                 previousOrders.forEach { (chatId, order) ->
                     chats[chatId]?.setPosition(TdApi.ChatPosition(key.toTdApi(), order, true, null))
                 }
+                publishChatChange()
             }
-            version.update { it + 1 }
 
             return false
         }
@@ -203,15 +191,43 @@ class ChatsStore(
      * Apply a TDLib update. Must be called for every update, in order.
      */
     fun onUpdate(update: TdApi.Object) {
-        val changed = synchronized(lock) { apply(update) }
-
-        if (changed) {
-            version.update { it + 1 }
+        synchronized(lock) {
+            if (apply(update)) publishChatChange()
         }
+    }
+
+    private fun publishChatChange() {
+        version.value++
+        if (!isCatchingUp) listVersion.value++
+    }
+
+    private fun publishFolders() {
+        if (!isCatchingUp) {
+            _folderState.value = FolderSnapshot(chatFolders, folderUnreadCounts.toMap())
+        }
+    }
+
+    private fun setCatchingUp(catchingUp: Boolean) {
+        if (isCatchingUp == catchingUp) return
+        isCatchingUp = catchingUp
+        // Ready completes the batch. An interrupted connection also releases the current cache.
+        if (!catchingUp) {
+            publishFolders()
+            listVersion.value++
+        }
+    }
+
+    private fun publishOwnEmojiStatus() {
+        _ownEmojiStatusId.value = users[myUserId]?.emojiStatus.customEmojiId()
     }
 
     private fun apply(update: TdApi.Object): Boolean {
         when (update) {
+            is TdApi.UpdateConnectionState -> {
+                setCatchingUp(update.state is TdApi.ConnectionStateUpdating)
+                return false
+            }
+
             is TdApi.UpdateNewChat -> {
                 chats[update.chat.id] = update.chat
                 trackPhoto(update.chat)
@@ -251,6 +267,7 @@ class ChatsStore(
             is TdApi.UpdateOption -> {
                 if (update.name != "my_id") return false
                 myUserId = (update.value as? TdApi.OptionValueInteger)?.value ?: 0L
+                publishOwnEmojiStatus()
             }
 
             is TdApi.UpdateChatLastMessage -> chat(update.chatId) {
@@ -326,11 +343,17 @@ class ChatsStore(
                 }
             }
 
-            is TdApi.UpdateUser -> users[update.user.id] = update.user
+            is TdApi.UpdateUser -> {
+                users[update.user.id] = update.user
+                if (update.user.id == myUserId) publishOwnEmojiStatus()
+            }
 
             is TdApi.UpdateChatEmojiStatus -> chat(update.chatId) {
                 emojiStatus = update.emojiStatus
-                profileUser()?.emojiStatus = update.emojiStatus
+                profileUser()?.let { user ->
+                    user.emojiStatus = update.emojiStatus
+                    if (user.id == myUserId) publishOwnEmojiStatus()
+                }
             }
 
             is TdApi.UpdateUserStatus -> users[update.userId]?.status = update.status
@@ -376,14 +399,22 @@ class ChatsStore(
 
             is TdApi.UpdateUnreadChatCount -> {
                 val key = ChatListKey.of(update.chatList)
-                _folderUnread.value = _folderUnread.value + (key to
-                    (update.unreadCount to update.unreadUnmutedCount))
+                folderUnreadCounts[key] = update.unreadCount to update.unreadUnmutedCount
+                publishFolders()
                 return false
             }
 
             is TdApi.UpdateChatFolders -> {
-                chatFolders = update.chatFolders
-                mainChatListPosition = update.mainChatListPosition
+                val folders = update.chatFolders.map {
+                    ChatFolder(ChatListKey.Folder(it.id), it.name.text.text, it.icon?.name)
+                }.toMutableList()
+                folders.add(
+                    update.mainChatListPosition.coerceIn(0, folders.size),
+                    ChatFolder(ChatListKey.Main, null),
+                )
+                chatFolders = folders
+                publishFolders()
+                return false
             }
 
             is TdApi.UpdateFile -> {
@@ -407,8 +438,8 @@ class ChatsStore(
      * ponytail: only the first 100 topics, page with the next offsets once forums with more
      * show up.
      */
-    fun forumTopics(chatId: Long): Flow<ChatListSnapshot> = version
-        .map { topicsSnapshot(chatId) }
+    fun forumTopics(chatId: Long): Flow<ChatListSnapshot> = listVersion
+        .mapNotNull { synchronized(lock) { if (isCatchingUp) null else topicsSnapshot(chatId) } }
         .distinctUntilChanged()
         .onStart { loadTopics(chatId) }
         .flowOn(Dispatchers.Default)
@@ -525,8 +556,8 @@ class ChatsStore(
                     result.topics.forEach { map[it.info.forumTopicId] = it }
                 }
                 loadedForumIds.add(chatId)
+                publishChatChange()
             }
-            version.update { it + 1 }
         }
     }
 
@@ -537,8 +568,8 @@ class ChatsStore(
             }
             synchronized(lock) {
                 topics.getOrPut(chatId, ::HashMap)[topicId] = result
+                publishChatChange()
             }
-            version.update { it + 1 }
         }
     }
 
@@ -552,7 +583,7 @@ class ChatsStore(
         send(TdApi.GetSupergroupFullInfo(supergroupId)) {}
     }
 
-    private fun topicsSnapshot(chatId: Long) = synchronized(lock) {
+    private fun topicsSnapshot(chatId: Long): ChatListSnapshot {
         val chat = chats[chatId]
         val items = when (chat) {
             null -> listOf()
@@ -564,7 +595,7 @@ class ChatsStore(
                 )
         }
 
-        ChatListSnapshot(items, chatId in loadedForumIds)
+        return ChatListSnapshot(items, chatId in loadedForumIds)
     }
 
     private fun TdApi.ForumTopic.toChatItem(chat: TdApi.Chat) = ChatItem(
@@ -713,7 +744,7 @@ class ChatsStore(
         }
     }
 
-    private fun snapshot(key: ChatListKey) = synchronized(lock) {
+    private fun snapshot(key: ChatListKey): ChatListSnapshot {
         val items = chats.values.mapNotNull { chat ->
             chat.positions.firstOrNull { ChatListKey.of(it.list) == key }?.let { position ->
                 val item = chat.toChatItem(position)
@@ -723,7 +754,7 @@ class ChatsStore(
             }
         }.sortedWith(compareByDescending<ChatItem> { it.order }.thenByDescending { it.id })
 
-        ChatListSnapshot(
+        return ChatListSnapshot(
             items,
             loadStates[key]?.isFirstPageLoaded == true || items.isNotEmpty(),
         )
@@ -796,8 +827,10 @@ class ChatsStore(
         val onPhoto: (TdApi.ChatPhoto?) -> Unit = { fullPhoto ->
             val animation = fullPhoto?.smallAnimation ?: fullPhoto?.animation
             if (animation != null) {
-                synchronized(lock) { animatedPhotoFileIds[chatId] = animation.file.id }
-                version.update { it + 1 }
+                synchronized(lock) {
+                    animatedPhotoFileIds[chatId] = animation.file.id
+                    publishChatChange()
+                }
             }
         }
         when (val type = type) {

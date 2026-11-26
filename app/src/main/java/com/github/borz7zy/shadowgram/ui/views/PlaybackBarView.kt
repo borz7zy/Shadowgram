@@ -10,10 +10,11 @@ import android.util.AttributeSet
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.view.isVisible
-import androidx.navigation.findNavController
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.findFragment
 import com.github.borz7zy.shadowgram.R
-import com.github.borz7zy.shadowgram.ext.navigateSafe
 import com.github.borz7zy.shadowgram.ext.setPlaying
+import com.github.borz7zy.shadowgram.fragments.NowPlayingDialogFragment
 import com.github.borz7zy.shadowgram.playback.MessagePlayer
 import com.google.android.material.button.MaterialButton
 import java.text.DecimalFormat
@@ -43,9 +44,8 @@ class PlaybackBarView @JvmOverloads constructor(
         subtitleTextView = findViewById(R.id.subtitleTextView)
         speedMaterialButton = findViewById(R.id.speedMaterialButton)
 
-        // Every graph holding a bar has this action
         setOnClickListener {
-            findNavController().navigateSafe(R.id.action_global_fragment_now_playing)
+            NowPlayingDialogFragment.open(findFragment<Fragment>().requireActivity())
         }
         playPauseMaterialButton.setOnClickListener { MessagePlayer.toggle() }
         speedMaterialButton.setOnClickListener { MessagePlayer.nextSpeed() }

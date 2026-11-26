@@ -2,6 +2,9 @@
 <resources>
     <string name="notification_channel_messages">Сообщения Telegram</string>
     <string name="notification_new_message">Новое сообщение</string>
+    <string name="connection_updating">Обновление…</string>
+    <string name="connection_connecting">Соединение…</string>
+    <string name="connection_waiting">Ожидание соединения…</string>
     <string name="title_activity_settings">Настройки</string>
     <string name="main_fragment_section_chats">Чаты</string>
     <string name="main_fragment_section_contacts">Контакты</string>
@@ -45,6 +48,8 @@
     <string name="message_edit_game">Игра</string>
     <string name="message_edit_paid_media">Платное медиа</string>
     <string name="message_edited_at">изм. %1$s</string>
+    <string name="message_more_reactions">Больше реакций</string>
+    <string name="message_fewer_reactions">Свернуть реакции</string>
     <string name="typing">Печатает…</string>
     <string name="new_chat_add_contact">Добавить контакт</string>
     <string name="new_chat_create_group">Создать группу</string>

@@ -21,8 +21,7 @@
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            tools:title="@string/app_name">
+            android:layout_height="wrap_content">
 
             <!-- The open forum, in place of the app title and buttons -->
             <com.github.borz7zy.shadowgram.ui.views.ChatHeaderView
@@ -51,6 +50,12 @@
                 android:layout_gravity="end"
                 tools:icon="@drawable/ic_cast"
                 android:text="@string/stories_material_button_appbar" />
+
+            <com.github.borz7zy.shadowgram.ui.cells.AppTitleCell
+                android:id="@+id/appTitleCell"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="start|center_vertical" />
 
         </com.google.android.material.appbar.MaterialToolbar>
 

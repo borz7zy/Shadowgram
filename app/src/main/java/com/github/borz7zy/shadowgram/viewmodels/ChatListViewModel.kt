@@ -63,6 +63,7 @@ class ChatListViewModel(
                 false -> FlowResult.Loading
             }
         }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, FlowResult.Loading)
 
     private val selectedChatIds = MutableStateFlow(setOf<Long>())
     val selectionBusy = MutableStateFlow(false)

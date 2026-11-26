@@ -2,6 +2,9 @@
     <string name="notification_channel_messages">Telegram messages</string>
     <string name="notification_new_message">New message</string>
     <string name="app_name" translatable="false">Shadowgram</string>
+    <string name="connection_updating">Updating…</string>
+    <string name="connection_connecting">Connecting…</string>
+    <string name="connection_waiting">Waiting for connection…</string>
     <string name="title_activity_settings">Settings</string>
     <string name="main_fragment_section_chats">Chats</string>
     <string name="main_fragment_section_contacts">Contacts</string>
@@ -277,6 +280,7 @@
     <string name="message_copied">Copied</string>
     <string name="message_link_copied">Link copied</string>
     <string name="message_more_reactions">More reactions</string>
+    <string name="message_fewer_reactions">Collapse reactions</string>
     <string name="message_replying_to">Reply to %1$s</string>
     <string name="message_cancel_reply">Cancel reply</string>
 

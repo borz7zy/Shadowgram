@@ -64,6 +64,7 @@ class ChatHistory(
 
     // Guarded by lock
     private val messages = TreeMap<Long, TdApi.Message>()
+    private val messageRowIds = HashMap<Long, Long>()
     private var lastReadOutboxMessageId = 0L
     private var unreadAfterId: Long? = null
     private var isGroup = false
@@ -304,6 +305,7 @@ class ChatHistory(
                 false
             } else {
                 messages.clear()
+                messageRowIds.clear()
                 isNewestLoaded = true
                 isOldestLoaded = false
                 true
@@ -380,6 +382,7 @@ class ChatHistory(
                 return
             }
             messages.clear()
+            messageRowIds.clear()
             isNewestLoaded = false
             isOldestLoaded = false
         }
@@ -484,6 +487,16 @@ class ChatHistory(
             && (message.schedulingState != null) == isScheduled
             && (topicId == 0 || (message.topicId as? TdApi.MessageTopicForum)?.forumTopicId == topicId)
 
+    private fun replaceSentMessage(oldId: Long, message: TdApi.Message): Boolean {
+        if (!belongs(message)) return false
+        val old = messages.remove(oldId) ?: return false
+        old.content.uploadFile()?.let { uploads.remove(it.id) }
+        val rowId = messageRowIds.remove(oldId) ?: oldId
+        if (rowId != message.id) messageRowIds[message.id] = rowId
+        messages[message.id] = message
+        return true
+    }
+
     private fun apply(update: TdApi.Object): Boolean {
         when (update) {
             is TdApi.UpdateNewMessage -> {
@@ -497,29 +510,18 @@ class ChatHistory(
                 }
             }
 
-            is TdApi.UpdateMessageSendSucceeded -> {
-                if (!belongs(update.message)) {
-                    return false
-                }
-                val old = messages.remove(update.oldMessageId) ?: return false
-                old.content.uploadFile()?.let { uploads.remove(it.id) }
-                messages[update.message.id] = update.message
-            }
+            is TdApi.UpdateMessageSendSucceeded -> return replaceSentMessage(update.oldMessageId, update.message)
 
-            is TdApi.UpdateMessageSendFailed -> {
-                if (!belongs(update.message)) {
-                    return false
-                }
-                val old = messages.remove(update.oldMessageId) ?: return false
-                old.content.uploadFile()?.let { uploads.remove(it.id) }
-                messages[update.message.id] = update.message
-            }
+            is TdApi.UpdateMessageSendFailed -> return replaceSentMessage(update.oldMessageId, update.message)
 
             is TdApi.UpdateDeleteMessages -> {
                 if (update.chatId != chatId || !update.isPermanent) {
                     return false
                 }
-                update.messageIds.forEach { messages.remove(it) }
+                update.messageIds.forEach {
+                    messages.remove(it)
+                    messageRowIds.remove(it)
+                }
             }
 
             is TdApi.UpdateMessageContent -> {
@@ -608,11 +610,13 @@ class ChatHistory(
     private fun snapshot(processing: Map<String, Int>): Snapshot {
         val messages: List<TdApi.Message>
         val known: Map<Long, TdApi.Message>
+        val rowIds: Map<Long, Long>
         val lastRead: Long
         val snapshot: Snapshot
         synchronized(lock) {
             messages = this.messages.values.toList()
             known = HashMap(replied).apply { putAll(this@ChatHistory.messages) }
+            rowIds = HashMap(messageRowIds)
             lastRead = lastReadOutboxMessageId
             snapshot = Snapshot(
                 listOf(), isGroup, isLoaded, isNewestLoaded, unreadAfterId, newMessageCount
@@ -621,7 +625,7 @@ class ChatHistory(
 
         // Senders take the chats store lock, never hold ours meanwhile
         return snapshot.copy(
-            messages = messages.map { it.toItem(snapshot.isGroup, lastRead, processing, known) }
+            messages = messages.map { it.toItem(snapshot.isGroup, lastRead, processing, known, rowIds[it.id] ?: it.id) }
                 // Scheduled ones in the order they go, not the order they were scheduled in
                 .let { items -> if (isScheduled) items.sortedBy { it.date } else items }
         )
@@ -722,6 +726,7 @@ class ChatHistory(
         lastReadOutbox: Long,
         processing: Map<String, Int>,
         known: Map<Long, TdApi.Message>,
+        rowId: Long,
     ): MessageItem {
         // Being sent: the file is generated first (transcoded), then uploaded
         val file = content.uploadFile()
@@ -744,6 +749,7 @@ class ChatHistory(
 
         return MessageItem(
             id = id,
+            rowId = rowId,
             isOutgoing = isOutgoing,
             senderId = when (val sender = senderId) {
                 is TdApi.MessageSenderUser -> sender.userId

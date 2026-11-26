@@ -32,7 +32,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
-import androidx.navigation.ui.setupWithNavController
 import androidx.recyclerview.widget.DiffUtil
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.color.MaterialColors
@@ -43,6 +42,7 @@ import com.google.android.material.navigationrail.NavigationRailView
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.search.SearchView
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import com.github.borz7zy.shadowgram.ui.recyclerview.RecyclerListView
 import com.github.borz7zy.shadowgram.R
@@ -74,6 +74,8 @@ import com.github.borz7zy.shadowgram.ui.recyclerview.SimpleListAdapter
 import com.github.borz7zy.shadowgram.ui.MainSectionHost
 import com.github.borz7zy.shadowgram.ui.views.ListItem
 import com.github.borz7zy.shadowgram.models.ChatHeader
+import com.github.borz7zy.shadowgram.telegram.ChatsStore
+import com.github.borz7zy.shadowgram.ui.cells.AppTitleCell
 import com.github.borz7zy.shadowgram.ui.views.ChatHeaderView
 import com.github.borz7zy.shadowgram.ui.views.ChatFolderRailView
 import com.github.borz7zy.shadowgram.viewmodels.ChatsViewModel
@@ -100,6 +102,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
     private val searchView by getViewProperty<SearchView>(R.id.searchView)
     private val settingsMaterialButton by getViewProperty<MaterialButton>(R.id.settingsMaterialButton)
     private val toolbar by getViewProperty<MaterialToolbar>(R.id.toolbar)
+    private val appTitleCell by getViewProperty<AppTitleCell>(R.id.appTitleCell)
     private val forumHeaderView by getViewProperty<ChatHeaderView>(R.id.forumHeaderView)
     private val mainSectionContainer by getViewProperty<View>(R.id.mainSectionContainer)
 
@@ -395,7 +398,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
             }
         )
 
-        toolbar.setupWithNavController(findNavController())
+        chatsViewModel.appTitle.value.let { appTitleCell.bind(it.connectionState, it.emojiStatusId) }
         toolbar.setOnMenuItemClickListener { item ->
             val selection = chatsViewModel.chatSelection.value ?: return@setOnMenuItemClickListener false
             if (selection.busy) return@setOnMenuItemClickListener true
@@ -522,13 +525,11 @@ class MainFragment : Fragment(R.layout.fragment_main) {
                 }
 
                 launch {
-                    chatsViewModel.folders.collectLatest { renderFolderRail() }
+                    combine(chatsViewModel.folderState, chatsViewModel.selectedFolderId, ::Pair)
+                        .collectLatest { (state, selected) -> renderFolderRail(state, selected) }
                 }
                 launch {
-                    chatsViewModel.selectedFolderId.collectLatest { renderFolderRail() }
-                }
-                launch {
-                    chatsViewModel.folderUnread.collectLatest { renderFolderRail() }
+                    chatsViewModel.appTitle.collectLatest { appTitleCell.bind(it.connectionState, it.emojiStatusId) }
                 }
                 launch { chatsViewModel.chatSelection.collectLatest { renderChatSelection() } }
 
@@ -638,10 +639,10 @@ class MainFragment : Fragment(R.layout.fragment_main) {
 
         settingsMaterialButton.isVisible = !isOpen
         forumHeaderView.isVisible = isOpen
+        appTitleCell.isVisible = !isOpen
         updateToolbarActions()
 
         if (isOpen) {
-            toolbar.title = null
             toolbar.setNavigationIcon(R.drawable.ic_arrow_back)
             toolbar.setNavigationContentDescription(R.string.chat_back)
             toolbar.setNavigationIconTint(
@@ -652,7 +653,6 @@ class MainFragment : Fragment(R.layout.fragment_main) {
             forumHeaderView.alpha = 0f
             forumHeaderView.animate().alpha(1f).setDuration(FORUM_HEADER_FADE_MS).start()
         } else {
-            toolbar.title = findNavController().currentDestination?.label
             toolbar.navigationIcon = null
             toolbar.setNavigationOnClickListener { findNavController().navigateUp() }
         }
@@ -682,7 +682,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
             header.isVisible = hidden
             requireView().findViewById<View>(R.id.hideNavigationRailButton).isVisible = compact
             val showFolders = selectedPage == Page.ACTIVITY && !hidden &&
-                chatsViewModel.folders.value.size > 1
+                chatsViewModel.folderState.value.folders.size > 1
             requireView().findViewById<View>(R.id.foldersRailScrollView).isVisible = showFolders
             requireView().findViewById<View>(R.id.foldersRailDivider).isVisible = showFolders
             val targetHeight = if (showFolders || compact) ViewGroup.LayoutParams.WRAP_CONTENT else 0
@@ -718,7 +718,8 @@ class MainFragment : Fragment(R.layout.fragment_main) {
             val header = chatsViewModel.forumHeader.value.takeIf { selectedPage == Page.ACTIVITY }
             forumHeaderView.isVisible = header != null
             header?.let(forumHeaderView::setHeader)
-            toolbar.title = if (header == null) findNavController().currentDestination?.label else null
+            appTitleCell.isVisible = header == null
+            toolbar.title = null
             if (header == null) toolbar.navigationIcon = null else toolbar.setNavigationIcon(R.drawable.ic_arrow_back)
             toolbar.setNavigationContentDescription(R.string.chat_back)
             toolbar.setNavigationOnClickListener { if (header != null) chatsViewModel.closeForum() else findNavController().navigateUp() }
@@ -729,6 +730,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
         }
         if (isFabMenuOpen) setFabMenuOpen(false)
         forumHeaderView.isVisible = false
+        appTitleCell.isVisible = false
         providerMaterialButton.isVisible = false
         settingsMaterialButton.isVisible = false
         toolbar.title = getString(R.string.selection_count, selection.chats.size)
@@ -771,7 +773,7 @@ class MainFragment : Fragment(R.layout.fragment_main) {
     }
 
     private fun chooseFolder(selection: ChatSelection) {
-        val folders = chatsViewModel.folders.value.filter { it.key is ChatListKey.Folder }
+        val folders = chatsViewModel.folderState.value.folders.filter { it.key is ChatListKey.Folder }
         if (folders.isEmpty()) {
             android.widget.Toast.makeText(context, R.string.chats_no_folders, android.widget.Toast.LENGTH_LONG).show()
             return
@@ -782,13 +784,12 @@ class MainFragment : Fragment(R.layout.fragment_main) {
             }.show()
     }
 
-    private fun renderFolderRail() {
-        val folders = chatsViewModel.folders.value
-        val selected = chatsViewModel.selectedFolderId.value
+    private fun renderFolderRail(state: ChatsStore.FolderSnapshot, selected: Long?) {
+        val folders = state.folders
         view?.findViewById<ChatFolderRailView>(R.id.chatFolderRailView)?.submit(
             folders, selected.takeIf { id -> folders.any { it.key.stableId == id } }
                 ?: folders.firstOrNull()?.key?.stableId ?: ChatListKey.Main.stableId,
-            chatsViewModel.folderUnread.value,
+            state.unread,
         )
         view?.let { updateCompactPane() }
     }

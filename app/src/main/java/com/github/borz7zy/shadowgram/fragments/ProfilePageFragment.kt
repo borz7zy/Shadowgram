@@ -203,6 +203,8 @@ class ProfilePageFragment : Fragment(R.layout.fragment_profile_page) {
         recyclerView.addOnScrollListener(onScrollListener)
 
         if (viewModel.kind.value == ProfilePage.Kind.GIFTS) {
+            recyclerView.itemAnimator = null
+            recyclerView.setHasFixedSize(true)
             giftRetryButton.setOnClickListener { viewModel.loadMore(retry = true) }
             viewLifecycleOwner.lifecycleScope.launch {
                 viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
